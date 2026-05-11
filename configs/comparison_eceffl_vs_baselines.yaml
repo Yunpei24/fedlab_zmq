@@ -1,0 +1,154 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FedLab ZMQ — Main Comparison Experiment
+# E-CEFFL vs Energy-Aware Baselines
+#
+# Paper: "E-CEFFL: Energy-Constrained Efficient Federated Learning"
+# Authors: J. Nikiema & E. Amhoud — UM6P, 2025
+#
+# Protocol: NeurIPS/ICML standard
+#   - CIFAR-10, Dirichlet(alpha=0.5), 10 clients, 100 rounds
+#   - Heterogeneous fleet: 5x RPi4 + 3x smartphones + 2x Jetson Nano
+#   - ResNet-18 adapted for 32x32 inputs
+#   - SGD, lr=0.01, E=1 local epoch, batch=32
+#   - Fixed seed=42 for reproducibility
+#
+# Usage (standalone, recommended for quick testing):
+#   python run_experiment.py --config configs/comparison_eceffl_vs_baselines.yaml
+#
+# Usage (distributed ZMQ, for true distributed execution):
+#   python cli/fedlab.py run --config configs/comparison_eceffl_vs_baselines.yaml
+#
+# Running all baselines:
+#   python run_experiment.py --benchmark --rounds 100 --output results/comparison
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: "eceffl_vs_baselines_cifar10"
+description: >
+  Main comparison: E-CEFFL vs 7 baselines (FedAvg, LeanFed, FedBacys,
+  Vaishnav, FedSparQ, FedProx, SCAFFOLD) on CIFAR-10 with Dirichlet(0.5),
+  heterogeneous fleet of 10 edge devices. NeurIPS protocol.
+  Primary metrics: test accuracy, total communication bytes, total energy J,
+  Jain fairness index, battery depletion rate.
+
+seed: 42
+output_dir: "./results"
+
+# ── Dataset ───────────────────────────────────────────────────────────────────
+data:
+  dataset: "cifar10"
+  partition: "dirichlet"
+  alpha: 0.5          # moderate heterogeneity (Hsu et al. 2019 standard)
+  val_fraction: 0.1
+  data_root: "./data"
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+# ResNet-18 adapted for 32x32 (first conv 3x3 stride=1, no maxpool)
+model:
+  architecture: "resnet18"
+  pretrained: false
+  num_classes: 10
+
+# ── Client fleet ──────────────────────────────────────────────────────────────
+# Realistic heterogeneous IoT/edge deployment
+# RPi4 (edge boxes, 185400J), smartphones (15372J), Jetson (360000J)
+clients:
+  num_clients: 10
+  clients_per_round: 10   # full participation — key property of E-CEFFL
+  battery_noise_std: 0.15  # 15% relative std in initial battery SOC
+  fleet:
+    - type: "raspberry_pi_4"
+      count: 5
+    - type: "smartphone_midrange"
+      count: 3
+    - type: "jetson_nano"
+      count: 2
+
+# ── Network topology ──────────────────────────────────────────────────────────
+topology:
+  type: "star"
+
+# ── Primary algorithm: E-CEFFL ────────────────────────────────────────────────
+training:
+  algorithm: "eceffl"
+  num_rounds: 100
+  algo_config:
+    lr: 0.01
+    local_epochs: 1
+    batch_size: 32
+    beta_min: 0.01      # minimum sparsification ratio (floor for universal participation)
+    beta_max: 1.0       # maximum sparsification ratio
+    battery_max_j: 185400.0   # 10Ah @ 5.1V (RPi4 powerbank reference)
+
+# ── Evaluation ────────────────────────────────────────────────────────────────
+eval:
+  eval_every: 1
+  metrics:
+    - test_accuracy
+    - test_loss
+    - total_bytes
+    - total_energy_j
+    - avg_battery_j
+    - jain_index
+    - participation_rate
+    - avg_beta
+
+  # Baselines for comparison (same setup, different algorithm)
+  compare_with:
+
+    # FedAvg — standard baseline (McMahan et al., 2017)
+    - algorithm: "fedavg"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+
+    # LeanFed — battery-proportional data subsampling (Pereira et al., 2025)
+    - algorithm: "leanfed"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        rho_min: 0.1       # floor: always use at least 10% of local data
+
+    # FedBacys — cyclic battery scheduling (Jeong et al., 2025)
+    - algorithm: "fedbacys"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        t_active_init: 0.5       # initial threshold = 50% of B_max
+        threshold_decay: 0.995   # annealing to ensure eventual participation
+        recharge_rate_j: 500.0   # J recovered per skipped round
+
+    # Vaishnav — channel-adaptive EF sparsification (Vaishnav et al., 2024)
+    - algorithm: "vaishnav"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        beta_min: 0.01
+        bw_ref_mbps: 50.0
+
+    # FedSparQ — EMA threshold + fp16 + EF (Medjadji et al., 2025)
+    - algorithm: "fedsparq"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        ema_alpha: 0.1
+
+    # FedProx — proximal regularization (Li et al., MLSys 2020)
+    - algorithm: "fedprox"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        mu: 0.01           # proximal coefficient
+
+    # SCAFFOLD — variance reduction via control variates (Karimireddy et al., ICML 2020)
+    - algorithm: "scaffold"
+      algo_config:
+        lr: 0.01
+        global_lr: 1.0     # server-side global learning rate (paper default)
+        local_epochs: 1
+        batch_size: 32

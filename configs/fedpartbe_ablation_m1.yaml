@@ -1,0 +1,57 @@
+# ============================================================
+# FedPartBE Ablation 2: Single tier (M=1)
+# num_tiers=1  →  equivalent to FedPart (no battery-aware assignment)
+# Shows: tiering is what drives the survival improvement
+# ============================================================
+
+seed: 42
+output_dir: "./results/fedpartbe_ablation_m1"
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.3
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 8
+    batch_size: 32
+    warmup_rounds: 5
+    num_tiers: 1     # ablated: single tier = no battery-aware group assignment
+    mu_repr: 0.1
+    mu_weight: 0.01
+    energy_scale_factor: 44.0
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 5
+
+  fleet:
+    - type: raspberry_pi_4
+      count: 8
+    - type: smartphone_midrange
+      count: 10
+    - type: jetson_nano
+      count: 5
+    - type: esp32_s3
+      count: 7
+
+  battery_init:
+    distribution: weibull_soc
+    params:
+      kappa: 2.0
+      lambda_soc: 0.7
+      min_soc: 0.05
+      max_soc: 0.95

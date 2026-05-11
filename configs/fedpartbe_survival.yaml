@@ -1,0 +1,134 @@
+# ============================================================
+# FedPartBE Paper — Experiment A: Survival Curve
+# Main figure: % clients alive vs rounds
+# Compares: FedAvg | FedProx | HeteroFL | FjORD | FedPart | FedPartBE
+# ============================================================
+# Scenario: 30 ESP32-S3 microcontrollers with depleted batteries
+# (5%–15% initial SOC), representing a post-deployment IoT fleet
+# that has been running and needs recharging. This energy-stressed
+# scenario is designed to highlight survival differences between
+# algorithms.
+#
+# Battery analysis (seed=42, uniform SOC [5%, 15%]):
+#   - Battery range: ~700–1900 J per client
+#   - Expected first dropout (FedPart): ~round 17
+#   - Expected 50% dropout (FedPart):  ~round 49
+#   - FedPartBE extends 50% dropout point by ~30–50 rounds
+#     by assigning cheapest layer groups to low-battery clients
+#
+# Energy calibration (energy_scale_factor=34):
+#   - FedPart warmup round: 2.5 J * 34 = 85 J/round
+#   - FedPart PNU round:    0.7 J * 34 = 23.8 J/round
+#   - Client at 5% SOC (666 J): warmup costs 5*85=425 J, then
+#     (666-425)/23.8 = 10 PNU rounds → dies at round ~15
+#   - Client at 15% SOC (2000 J): 5*85 + (2000-425)/23.8 = 66 rounds
+# ============================================================
+# Usage:
+#   python run_experiment.py --config configs/fedpartbe_survival.yaml
+# ============================================================
+
+seed: 42
+output_dir: "./results/fedpartbe_survival"
+layer_mismatch: false
+device: mps   # désactiver pour les runs de production (coûteux : 30 deep-copies + CKA)
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.5           # moderate non-IID (paper default)
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200      # long enough to see all dropouts for the ESP32 cohort
+  algorithm: fedpart_be   # primary algorithm (others launched separately)
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 8 #8
+    batch_size: 32
+    warmup_rounds: 5
+    num_tiers: 2
+    server_lr: null   # auto = 1/num_tiers = 0.33 — prevents 3× displacement divergence
+    rounds_per_layer: 2
+    mu_repr: 3.8
+    mu_weight: 3.7
+    # Bucket rotation: every rotation_period rounds, shift which cost-bucket each
+    # tier trains by one position. Ensures each layer group is trained by all
+    # energy strata over time, preventing the data-distribution bias that occurs
+    # when cheap groups (fc, layer3) are always trained by the same low-battery
+    # clients. rotation_period=0 disables rotation (backward-compatible).
+    # With num_tiers=3: full cycle = 3 × rotation_period = 30 rounds.
+    rotation_period: 10
+    # Inter-cycle full training rounds (FedPart paper: 5 rounds between cycles).
+    # After each complete PNU cycle (num_groups × rounds_per_layer rounds), insert
+    # this many full-network FedAvg training rounds before the next cycle.
+    # 0 = disabled (default, backward-compatible).
+    inter_cycle_rounds: 0
+    # Calibration: scale energy ×12.6 so that clients at 5% SOC drop out
+    # around round 15 under FedPart (exact device profile path).
+    #
+    # Derivation (device profile path, not heuristic):
+    #   ESP32-S3 specs: 0.48 GFLOPS, P_comp=0.50W, P_tx=0.33W, P_rx=0.10W
+    #   ResNet-8: 69K params, 5.51e9 FLOPs/round (8 epochs, 1667 samples/client)
+    #
+    #   Warmup round (full training, M=1):
+    #     E_comp = 0.50 × (5.51e9 / 0.48e9) = 5.74 J
+    #     E_tx   = 0.33 × (276KB / 0.625MB/s) = 0.146 J
+    #     E_rx   = 0.10 × (276KB / 1.25MB/s)  = 0.022 J
+    #     E_warmup = 5.91 J/round (unscaled)
+    #
+    #   PNU round (active_fraction = 1/10, M=10 groups):
+    #     eff_flops = fwd(1.84e9) + bwd/10(3.67e8) = 2.20e9
+    #     E_comp = 0.50 × (2.20e9 / 0.48e9) = 2.30 J
+    #     E_tx   = 0.33 × (27.6KB / 0.625MB/s) = 0.015 J  (1/10 of model)
+    #     E_rx   = 0.10 × (276KB / 1.25MB/s)   = 0.022 J  (full model received)
+    #     E_pnu = 2.33 J/round (unscaled)
+    #
+    #   Target: ESP32 at 5% SOC (666J) dies at round ~15:
+    #     5 × E_warmup × s + 10 × E_pnu × s = 666
+    #     (5 × 5.91 + 10 × 2.33) × s = 52.87 × s = 666
+    #     s = 666 / 52.87 = 12.60
+    #
+    #   Result (seed=42, uniform [5%,15%], after bug fixes):
+    #     first_dropout ≈ round 17, 50%_dropout ≈ round 44, all_dead ≈ round 60
+    #     FedPartBE advantage: +10–20 rounds on 50% survival vs FedPart
+    #     (because tier-0 clients train cheapest groups → fewer joules/round)
+    #
+    #   Bug fix note (2026-04-10):
+    #     - Added warmup energy gate: skip warmup round if battery < full-model cost
+    #     - Removed dead-client group substitution: it fired on every round
+    #       (staleness rotation ≠ death), forcing high-battery clients to shallow
+    #       groups → output head went stale → accuracy collapsed after round 15.
+    energy_scale_factor: 12.6 #49.22
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0          # all clients participate each round
+  sampling_strategy: random     # random | battery_aware | round_robin
+  min_clients: 5
+
+  # Homogeneous ESP32 fleet: 30 microcontrollers representing a
+  # post-deployment IoT scenario with partially-depleted batteries.
+  # Using a single device type isolates the survival effect from
+  # device heterogeneity (benchmark.yaml uses a mixed fleet).
+  fleet:
+    - type: esp32_s3
+      count: 30
+
+  # Battery initialization: uniform SOC in [5%, 15%]
+  # Represents a fleet of devices that have been deployed and used,
+  # with batteries ranging from nearly empty to lightly depleted.
+  # This forces meaningful dropout within 200 rounds.
+  # Note: Weibull(κ=2, λ=0.7) is NOT suitable here — it has
+  # expected minimum SOC ~11% and P(SOC<5%) < 1%, so it rarely
+  # produces the low-battery clients needed for a survival curve.
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.15

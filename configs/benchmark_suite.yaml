@@ -1,0 +1,143 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FedLab — Benchmark Suite
+# Compare all 6 algorithms on the same experimental protocol
+# Protocol follows FedSparQ (Medjadji et al., 2025)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: "benchmark_all_algorithms"
+description: >
+  Full benchmark: FedAvg, E-CEFFL, LeanFed, FedBacys, Vaishnav, FedSparQ
+  on CIFAR-10 with Dirichlet non-IID (alpha=0.5).
+  Heterogeneous fleet: RPi4 + smartphones + Jetson Nano.
+  NeurIPS/ICML/ICLR standard protocol.
+seed: 42
+output_dir: "./results"
+
+data:
+  dataset: "cifar10"
+  partition: "dirichlet"
+  alpha: 0.5
+  val_fraction: 0.1
+  data_root: "./data"
+
+model:
+  architecture: "resnet18"
+  num_classes: 10
+
+clients:
+  num_clients: 10
+  clients_per_round: 10
+  battery_noise_std: 0.15
+  fleet:
+    - type: "raspberry_pi_4"
+      count: 5
+    - type: "smartphone_midrange"
+      count: 3
+    - type: "jetson_nano"
+      count: 2
+
+topology:
+  type: "star"
+
+training:
+  algorithm: "eceffl"
+  num_rounds: 100
+  algo_config:
+    lr: 0.01
+    local_epochs: 1
+    batch_size: 32
+    beta_min: 0.01
+    beta_max: 1.0
+
+eval:
+  eval_every: 1
+  metrics:
+    - test_accuracy
+    - test_loss
+    - total_bytes
+    - total_energy_j
+    - avg_battery_j
+    - jain_index
+    - participation_rate
+    - avg_beta
+  compare_with:
+    - algorithm: "fedavg"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+
+    - algorithm: "fedprox"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        mu: 0.01
+
+    - algorithm: "leanfed"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        rho_min: 0.1
+
+    - algorithm: "fedbacys"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        t_active_init: 0.5
+        threshold_decay: 0.995
+        recharge_rate_j: 500.0
+
+    - algorithm: "vaishnav"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        beta_min: 0.01
+        bw_ref_mbps: 50.0
+
+    - algorithm: "fedsparq"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        ema_alpha: 0.1
+
+    - algorithm: "fedpart"
+      algo_config:
+        lr: 0.01
+        local_epochs: 8
+        batch_size: 32
+        warmup_rounds: 5
+        rounds_per_layer: 2
+
+    - algorithm: "fedpart_be"
+      algo_config:
+        lr: 0.01
+        local_epochs: 8
+        batch_size: 32
+        warmup_rounds: 5
+        num_tiers: 3
+        mu_weight: 0.01
+        mu_repr: 0.1
+
+    - algorithm: "heterofl"
+      algo_config:
+        lr: 0.01
+        local_epochs: 8
+        batch_size: 32
+        warmup_rounds: 5
+        capacity_thresholds: [0.25, 0.50, 0.75]
+        capacity_levels: [0.25, 0.50, 0.75, 1.0]
+
+    - algorithm: "fjord"
+      algo_config:
+        lr: 0.01
+        local_epochs: 8
+        batch_size: 32
+        warmup_rounds: 5
+        capacity_thresholds: [0.25, 0.50, 0.75]
+        capacity_levels: [0.25, 0.50, 0.75, 1.0]
+        mu_distill: 0.01

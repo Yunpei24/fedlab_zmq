@@ -1,0 +1,96 @@
+# ============================================================
+# Phase 2 — Benchmark final (fedpart_be + ccsEF full/frozen)
+# ============================================================
+# Scénario : 30 ESP32-S3, SOC uniforme [5%, 15%]
+# → condition extrême de survie IoT
+# → comparaison sur accuracy vs énergie cumulée (pas rounds)
+#
+# Hyperparamètres : OPTIMAUX trouvés en Phase 1 (tuning_hp.yaml)
+# → mettre à jour E, T_rot, num_tiers après find_best_config.py
+#
+# Usage (HPC) :
+#   sbatch scripts/hpc_phase2_benchmark.sh
+# ============================================================
+
+seed: 42
+output_dir: "./results/benchmark"
+layer_mismatch: false
+device: cuda
+
+data:
+  dataset: cifar10
+  partition: dirichlet
+  alpha: 0.5
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be
+
+  algo_config:
+    # ── Commun ───────────────────────────────────────────────
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    batch_size: 32
+
+    # ── À METTRE À JOUR après Phase 1 ───────────────────────
+    # local_epochs: <optimal par algo — écrasé par --epochs>
+    local_epochs: 5
+
+    # ── Batterie / énergie ───────────────────────────────────
+    beta_min: 0.01
+    beta_max: 1.0
+    battery_max_j: 13320.0
+    energy_scale_factor: 12.6
+
+    # ── fedpart_be (optimal Phase 1) ─────────────────────────
+    warmup_rounds: 5
+    num_tiers: 3              # à mettre à jour
+    server_lr: null
+    assignment_strategy: quantile
+    mu_repr: 0.1
+    mu_weight: 0.01
+    ema_model_alpha: 0
+    ema_alpha: 0.3
+    verbose_groups: false
+    rotation_period: 10
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+
+    # ── ccsEF (optimal Phase 1) ──────────────────────────────
+    ccsEF_warmup_rounds: 1    # SOC [5-15%] : 1 seul round warmup
+    lr_min: 0.001
+    max_grad_norm: 10.0
+    T_rot: 3                  # à mettre à jour
+    fleet_median_battery: null
+    freeze_secondary_backward: false
+
+    # ── fed_resonance ────────────────────────────────────────
+    rank_min: 4
+    rank_max: 32
+    spectral_energy_thresh: 0.95
+    use_error_feedback: true
+    use_rsvd: true
+    rsvd_oversample: 10
+    rsvd_power_iter: 2
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+
+  fleet:
+    - type: esp32_s3
+      count: 30
+
+  # SOC [5%, 15%] : condition extrême — clients meurent entre rd 10-80
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.15

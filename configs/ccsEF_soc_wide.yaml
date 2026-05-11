@@ -1,0 +1,152 @@
+# ============================================================
+# CCS-EF — Test SOC large [5%, 95%]
+# ============================================================
+# Scénario : 30 ESP32-S3, SOC uniforme [5%, 95%], CIFAR-10/ResNet-8
+# Dirichlet α=0.5 (non-IID modéré), 200 rounds
+#
+# Calibration énergie (identique à algo_comparison.yaml)
+# ──────────────────────────────────────────────────────
+#   battery_max_j   = 13320 J  (ESP32-S3 : 1000mAh × 3.7V × 3.6)
+#   energy_scale_factor = 12.6 → E_mean ≈ 83 J/client/round
+#   SOC médian = 50% → B_median ≈ 6660 J → T* ≈ 80 rounds
+#   → clients C2 (faible batterie, SOC ~5%..50%) meurent ~rd 8–80
+#   → clients C1 (forte batterie, SOC ~50%..95%) survivent ~rd 80–152
+#   Spread 19× → condition optimale pour tester le mécanisme complémentaire
+#
+# Paramètres CCS-EF clés
+# ──────────────────────
+#   beta_min: 0.01  → participation universelle garantie
+#   beta_max: 1.0   → compression maximale à pleine charge
+#   T_rot: 3        → échange C1↔C2 toutes les 3 rounds
+#   warmup_rounds: 5 → FedAvg complet avant activation CCS-EF
+#   T_recluster: 10 → re-clustering dynamique toutes les 10 rounds (A1)
+#
+# Clusters (re-clustering dynamique toutes les T_recluster rounds — fix A1)
+#   C1 = clients avec B_t >= médiane flotte alive (haute batterie, g1 primaire)
+#   C2 = clients avec B_t <  médiane flotte alive (basse batterie, g2 primaire)
+#   La médiane est recalculée par le serveur à chaque round et transmise
+#   dans config["fleet_median_battery"] (était: assignation statique round 0)
+#
+# Partition modèle (ResNet-8, G=10 groupes via _derive_layer_groups)
+#   g1 = groupes {0..4} — stem + blocs résiduels 1-2  (~4.8M params)
+#   g2 = groupes {5..9} — blocs 3-4 + tête FC         (~6.4M params)
+#
+# Usage
+# ─────
+#   python run_experiment.py \
+#     --config configs/ccsEF_soc_wide.yaml \
+#     --algo ccsEF \
+#     --output results/ccsEF_soc_wide \
+#     --device mps
+#
+#   # Avec T_rot=5 (ablation)
+#   python run_experiment.py \
+#     --config configs/ccsEF_soc_wide.yaml \
+#     --override training.algo_config.T_rot=5 \
+#     --device mps
+#
+#   # Comparaison directe avec E-CEFFL (même scénario SOC)
+#   python run_experiment.py \
+#     --config configs/ccsEF_soc_wide.yaml \
+#     --algo eceffl \
+#     --output results/eceffl_soc_wide \
+#     --device mps
+# ============================================================
+
+seed: 42
+output_dir: "./results/ccsEF_soc_wide"
+layer_mismatch: false
+device: mps
+
+data:
+  dataset: cifar100
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.5
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: ccsEF
+  algo_config:
+
+    # ── Hyperparamètres SGD ────────────────────────────────────────────────
+    lr: 0.01
+    lr_min: null           # cosine decay: lr_t = lr_min + 0.5*(lr-lr_min)*(1+cos(πt/T))
+                           # null = LR constant (désactivé)
+                           # exemple: lr_min: 0.001 → decay 0.01→0.001 sur 200 rounds
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    max_grad_norm: 5.0    # gradient clipping — réduit les oscillations dues à T_rot=1
+                           # valeur standard FL : 5.0–10.0; null = désactivé
+    local_epochs: 3        # Best Acc=76.35%, 20/30 alive rd200, Jain=0.633
+                           # local_epochs=8 → 3/30 alive (compute domine batterie)
+                           # local_epochs=3 → 20/30 alive, même bytes total
+    batch_size: 32
+
+    # ── Modèle de batterie ─────────────────────────────────────────────────
+    # β_t^k = β_min + (β_max - β_min) × B_t^k / B_max
+    # Participation universelle : β_t^k ≥ β_min = 0.01 > 0 toujours
+    beta_min: 0.01          # compression minimale (client mourant → 1% du groupe)
+    beta_max: 1.0           # compression maximale (client pleine charge)
+    battery_max_j: 13320.0  # capacité nominale ESP32-S3 : 1000mAh × 3.7V × 3.6 = 13320 J
+
+    # ── Facteur d'échelle énergie ──────────────────────────────────────────
+    # Identique à algo_comparison.yaml pour comparaison équitable
+    energy_scale_factor: 12.6
+
+    # ── Paramètres CCS-EF ─────────────────────────────────────────────────
+    warmup_rounds: 5    # rounds FedAvg complet avant activation CCS-EF
+                        # pendant ces rounds : full-model update, clusters non assignés
+    ccsEF_warmup_rounds: 5
+
+    T_rot: 2            # période de rotation (échange C1↔C2 toutes les T_rot rounds)
+                        # T_rot=1 : biais 2-round minimal O(ηLζ²)
+                        # T_rot>1 : moins de context-switching, plus de biais
+
+    adaptive_rotation: false
+                        # si true : T_rot_eff(t) = T_rot × ceil(K_0 / K_alive(t))
+                        # maintient un budget gradient constant par phase
+                        # quand des clients meurent
+
+    # ── Clustering dynamique (A1) ─────────────────────────────────────────
+    T_recluster: 5     # re-clustering toutes les T_recluster rounds
+                        # le serveur recalcule la médiane batterie des clients alive
+                        # et la stocke dans fleet_median_battery (transmis via config)
+                        # 0 = comportement statique original (déconseillé pour >100 rounds)
+    fleet_median_battery: null  # mis à jour automatiquement par le serveur
+
+    # ── Communication ─────────────────────────────────────────────────────
+    use_fp16_uplink: false     # valeurs sparse en float16 : 6 bytes/nz vs 8 (-25% uplink)
+    partial_downlink: false    # téléchargement partiel : groupe secondaire + BN seulement
+                              # (-50% downlink, biais acceptable si T_rot≤3 et K≥20)
+                              # false = comportement original (plein modèle)
+
+    # ── Serveur optimizer (B3) ────────────────────────────────────────────
+    server_momentum: 0.9      # EMA sur deltas agrégés : m_t = β_s*m_{t-1} + (1-β_s)*agg
+                              # 0.0 = désactivé (FedAvg vanilla)
+                              # 0.9 = recommandé pour CIFAR-100 / non-IID fort
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+
+  fleet:
+    - type: esp32_s3
+      count: 30
+
+  # SOC uniforme [5%, 95%]
+  # Spread = 19× → condition optimale pour tester le split C1/C2
+  # B_median ≈ 6660 J (SOC 50%)
+  # C1 (SOC 50%..95%) : 15 clients, B_0 ∈ [6660, 12654] J
+  # C2 (SOC 5%..50%)  : 15 clients, B_0 ∈ [666, 6660] J
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95

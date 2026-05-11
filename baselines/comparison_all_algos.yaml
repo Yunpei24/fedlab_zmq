@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# configs/comparison_all_algos.yaml
+# Full comparison suite: Level-1 + Level-2 baselines
+#
+# Usage:
+#   python run_experiment.py --benchmark --config configs/comparison_all_algos.yaml \
+#       --rounds 100 --clients 10 --output results/comparison_all
+#
+# Note: --benchmark ignores --config (uses CLI args for dataset/rounds/clients).
+# This file serves as documentation and reference for the YAML-based multi-run
+# workflow described in the experimentation guide.
+#
+# To run a single algo from this suite:
+#   python run_experiment.py --config configs/comparison_all_algos.yaml
+#   (edit 'active_algorithm' below to select which one to run)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Experiment metadata ───────────────────────────────────────────────────────
+experiment_name: "Full Comparison Suite — L1 + L2"
+description: >
+  Level-1 (unconstrained) vs Level-2 (resource-constrained) comparison.
+  Used to generate the main paper figures (Plan 1–4 comparison plots).
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  dataset: cifar10
+  alpha: 0.5             # Dirichlet heterogeneity (lower = more non-IID)
+  partition: dirichlet
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  architecture: resnet8
+
+# ── Clients ───────────────────────────────────────────────────────────────────
+clients:
+  num_clients: 10
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 2
+  fleet:
+    - type: raspberry_pi_4
+      count: 5
+    - type: smartphone_midrange
+      count: 3
+    - type: jetson_nano
+      count: 2
+
+# ── Training (single-algo mode) ───────────────────────────────────────────────
+# Set active_algorithm to run a specific algo via --config
+training:
+  algorithm: fedavg       # change to run a specific algo
+  num_rounds: 100
+  algo_config:
+    lr: 0.01
+    local_epochs: 1
+    batch_size: 32
+
+seed: 42
+output_dir: ./results/comparison_all
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Algorithm reference (for benchmark mode: python run_experiment.py --benchmark)
+# ─────────────────────────────────────────────────────────────────────────────
+# Level 1 — Unconstrained baselines
+# ────────────────────────────────
+# fedavg:    McMahan et al., AISTATS 2017 — canonical FL, no compression
+# fedprox:   Li et al., MLSys 2020 — proximal regularization (mu=0.01)
+# scaffold:  Karimireddy et al., ICML 2020 — control variates (global_lr=1.0)
+#
+# Level 2 — Resource-constrained baselines
+# ─────────────────────────────────────────
+# eceffl:        Nikiema et al., UM6P 2025 — battery-adaptive TopK + EF
+# leanfed:       Pereira et al., 2025 — battery-proportional subsampling
+# fedbacys:      Jeong et al., 2025 — cyclic battery-aware scheduling
+# vaishnav:      Vaishnav et al., 2024 — channel-adaptive TopK + EF
+# fedsparq:      Medjadji et al., 2025 — EMA threshold + FP16 + EF
+# fedpart:       Wang et al., NeurIPS 2024 — partial network updates (1/M per round)
+# fed_resonance: Nikiema & Amhoud, 2026 — per-layer SVD/subspace compression
+# fed_grad_align: Nikiema & Amhoud, 2026 — server SVD + gradient filtering
+#
+# Comparison plans implemented in the dashboard:
+# ──────────────────────────────────────────────
+# Plan 1 — Accuracy under fixed budget (energy or bytes)
+# Plan 2 — Accuracy vs cumulative cost curves
+# Plan 3 — Rounds / energy / bytes to target accuracy
+# Plan 4 — Pareto frontier (accuracy vs energy)

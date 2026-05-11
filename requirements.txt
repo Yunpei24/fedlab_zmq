@@ -1,0 +1,30 @@
+# FedLab ZMQ — Dependencies
+# pip install -r requirements.txt
+#
+# Tested with Python 3.12.4 on macOS (Apple Silicon).
+# PyTorch version: 2.10.0  /  torchvision: 0.25.0
+# For GPU (CUDA) builds, install torch separately:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# ── Transport (replaces FastAPI/uvicorn/httpx) ────────────────────────────────
+pyzmq>=25.1.0          # ZeroMQ bindings  (tested: 27.1.0)
+msgpack>=1.0.8         # fast binary serialization (tested: 1.1.2)
+
+# ── Core ML ───────────────────────────────────────────────────────────────────
+torch>=2.1.0           # tested: 2.10.0
+torchvision>=0.16.0    # tested: 0.25.0
+
+# ── Data & Config ─────────────────────────────────────────────────────────────
+numpy>=1.24.0          # tested: 2.4.2
+pandas>=2.0.0          # tested: 2.3.3  (dashboard + results analysis)
+pyyaml>=6.0            # tested: 6.0.3  (YAML experiment configs)
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+streamlit>=1.35.0      # tested: 1.55.0
+plotly>=5.20.0         # tested: 6.6.0
+
+# ── Plotting (results analysis, paper figures) ────────────────────────────────
+matplotlib>=3.7.0      # tested: 3.10.8
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+tqdm>=4.66.0           # tested: 4.67.3  (training progress bars)

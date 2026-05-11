@@ -1,0 +1,106 @@
+# ============================================================
+# CCS-EF Frozen — freeze_secondary_backward=true
+# ============================================================
+# Variante de ccsEF_soc_wide.yaml avec backward partiel :
+#   - groupe secondaire gelé pendant le backward (requires_grad=False)
+#   - E_comp réduit de ~50% (seulement g_primary dans backward)
+#   - EF sur groupe secondaire désactivé (buffer non mis à jour ce round)
+#   → comportement proche FedPart + EF sur groupe actif uniquement
+#
+# Objectif : améliorer la survie en réduisant E_comp
+#   local_epochs=3 + freeze_secondary → E_round ≈ FedPartBE
+#
+# Comparaison :
+#   ccsEF_soc_wide.yaml    : full backward, local_epochs=3, EF g1+g2
+#   ccsEF_frozen.yaml      : partial backward (primary only), local_epochs=3
+#   algo_comparison.yaml   : référence pour FedPartBE, E-CEFFL, FedPart
+#
+# Usage
+# ─────
+#   python run_experiment.py \
+#     --config configs/ccsEF_frozen.yaml \
+#     --algo ccsEF \
+#     --output results/Algorithms_fare/ccsEF_frozen \
+#     --device mps
+# ============================================================
+
+seed: 42
+output_dir: "./results/ccsEF_frozen"
+layer_mismatch: false
+device: mps
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.5
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: ccsEF
+  algo_config:
+
+    # ── Hyperparamètres SGD ────────────────────────────────────────────────
+    lr: 0.01
+    lr_min: 0.001           # cosine decay: lr_t = lr_min + 0.5*(lr-lr_min)*(1+cos(πt/T))
+                           # null = LR constant (désactivé)
+                           # exemple: lr_min: 0.001 → decay 0.01→0.001 sur 200 rounds
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    max_grad_norm: 10.0    # gradient clipping — réduit les oscillations dues à T_rot=1
+                           # valeur standard FL : 5.0–10.0; null = désactivé
+    local_epochs: 3
+    batch_size: 32
+
+    # ── Modèle de batterie ─────────────────────────────────────────────────
+    beta_min: 0.01
+    beta_max: 1.0
+    battery_max_j: 13320.0
+    energy_scale_factor: 12.6
+
+    # ── Paramètres CCS-EF ─────────────────────────────────────────────────
+    warmup_rounds: 5
+    T_rot: 3
+    adaptive_rotation: false
+
+    # ── Clustering dynamique (A1) ─────────────────────────────────────────
+    T_recluster: 10     # re-clustering dynamique toutes les 10 rounds
+    fleet_median_battery: null  # mis à jour automatiquement par le serveur
+
+    # ── Communication ─────────────────────────────────────────────────────
+    use_fp16_uplink: true     # valeurs sparse en float16 (-25% uplink)
+    partial_downlink: true    # téléchargement partiel : groupe secondaire + BN
+                              # (-50% downlink, biais acceptable si T_rot≤3)
+                              # Note : cohérent avec freeze_secondary_backward=true
+                              # (groupe secondaire gelé côté client et non rechargé)
+
+    # ── Serveur optimizer (B3) ────────────────────────────────────────────
+    server_momentum: 0.0      # 0.0 = désactivé; 0.9 = recommandé CIFAR-100
+
+    # ── Mode économie compute ──────────────────────────────────────────────
+    # true → backward uniquement sur le groupe primaire (requires_grad=False
+    #        sur params secondaires pendant le training local)
+    # EF sur groupe secondaire suspendu (buffer inchangé ce round)
+    # Avantage : E_comp ÷ 2 → meilleure survie
+    # Inconvénient : couverture gradient incomplète (comme FedPart)
+    freeze_secondary_backward: true
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+
+  fleet:
+    - type: esp32_s3
+      count: 30
+
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95

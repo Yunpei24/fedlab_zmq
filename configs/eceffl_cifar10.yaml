@@ -1,0 +1,139 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FedLab Experiment Configuration
+# E-CEFFL on CIFAR-10 with heterogeneous edge fleet (non-IID)
+#
+# Usage:
+#   fedlab run --config configs/eceffl_cifar10_noniid.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: "eceffl_cifar10_noniid"
+description: >
+  E-CEFFL with battery-driven adaptive sparsification on CIFAR-10,
+  Dirichlet non-IID (alpha=0.5), heterogeneous fleet of 10 edge devices.
+  NeurIPS-standard protocol following FedSparQ (Medjadji et al., 2025).
+
+seed: 42
+output_dir: "./results"
+
+# ── Dataset ───────────────────────────────────────────────────────────────────
+data:
+  dataset: "cifar10"
+  partition: "dirichlet"
+  alpha: 0.5
+  val_fraction: 0.1
+  data_root: "./data"
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  architecture: "resnet18"
+  pretrained: false
+  num_classes: 10
+
+# ── Client fleet ──────────────────────────────────────────────────────────────
+# Realistic heterogeneous deployment:
+# 5x Raspberry Pi 4 (edge boxes)
+# 3x mid-range smartphones (mobile users)
+# 2x Jetson Nano (compute-rich edge nodes)
+clients:
+  num_clients: 10
+  clients_per_round: 10     # full participation (E-CEFFL guarantees this)
+  battery_noise_std: 0.15   # 15% std in initial battery state
+  fleet:
+    - type: "raspberry_pi_4"
+      count: 5
+    - type: "smartphone_midrange"
+      count: 3
+    - type: "jetson_nano"
+      count: 2
+
+# ── Network topology ──────────────────────────────────────────────────────────
+topology:
+  type: "star"              # central server + K clients
+
+# ── Training ──────────────────────────────────────────────────────────────────
+training:
+  algorithm: "eceffl"
+  num_rounds: 100
+  algo_config:
+    lr: 0.01
+    local_epochs: 1
+    batch_size: 32
+    beta_min: 0.01
+    beta_max: 1.0
+
+# ── Evaluation & Comparison ───────────────────────────────────────────────────
+eval:
+  eval_every: 1
+  metrics:
+    - accuracy
+    - loss
+    - comm_bytes
+    - energy_j
+    - jain_index
+    - battery_j
+    - beta_actual
+  # Run these algorithms in parallel for comparison:
+  compare_with:
+    - algorithm: "fedavg"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+    - algorithm: "leanfed"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+    - algorithm: "vaishnav"
+      algo_config:
+        lr: 0.01
+        local_epochs: 1
+        batch_size: 32
+        beta_min: 0.01
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Second experiment: IID partition (for ablation)
+# ─────────────────────────────────────────────────────────────────────────────
+name: "eceffl_cifar10_iid"
+description: "Same as above but IID partition — ablation study."
+seed: 42
+
+data:
+  dataset: "cifar10"
+  partition: "iid"
+  val_fraction: 0.1
+
+model:
+  architecture: "resnet18"
+
+clients:
+  num_clients: 10
+  clients_per_round: 10
+  fleet:
+    - type: "raspberry_pi_4"
+      count: 5
+    - type: "smartphone_midrange"
+      count: 3
+    - type: "jetson_nano"
+      count: 2
+
+topology:
+  type: "star"
+
+training:
+  algorithm: "eceffl"
+  num_rounds: 100
+  algo_config:
+    lr: 0.01
+    local_epochs: 1
+    batch_size: 32
+    beta_min: 0.01
+    beta_max: 1.0
+
+eval:
+  eval_every: 1
+  metrics: [accuracy, loss, comm_bytes, energy_j, jain_index]
+  compare_with:
+    - algorithm: "fedavg"
+      algo_config: {lr: 0.01, local_epochs: 1, batch_size: 32}

@@ -1,0 +1,100 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# configs/fedpartbe_comparison.yaml
+# FedPartBE vs FedPart vs HeteroFL vs FjORD — survival + fairness scenario
+#
+# Scenario: 30 clients with heterogeneous batteries (5% to 95%).
+# No fixed rounds — run until target accuracy X% is reached.
+# Key metrics: system lifetime, survival ratio, energy fairness.
+#
+# Usage:
+#   python run_experiment.py --benchmark \
+#       --algos fedavg,fedprox,fedpart,heterofl,fjord,fedpart_be \
+#       --rounds 200 --clients 30 --alpha 0.5 \
+#       --output results/fedpartbe_comparison
+#
+#   # Non-IID stress (α=0.1)
+#   python run_experiment.py --benchmark \
+#       --algos fedavg,fedprox,fedpart,heterofl,fjord,fedpart_be \
+#       --rounds 200 --clients 30 --alpha 0.1 \
+#       --output results/fedpartbe_noniid
+#
+#   # High battery heterogeneity (wide variance)
+#   python run_experiment.py --config configs/fedpartbe_comparison.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+experiment_name: "FedPartBE — Survival & Fairness Comparison"
+
+data:
+  dataset: cifar10
+  alpha: 0.5
+  partition: dirichlet
+
+model:
+  architecture: resnet8
+
+# 30 clients: heterogeneous fleet spanning 4 device classes
+# Battery levels span full range to stress-test survival
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 2
+  fleet:
+    - type: raspberry_pi_4        # 8 clients — low/mid battery capacity
+      count: 8
+    - type: smartphone_midrange   # 8 clients
+      count: 8
+    - type: smartphone_highend    # 7 clients
+      count: 7
+    - type: jetson_nano           # 7 clients — high compute, high battery
+      count: 7
+
+training:
+  algorithm: fedpart_be   # change to run a single algo
+  num_rounds: 200         # generous upper bound — stop when target accuracy reached
+  algo_config:
+    warmup_rounds: 10
+    num_tiers: 3
+    mu_weight: 0.01
+    mu_repr: 0.1
+    local_epochs: 8
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 0.0001
+
+seed: 42
+output_dir: ./results/fedpartbe_comparison
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ablation configs (run separately)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Ablation 1 — Effect of representation proximal (mu_repr)
+# --algos fedpart_be --algo-config '{"mu_repr": 0.0}' → no repr proximal
+# --algos fedpart_be --algo-config '{"mu_repr": 0.01}'
+# --algos fedpart_be --algo-config '{"mu_repr": 0.1}'   ← default
+# --algos fedpart_be --algo-config '{"mu_repr": 1.0}'
+
+# Ablation 2 — Effect of number of tiers K
+# --algos fedpart_be --algo-config '{"num_tiers": 1}' → degrades to FedPart-like
+# --algos fedpart_be --algo-config '{"num_tiers": 2}'
+# --algos fedpart_be --algo-config '{"num_tiers": 3}'   ← default
+# --algos fedpart_be --algo-config '{"num_tiers": 5}'
+
+# Ablation 3 — Staleness priority on/off
+# --algos fedpart_be --algo-config '{"use_staleness_priority": false}'
+# --algos fedpart_be --algo-config '{"use_staleness_priority": true}'   ← default
+
+# Ablation 4 — Gauss-Seidel vs simultaneous aggregation
+# --algos fedpart_be --algo-config '{"sequential_aggregation": false}'
+# --algos fedpart_be --algo-config '{"sequential_aggregation": true}'   ← default
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Heterogeneity sweep (α variation)
+# ─────────────────────────────────────────────────────────────────────────────
+# for alpha in 0.05 0.1 0.3 0.5 1.0; do
+#   python run_experiment.py --benchmark \
+#       --algos fedavg,fedpart,heterofl,fjord,fedpart_be \
+#       --rounds 150 --clients 30 --alpha $alpha \
+#       --output results/alpha_sweep/alpha_$alpha
+# done

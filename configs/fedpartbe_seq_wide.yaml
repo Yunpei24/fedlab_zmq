@@ -1,0 +1,116 @@
+# ============================================================
+# FedPartBE — Sequential Mode (FedPartBESeq), Wide SOC [5%, 95%]
+# ============================================================
+# Scénario identique à fedpartbe_survival_wide.yaml mais avec
+# group_selection: "sequential" (sliding window) au lieu de
+# staleness_aware + cyclic rotation.
+#
+# Objectif : ablation — mesurer la contribution de la staleness-aware
+# priority et de la cyclic rotation par rapport à une sélection
+# séquentielle naïve mais déterministe.
+#
+# Mode séquentiel (group_selection: "sequential")
+# ────────────────────────────────────────────────
+# À chaque round PNU r :
+#   window_start = (r × step) mod G
+#   groupes sélectionnés = [g_start, g_start+1, ..., g_start+M-1] (mod G)
+#   tri par coût → tier-0 reçoit le moins cher dans la fenêtre
+#
+# window_step options :
+#   0 (auto) → step = M = 3 (fenêtres non-chevauchantes, recommandé)
+#   1        → fenêtres chevauchantes (chaque groupe actif M rounds consécutifs)
+#   3 (=M)   → identique à 0/auto
+#
+# Avec G=10, M=3, step=3 :
+#   Round 5  (PNU 0) : g0, g1, g2
+#   Round 6  (PNU 1) : g3, g4, g5
+#   Round 7  (PNU 2) : g6, g7, g8
+#   Round 8  (PNU 3) : g9, g0, g1  (wrap)
+#   Round 9  (PNU 4) : g3, g4, g5  ...
+#   Cycle = G/M ≈ 3.3 rounds → chaque groupe mis à jour toutes les ~3 rounds
+#
+# Avec step=1 :
+#   Round 5  (PNU 0) : g0, g1, g2
+#   Round 6  (PNU 1) : g1, g2, g3
+#   ...
+#   Staleness max = G-M = 7 rounds (acceptable)
+#
+# Résultats attendus (vs fedpartbe_survival_wide.yaml avec quantile+rotation) :
+#   FedPartBESeq (step=M) : accuracy proche de FedPartBE si staleness-aware
+#                           priority n'apporte pas de gain significatif
+#   FedPartBESeq (step=1) : possiblement meilleure convergence locale
+#                           (même groupe entraîné M rounds consécutifs)
+#
+# Usage
+# ─────
+#   # step=M (non-overlapping, default)
+#   python run_experiment.py --config configs/fedpartbe_seq_wide.yaml --device mps
+#
+#   # step=1 (overlapping)
+#   python run_experiment.py --config configs/fedpartbe_seq_wide.yaml \
+#       --override training.algo_config.window_step=1 --device mps
+#
+#   # Comparer avec staleness_aware + rotation sur même scénario
+#   python run_experiment.py --config configs/fedpartbe_survival_wide.yaml --device mps
+# ============================================================
+
+seed: 42
+output_dir: "./results/fedpartbe_seq_wide"
+layer_mismatch: false
+device: mps
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.5
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 8
+    batch_size: 32
+    warmup_rounds: 5
+    num_tiers: 2
+    server_lr: 1.0            # auto = 1/num_tiers = 0.5
+
+    # ── Sequential group selection ──────────────────────────────────────────
+    group_selection: sequential   # "staleness_aware" | "sequential"
+    window_step: 1                # 0=auto(=M=3), 1=overlapping, 3=non-overlapping
+    # assignment_strategy s'applique toujours pour client→tier
+    assignment_strategy: quantile # equal tiers, robuste pour tout spread
+    # rotation_period ignoré en mode sequential (pas de cyclic rotation)
+    rotation_period: 0
+    # ───────────────────────────────────────────────────────────────────────
+
+    mu_repr: 0.01
+    mu_weight: 0.01
+    verbose_groups: false
+    inter_cycle_rounds: 0
+    energy_scale_factor: 12.6
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+
+  fleet:
+    - type: esp32_s3
+      count: 30
+
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95
