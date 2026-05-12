@@ -83,8 +83,8 @@ training:
     local_epochs: 8
     batch_size: 32
     warmup_rounds: 5
-    num_tiers: 2
-    server_lr: 1.0           # auto = 1/num_tiers = 0.333
+    num_tiers: 3
+    server_lr: null           # auto = 1/num_tiers = 0.333
     assignment_strategy: quantile  # Option A — optimal pour spread large
     mu_repr: 0.01
     mu_weight: 0.01
@@ -94,7 +94,7 @@ training:
     # tier trains by one position. Ensures each layer group is trained by all
     # energy strata over time, preventing data-distribution bias.
     # With num_tiers=3: full cycle = 30 rounds.
-    rotation_period: 0
+    rotation_period: 2
     # adaptive_rotation: étend T_rot proportionnellement aux morts de clients.
     # T_rot_eff(r) = rotation_period × ceil(K_0 / K_alive(r))
     # Maintient un budget gradient constant par phase → élimine les compound drops.
@@ -113,14 +113,14 @@ training:
     ema_alpha: 0.3
 
 clients:
-  num_clients: 30
+  num_clients: 60
   sample_fraction: 1.0
   sampling_strategy: random #
   min_clients: 3              # réduit car certains clients meurent tôt
 
   fleet:
     - type: esp32_s3
-      count: 30
+      count: 60
 
   # Battery initialization: uniform SOC in [5%, 95%]
   # Représente une flotte hétérogène : certains appareils récemment chargés

@@ -20,3 +20,4 @@ configs/brouillons/
 algorithms/fedpart_be_lora_gs.py
 algorithms/fed_grad_align.py
 algorithms/fedpart_universal.py
+.DS_Store
