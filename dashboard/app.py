@@ -950,7 +950,7 @@ with st.sidebar:
             help="Absolute path to the folder that contains your experiments. "
                  "Scanned recursively — nested subdirectories are found automatically.",
         )
-        if st.button("Load", use_container_width=True):
+        if st.button("Load", width="stretch"):
             p = pathlib.Path(custom_dir)
             if p.exists():
                 st.query_params["results_dir"] = str(p)
@@ -1159,7 +1159,7 @@ if page == "Home":
         "Jain":         ["0.633", "0.633", "0.733", "0.633", "0.733"],
     }
     import pandas as _pd
-    st.dataframe(_pd.DataFrame(prelim_data), use_container_width=True, hide_index=True)
+    st.dataframe(_pd.DataFrame(prelim_data), width="stretch", hide_index=True)
     st.caption("✦ T_rot=3 + EF buffer flush fix + gradient clipping (max_grad_norm=10) — seed=42 only, not final.")
 
     # ── Quick links ───────────────────────────────────────────────────────────
@@ -1658,6 +1658,202 @@ elif page == "Results":
             "Lower total bytes = less communication overhead — key metric for bandwidth-constrained IoT."
         )
 
+        # ── Total Energy Consumed per Round ──────────────────────────────────
+        st.markdown("---")
+        st.markdown("**Total Energy Consumed per Round**")
+        has_energy_per_round = any(
+            "total_energy_j" in exp["df"].columns for exp in experiments.values()
+        )
+        if has_energy_per_round:
+            fig_enrnd = go.Figure()
+            for i, (label, exp) in enumerate(experiments.items()):
+                df = exp["df"]
+                if "total_energy_j" not in df.columns:
+                    continue
+                fig_enrnd.add_trace(go.Bar(
+                    x=_round_col(df),
+                    y=df["total_energy_j"],
+                    name=_short_graph_label(label),
+                    marker_color=COLOR_MAP[i % len(COLOR_MAP)],
+                    opacity=0.82,
+                ))
+            fig_enrnd.update_layout(
+                title="Total Energy Consumed per Round (J) — all clients combined",
+                xaxis_title="Round",
+                yaxis_title="Energy (J)",
+                barmode="group",
+                template="plotly_white",
+                height=400,
+                font=dict(family="Inter"),
+                legend=dict(
+                    orientation="v", xanchor="left", x=1.02,
+                    yanchor="middle", y=0.5,
+                    font=dict(size=11),
+                    bgcolor="rgba(255,255,255,0.8)",
+                    bordercolor="#e2e8f0", borderwidth=1,
+                ),
+                margin=dict(r=180),
+            )
+            st.plotly_chart(fig_enrnd, width="stretch")
+            st.caption(
+                "**Energy per round (J)** = sum of compute + uplink energy over all active clients for that round. "
+                "E_compute = P_active × training_time; E_uplink = model_bytes / link_rate × P_tx. "
+                "Algorithms that skip clients (cyclic scheduling) show lower per-round energy but may need more rounds."
+            )
+        else:
+            st.info("No `total_energy_j` column found in the selected experiments.")
+
+        # ── Total Energy Consumed (full run) ─────────────────────────────────
+        st.markdown("---")
+        st.markdown("**Total Energy Consumed — Full Run**")
+        total_en_labels, total_en_vals = [], []
+        for label, exp in experiments.items():
+            df = exp["df"]
+            if "cumulative_energy_j" in df.columns:
+                val = float(df["cumulative_energy_j"].iloc[-1])
+            elif "total_energy_j" in df.columns:
+                val = float(df["total_energy_j"].sum())
+            else:
+                continue
+            total_en_labels.append(_short_graph_label(label))
+            total_en_vals.append(val)
+
+        if total_en_labels:
+            fig_total_en = go.Figure(go.Bar(
+                x=total_en_labels,
+                y=total_en_vals,
+                marker_color=COLOR_MAP[: len(total_en_labels)],
+                marker_line_color="white",
+                marker_line_width=1.5,
+                text=[f"{v:.0f} J" for v in total_en_vals],
+                textposition="outside",
+            ))
+            fig_total_en.update_layout(
+                title="Total Energy Consumed over All Rounds (J)",
+                yaxis_title="Energy (J)",
+                template="plotly_white",
+                height=400,
+                font=dict(family="Inter"),
+                xaxis_tickangle=-20,
+                uniformtext_minsize=9,
+                uniformtext_mode="hide",
+            )
+            st.plotly_chart(fig_total_en, width="stretch")
+            st.caption(
+                "**Total energy (J)** = cumulative compute + uplink energy summed over all rounds and all clients. "
+                "Uses `cumulative_energy_j` (last round) when available, otherwise sums `total_energy_j`. "
+                "Lower = more energy-efficient over the full experiment."
+            )
+        else:
+            st.info("No energy data found in the selected experiments.")
+
+        # ── Energy & Time to Target Accuracy ─────────────────────────────────
+        st.markdown("---")
+        st.markdown("**Energy Consumption & Computation Time to Target Accuracy**")
+        _target_acc = st.slider(
+            "Target accuracy (%)",
+            min_value=10, max_value=100, value=70, step=5,
+            key="battery_target_acc",
+            help="Vary this threshold to see how much energy and simulated time each algorithm needs to first reach it.",
+        )
+
+        _ta_labels, _ta_energy, _ta_time, _ta_reached = [], [], [], []
+        for label, exp in experiments.items():
+            df = exp["df"]
+            if "test_accuracy" not in df.columns:
+                continue
+            acc_series = df["test_accuracy"] * 100
+            mask = acc_series >= _target_acc
+            if mask.any():
+                rnd_idx = int(mask.values.argmax())
+                reached = True
+            else:
+                rnd_idx = len(df) - 1
+                reached = False
+
+            energy_val = None
+            if "cumulative_energy_j" in df.columns:
+                energy_val = float(df["cumulative_energy_j"].iloc[rnd_idx])
+            elif "total_energy_j" in df.columns:
+                energy_val = float(df["total_energy_j"].iloc[: rnd_idx + 1].sum())
+
+            time_val = None
+            if "cumulative_sim_time_s" in df.columns:
+                time_val = float(df["cumulative_sim_time_s"].iloc[rnd_idx])
+            elif "sim_round_time_s" in df.columns:
+                time_val = float(df["sim_round_time_s"].iloc[: rnd_idx + 1].sum())
+
+            _ta_labels.append(_short_graph_label(label))
+            _ta_energy.append(energy_val if energy_val is not None else 0.0)
+            _ta_time.append(time_val if time_val is not None else 0.0)
+            _ta_reached.append(reached)
+
+        if _ta_labels:
+            _bar_colors = [
+                COLOR_MAP[i % len(COLOR_MAP)] if r else "rgba(180,180,180,0.6)"
+                for i, r in enumerate(_ta_reached)
+            ]
+            _ta_c1, _ta_c2 = st.columns(2)
+            with _ta_c1:
+                fig_eta = go.Figure(go.Bar(
+                    x=_ta_labels,
+                    y=_ta_energy,
+                    marker_color=_bar_colors,
+                    marker_line_color="white",
+                    marker_line_width=1.5,
+                    text=[f"{v:.0f} J" for v in _ta_energy],
+                    textposition="outside",
+                ))
+                fig_eta.update_layout(
+                    title=f"Energy to reach {_target_acc}% accuracy",
+                    yaxis_title="Energy (J)",
+                    template="plotly_white",
+                    height=400,
+                    font=dict(family="Inter"),
+                    xaxis_tickangle=-20,
+                    uniformtext_minsize=9,
+                    uniformtext_mode="hide",
+                )
+                st.plotly_chart(fig_eta, width="stretch")
+                _grey_note = " Grey = threshold never reached (full-run energy)." if not all(_ta_reached) else ""
+                st.caption(
+                    f"Total energy (J) from round 1 until first reaching {_target_acc}% test accuracy.{_grey_note} "
+                    "Lower = more energy-efficient."
+                )
+            with _ta_c2:
+                if any(t > 0 for t in _ta_time):
+                    fig_tta_bat = go.Figure(go.Bar(
+                        x=_ta_labels,
+                        y=_ta_time,
+                        marker_color=_bar_colors,
+                        marker_line_color="white",
+                        marker_line_width=1.5,
+                        text=[f"{v:.0f}s" if v > 0 else "—" for v in _ta_time],
+                        textposition="outside",
+                    ))
+                    fig_tta_bat.update_layout(
+                        title=f"Simulated time to reach {_target_acc}% accuracy",
+                        yaxis_title="Time (s)",
+                        template="plotly_white",
+                        height=400,
+                        font=dict(family="Inter"),
+                        xaxis_tickangle=-20,
+                        uniformtext_minsize=9,
+                        uniformtext_mode="hide",
+                    )
+                    st.plotly_chart(fig_tta_bat, width="stretch")
+                    st.caption(
+                        f"Cumulative simulated wall-clock time (s) to first reach {_target_acc}% accuracy. "
+                        "Based on max(client training times) per round — lower = faster convergence."
+                    )
+                else:
+                    st.info(
+                        "No simulated time data found. Re-run experiments with a version of the "
+                        "framework that records `sim_round_time_s` per round."
+                    )
+        else:
+            st.info("No accuracy or energy data available in the selected experiments.")
+
     # ── Fairness ─────────────────────────────────────────────────────────────
     with tab_fair:
         col_f1, col_f2 = st.columns(2)
@@ -2105,6 +2301,177 @@ elif page == "Results":
         else:
             st.info("No `sim_round_time_s` column found in selected experiments.")
 
+    # ── Layer Mismatch ───────────────────────────────────────────────────────
+    with tab_lm:
+        st.markdown(
+            "**Layer Mismatch Diagnostic** — measures inter-layer alignment after FedAvg aggregation. "
+            "A high score (→ 1) signals that layers from different clients don't cooperate: "
+            "the aggregated global model has layers trained on incompatible feature spaces. "
+            "Enable `layer_mismatch: true` in the YAML config to collect this metric."
+        )
+
+        # Check which experiments have layer_mismatch data
+        lm_experiments = {
+            label: exp for label, exp in experiments.items()
+            if "layer_mismatch" in exp["df"].columns
+            and exp["df"]["layer_mismatch"].notna().any()
+        }
+
+        if not lm_experiments:
+            st.info(
+                "No layer mismatch data found in the selected experiments. "
+                "Enable `layer_mismatch: true` in your YAML config and re-run the experiment."
+            )
+            st.code(
+                "# In your config YAML:\n"
+                "layer_mismatch: true\n"
+                "layer_mismatch_config:\n"
+                "  freq: 5          # compute every 5 rounds\n"
+                "  layers: null     # auto-detect Conv2d + Linear\n"
+                "  metrics: [drift, loss_jump, cka]",
+                language="yaml"
+            )
+        else:
+            # ── KPI cards ─────────────────────────────────────────────────────
+            st.markdown("**Average mismatch score per algorithm** (lower = better alignment)")
+            kpi_cols = st.columns(min(len(lm_experiments), 4))
+            for i, (label, exp) in enumerate(lm_experiments.items()):
+                lm_series = exp["df"]["layer_mismatch"].dropna()
+                avg_lm = float(lm_series.mean()) if len(lm_series) > 0 else float("nan")
+                max_lm = float(lm_series.max()) if len(lm_series) > 0 else float("nan")
+                col = kpi_cols[i % len(kpi_cols)]
+                col.metric(
+                    label=_short_graph_label(label),
+                    value=f"{avg_lm:.3f}" if not (avg_lm != avg_lm) else "—",
+                    delta=f"max {max_lm:.3f}" if not (max_lm != max_lm) else None,
+                    delta_color="inverse",
+                )
+
+            st.divider()
+
+            # ── Mismatch score over rounds ────────────────────────────────────
+            st.markdown("**Mismatch score over rounds** — gaps = rounds skipped by `freq` setting")
+            fig_lm = go.Figure()
+            for i, (label, exp) in enumerate(lm_experiments.items()):
+                df = exp["df"]
+                rounds = _round_col(df)
+                lm_col = df["layer_mismatch"]
+                color = COLOR_MAP[i % len(COLOR_MAP)]
+                legend_label = _short_graph_label(label)
+
+                # Plot with connectgaps=False so None values show as gaps
+                fig_lm.add_trace(go.Scatter(
+                    x=rounds,
+                    y=lm_col,
+                    mode="lines+markers",
+                    name=legend_label,
+                    line=dict(color=color, width=2.5),
+                    marker=dict(size=5, color=color),
+                    connectgaps=False,
+                ))
+
+            fig_lm.add_hline(
+                y=0.3, line_dash="dot", line_color="orange",
+                annotation_text="Moderate mismatch (0.3)",
+                annotation_position="bottom right",
+            )
+            fig_lm.add_hline(
+                y=0.6, line_dash="dot", line_color="red",
+                annotation_text="Severe mismatch (0.6)",
+                annotation_position="bottom right",
+            )
+            fig_lm.update_layout(
+                xaxis_title="Round",
+                yaxis_title="Mismatch Score [0, 1]",
+                yaxis=dict(range=[0, 1]),
+                template="plotly_white",
+                height=460,
+                font=dict(family="Inter"),
+                legend=dict(
+                    orientation="v", xanchor="left", x=1.02,
+                    yanchor="middle", y=0.5,
+                    font=dict(size=11),
+                    bgcolor="rgba(255,255,255,0.8)",
+                    bordercolor="#e2e8f0", borderwidth=1,
+                ),
+                margin=dict(r=180),
+            )
+            st.plotly_chart(fig_lm, width="stretch")
+            st.caption(
+                "Score ∈ [0, 1] — composite of three sub-metrics averaged: "
+                "**Representation Drift** (‖h_before − h_after‖_F / ‖h_before‖_F after FedAvg), "
+                "**Loss Jump** (L_i(w_global) − L_i(w_local)), "
+                "**CKA** (1 − CKA similarity between client representations). "
+                "Gaps in the curve = rounds not computed due to `freq > 1` setting."
+            )
+
+            st.divider()
+
+            # ── Per-algorithm summary table ───────────────────────────────────
+            st.markdown("**Summary table**")
+            lm_rows = []
+            for label, exp in lm_experiments.items():
+                lm_series = exp["df"]["layer_mismatch"].dropna()
+                n_computed = int(lm_series.count())
+                lm_rows.append({
+                    "Algorithm":       label,
+                    "Rounds computed": n_computed,
+                    "Mean score":      f"{lm_series.mean():.4f}" if n_computed > 0 else "—",
+                    "Max score":       f"{lm_series.max():.4f}" if n_computed > 0 else "—",
+                    "Min score":       f"{lm_series.min():.4f}" if n_computed > 0 else "—",
+                    "Last score":      f"{lm_series.iloc[-1]:.4f}" if n_computed > 0 else "—",
+                })
+            st.dataframe(pd.DataFrame(lm_rows), hide_index=True, width="stretch")
+            st.caption(
+                "Mean score averaged over all computed rounds (None rounds excluded). "
+                "A decreasing trend over rounds indicates the aggregation scheme is "
+                "progressively reducing inter-layer misalignment."
+            )
+
+            # ── Sub-metric breakdown (if individual metrics stored) ───────────
+            sub_metrics = {
+                "lm_drift":      ("Representation Drift", "orange"),
+                "lm_loss_jump":  ("Loss Jump",            "crimson"),
+                "lm_cka":        ("1 − CKA Similarity",   "steelblue"),
+            }
+            available_sub = [
+                (col, name, color)
+                for col, (name, color) in sub_metrics.items()
+                if any(col in exp["df"].columns for exp in lm_experiments.values())
+            ]
+            if available_sub:
+                st.divider()
+                st.markdown("**Sub-metric breakdown**")
+                fig_sub = go.Figure()
+                for col, name, sub_color in available_sub:
+                    for i, (label, exp) in enumerate(lm_experiments.items()):
+                        df = exp["df"]
+                        if col not in df.columns:
+                            continue
+                        rounds = _round_col(df)
+                        legend_label = f"{_short_graph_label(label)} / {name}"
+                        fig_sub.add_trace(go.Scatter(
+                            x=rounds, y=df[col],
+                            mode="lines",
+                            name=legend_label,
+                            line=dict(color=COLOR_MAP[i % len(COLOR_MAP)],
+                                      width=1.5, dash="dot"),
+                            connectgaps=False,
+                        ))
+                fig_sub.update_layout(
+                    xaxis_title="Round",
+                    yaxis_title="Sub-metric value",
+                    template="plotly_white",
+                    height=380,
+                    font=dict(family="Inter"),
+                    legend=dict(orientation="v", xanchor="left", x=1.02,
+                                yanchor="middle", y=0.5,
+                                bgcolor="rgba(255,255,255,0.8)",
+                                bordercolor="#e2e8f0", borderwidth=1),
+                    margin=dict(r=220),
+                )
+                st.plotly_chart(fig_sub, width="stretch")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Page: COMPARE ALGORITHMS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2430,177 +2797,6 @@ elif page == "Compare Algorithms":
             if cs_cmp_rows:
                 st.dataframe(pd.DataFrame(cs_cmp_rows), width="stretch", hide_index=True)
 
-    # ── Layer Mismatch ───────────────────────────────────────────────────────
-    with tab_lm:
-        st.markdown(
-            "**Layer Mismatch Diagnostic** — measures inter-layer alignment after FedAvg aggregation. "
-            "A high score (→ 1) signals that layers from different clients don't cooperate: "
-            "the aggregated global model has layers trained on incompatible feature spaces. "
-            "Enable `layer_mismatch: true` in the YAML config to collect this metric."
-        )
-
-        # Check which experiments have layer_mismatch data
-        lm_experiments = {
-            label: exp for label, exp in experiments.items()
-            if "layer_mismatch" in exp["df"].columns
-            and exp["df"]["layer_mismatch"].notna().any()
-        }
-
-        if not lm_experiments:
-            st.info(
-                "No layer mismatch data found in the selected experiments. "
-                "Enable `layer_mismatch: true` in your YAML config and re-run the experiment."
-            )
-            st.code(
-                "# In your config YAML:\n"
-                "layer_mismatch: true\n"
-                "layer_mismatch_config:\n"
-                "  freq: 5          # compute every 5 rounds\n"
-                "  layers: null     # auto-detect Conv2d + Linear\n"
-                "  metrics: [drift, loss_jump, cka]",
-                language="yaml"
-            )
-        else:
-            # ── KPI cards ─────────────────────────────────────────────────────
-            st.markdown("**Average mismatch score per algorithm** (lower = better alignment)")
-            kpi_cols = st.columns(min(len(lm_experiments), 4))
-            for i, (label, exp) in enumerate(lm_experiments.items()):
-                lm_series = exp["df"]["layer_mismatch"].dropna()
-                avg_lm = float(lm_series.mean()) if len(lm_series) > 0 else float("nan")
-                max_lm = float(lm_series.max()) if len(lm_series) > 0 else float("nan")
-                col = kpi_cols[i % len(kpi_cols)]
-                col.metric(
-                    label=_short_graph_label(label),
-                    value=f"{avg_lm:.3f}" if not (avg_lm != avg_lm) else "—",
-                    delta=f"max {max_lm:.3f}" if not (max_lm != max_lm) else None,
-                    delta_color="inverse",
-                )
-
-            st.divider()
-
-            # ── Mismatch score over rounds ────────────────────────────────────
-            st.markdown("**Mismatch score over rounds** — gaps = rounds skipped by `freq` setting")
-            fig_lm = go.Figure()
-            for i, (label, exp) in enumerate(lm_experiments.items()):
-                df = exp["df"]
-                rounds = _round_col(df)
-                lm_col = df["layer_mismatch"]
-                color = COLOR_MAP[i % len(COLOR_MAP)]
-                legend_label = _short_graph_label(label)
-
-                # Plot with connectgaps=False so None values show as gaps
-                fig_lm.add_trace(go.Scatter(
-                    x=rounds,
-                    y=lm_col,
-                    mode="lines+markers",
-                    name=legend_label,
-                    line=dict(color=color, width=2.5),
-                    marker=dict(size=5, color=color),
-                    connectgaps=False,
-                ))
-
-            fig_lm.add_hline(
-                y=0.3, line_dash="dot", line_color="orange",
-                annotation_text="Moderate mismatch (0.3)",
-                annotation_position="bottom right",
-            )
-            fig_lm.add_hline(
-                y=0.6, line_dash="dot", line_color="red",
-                annotation_text="Severe mismatch (0.6)",
-                annotation_position="bottom right",
-            )
-            fig_lm.update_layout(
-                xaxis_title="Round",
-                yaxis_title="Mismatch Score [0, 1]",
-                yaxis=dict(range=[0, 1]),
-                template="plotly_white",
-                height=460,
-                font=dict(family="Inter"),
-                legend=dict(
-                    orientation="v", xanchor="left", x=1.02,
-                    yanchor="middle", y=0.5,
-                    font=dict(size=11),
-                    bgcolor="rgba(255,255,255,0.8)",
-                    bordercolor="#e2e8f0", borderwidth=1,
-                ),
-                margin=dict(r=180),
-            )
-            st.plotly_chart(fig_lm, width="stretch")
-            st.caption(
-                "Score ∈ [0, 1] — composite of three sub-metrics averaged: "
-                "**Representation Drift** (‖h_before − h_after‖_F / ‖h_before‖_F after FedAvg), "
-                "**Loss Jump** (L_i(w_global) − L_i(w_local)), "
-                "**CKA** (1 − CKA similarity between client representations). "
-                "Gaps in the curve = rounds not computed due to `freq > 1` setting."
-            )
-
-            st.divider()
-
-            # ── Per-algorithm summary table ───────────────────────────────────
-            st.markdown("**Summary table**")
-            lm_rows = []
-            for label, exp in lm_experiments.items():
-                lm_series = exp["df"]["layer_mismatch"].dropna()
-                n_computed = int(lm_series.count())
-                lm_rows.append({
-                    "Algorithm":       label,
-                    "Rounds computed": n_computed,
-                    "Mean score":      f"{lm_series.mean():.4f}" if n_computed > 0 else "—",
-                    "Max score":       f"{lm_series.max():.4f}" if n_computed > 0 else "—",
-                    "Min score":       f"{lm_series.min():.4f}" if n_computed > 0 else "—",
-                    "Last score":      f"{lm_series.iloc[-1]:.4f}" if n_computed > 0 else "—",
-                })
-            st.dataframe(pd.DataFrame(lm_rows), hide_index=True, use_container_width=True)
-            st.caption(
-                "Mean score averaged over all computed rounds (None rounds excluded). "
-                "A decreasing trend over rounds indicates the aggregation scheme is "
-                "progressively reducing inter-layer misalignment."
-            )
-
-            # ── Sub-metric breakdown (if individual metrics stored) ───────────
-            sub_metrics = {
-                "lm_drift":      ("Representation Drift", "orange"),
-                "lm_loss_jump":  ("Loss Jump",            "crimson"),
-                "lm_cka":        ("1 − CKA Similarity",   "steelblue"),
-            }
-            available_sub = [
-                (col, name, color)
-                for col, (name, color) in sub_metrics.items()
-                if any(col in exp["df"].columns for exp in lm_experiments.values())
-            ]
-            if available_sub:
-                st.divider()
-                st.markdown("**Sub-metric breakdown**")
-                fig_sub = go.Figure()
-                for col, name, sub_color in available_sub:
-                    for i, (label, exp) in enumerate(lm_experiments.items()):
-                        df = exp["df"]
-                        if col not in df.columns:
-                            continue
-                        rounds = _round_col(df)
-                        legend_label = f"{_short_graph_label(label)} / {name}"
-                        fig_sub.add_trace(go.Scatter(
-                            x=rounds, y=df[col],
-                            mode="lines",
-                            name=legend_label,
-                            line=dict(color=COLOR_MAP[i % len(COLOR_MAP)],
-                                      width=1.5, dash="dot"),
-                            connectgaps=False,
-                        ))
-                fig_sub.update_layout(
-                    xaxis_title="Round",
-                    yaxis_title="Sub-metric value",
-                    template="plotly_white",
-                    height=380,
-                    font=dict(family="Inter"),
-                    legend=dict(orientation="v", xanchor="left", x=1.02,
-                                yanchor="middle", y=0.5,
-                                bgcolor="rgba(255,255,255,0.8)",
-                                bordercolor="#e2e8f0", borderwidth=1),
-                    margin=dict(r=220),
-                )
-                st.plotly_chart(fig_sub, width="stretch")
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Page: SURVIVAL & FAIRNESS  (FedPartBE evaluation)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2784,7 +2980,7 @@ elif page == "Survival & Fairness":
                             bordercolor="#e2e8f0", borderwidth=1),
                 margin=dict(r=240),
             )
-            st.plotly_chart(fig_surv, use_container_width=True)
+            st.plotly_chart(fig_surv, width="stretch")
             st.caption(
                 "`survival_ratio` = clients with battery > 0 / total clients. "
                 "`num_alive_clients` is normalised by the max value when `survival_ratio` is absent. "
@@ -2820,7 +3016,7 @@ elif page == "Survival & Fairness":
                     "Best Acc (%)":          best_acc_ms if best_acc_ms is not None else "—",
                 })
             if milestone_rows:
-                st.dataframe(pd.DataFrame(milestone_rows), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(milestone_rows), hide_index=True, width="stretch")
 
             # ── Jain fairness over rounds (if available) ───────────────────
             has_jain_surv = any("jain_index" in exp["df"].columns for exp in experiments_sf.values())
@@ -2849,7 +3045,7 @@ elif page == "Survival & Fairness":
                                 bordercolor="#e2e8f0", borderwidth=1),
                     margin=dict(r=220),
                 )
-                st.plotly_chart(fig_jain_surv, use_container_width=True)
+                st.plotly_chart(fig_jain_surv, width="stretch")
 
         # ── Accuracy × Survival joint view ───────────────────────────────────
         st.markdown("---")
@@ -3046,7 +3242,7 @@ elif page == "Survival & Fairness":
 
         if table_a_rows:
             ta_df = pd.DataFrame(table_a_rows)
-            st.dataframe(ta_df, hide_index=True, use_container_width=True)
+            st.dataframe(ta_df, hide_index=True, width="stretch")
             # CSV download
             csv_a = ta_df.to_csv(index=False).encode()
             st.download_button(
@@ -3210,7 +3406,7 @@ elif page == "Survival & Fairness":
                 ),
                 margin=dict(r=220, t=70),
             )
-            st.plotly_chart(fig_par, use_container_width=True)
+            st.plotly_chart(fig_par, width="stretch")
             st.caption(
                 "Bubble size = system lifetime (round when 50% clients survive). "
                 "Larger bubble = algorithm keeps clients alive longer. "
@@ -3225,7 +3421,7 @@ elif page == "Survival & Fairness":
             p_table = p_table.sort_values("Best Accuracy (%)", ascending=False)
             p_table["Best Accuracy (%)"] = p_table["Best Accuracy (%)"].map("{:.2f}".format)
             p_table["Total Energy (kJ)"] = p_table["Total Energy (kJ)"].map("{:.1f}".format)
-            st.dataframe(p_table, hide_index=True, use_container_width=True)
+            st.dataframe(p_table, hide_index=True, width="stretch")
             csv_par = p_table.to_csv(index=False).encode()
             st.download_button(
                 "Download Pareto Table (CSV)",
