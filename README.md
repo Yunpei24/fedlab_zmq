@@ -114,9 +114,14 @@ the standalone configs below run one experiment each.
 | **Experiment A** — survival curve | `configs/fedpartbe_survival.yaml` | % clients alive vs rounds |
 | **Experiment B** — wide battery spread | `configs/fedpartbe_survival_wide.yaml` (CIFAR-10: `…_cifar10.yaml`; 60-client: `…_fleet60.yaml`) | survival + accuracy under SoC ∈ [5%, 95%] |
 | **Cost-model methodology** — {algo}×{phi,corrected,measured} ablation | `python scripts/run_costmodel_ablation.py` | does the FedPartBE-vs-FedPart gap widen under the corrected/measured cost model? → `results/costmodel_ablation/comparison.csv` |
+| **energy_scale_factor (α) sensitivity** | `python scripts/run_alpha_sensitivity.py --grid smoke` (sanity) · `--grid full` (real) | robustness of the conclusions to the energy multiplier α: aggregated CSVs, relative-vs-absolute figures (marker at α=12.6), and `robustness_summary.md` with a paper-ready verdict → `results/alpha_sensitivity/<grid>/` |
 
 > Confirm the exact Table/Figure numbers against the paper draft — the mapping
 > above is taken from the headers inside each config file.
+>
+> Two different "α" appear above: the **Dirichlet α** (data heterogeneity,
+> Figure 5) and the **energy_scale_factor α** (compute-energy multiplier,
+> sensitivity sweep). They are unrelated.
 
 **Expected runtime / hardware.** Configs default to CIFAR-10 / ResNet-8 /
 30 ESP32-S3 / 200 rounds. On an Apple M-series laptop (`--device mps`) a single

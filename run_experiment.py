@@ -1101,6 +1101,18 @@ Examples:
         "requires_grad mask (cached). Default: read from YAML "
         "'cost_model' key, else 'phi' (backwards-compatible).",
     )
+    p.add_argument(
+        "--energy-scale-factor",
+        type=float,
+        default=None,
+        metavar="ALPHA",
+        help="Override the compute energy_scale_factor (alpha) for ALL "
+        "algorithms in this run. alpha multiplies per-round compute energy; "
+        "it cancels in relative (cross-algo) energy ratios but NOT in "
+        "absolute survival once battery death is active. Used by the alpha "
+        "sensitivity sweep (scripts/run_alpha_sensitivity.py). Default: read "
+        "from YAML algo_config.energy_scale_factor.",
+    )
 
     # Client sampling
     p.add_argument(
@@ -1247,6 +1259,13 @@ Examples:
             f"  cost_model: {_cost_model!r} (non-legacy — absolute energy will "
             f"differ from phi by ~10–200×; recalibrate energy_scale_factor)"
         )
+
+    # ── energy_scale_factor (alpha) override ─────────────────────────────────
+    # CLI > YAML algo_config.energy_scale_factor. alpha multiplies per-round
+    # compute energy. Driven by the alpha sensitivity sweep.
+    if args.energy_scale_factor is not None:
+        algo_config["energy_scale_factor"] = args.energy_scale_factor
+        print(f"  energy_scale_factor (alpha): {args.energy_scale_factor}")
 
     # ── Final device: YAML 'device' key overrides auto-detect (not CLI) ────────
     _yaml_device = cfg.get("device", None)

@@ -1,0 +1,94 @@
+# =====================================================================
+# alpha (energy_scale_factor) SENSITIVITY — base scenario
+# =====================================================================
+# This config fixes the experimental scenario for the energy_scale_factor
+# (alpha) sensitivity sweep. The sweep driver
+# (scripts/run_alpha_sensitivity.py) re-runs the FULL simulation for each
+# (algorithm, alpha) pair, overriding only:
+#     training.algorithm                 (via --algo)
+#     algo_config.energy_scale_factor    (via --energy-scale-factor)
+#     cost_model                         (via --cost-model measured)
+# Everything else below is held FIXED across the whole grid (same seed).
+#
+# Why re-run instead of post-hoc rescaling?
+#   alpha multiplies per-round COMPUTE energy. It cancels in RELATIVE
+#   (cross-algo) energy ratios, but NOT in the ABSOLUTE survival dynamics:
+#   once a battery hits zero, alpha decides WHO dies and WHEN, which (under
+#   battery-stratified group assignment) changes the assignment, the deaths,
+#   and therefore the whole training trajectory. So alpha cannot be rescaled
+#   after the fact — each alpha needs a fresh full simulation.
+#
+# ── alpha range justification (documented, not arbitrary) ─────────────
+#   alpha converts analytic FLOPs into wall-energy on a microcontroller.
+#   An MCU without an FPU/SIMD unit (ESP32-S3 class) sustains only a small
+#   fraction of its nominal peak FLOP/s on real conv/BN workloads, so the
+#   effective energy per analytic FLOP is inflated by ~1/(utilization).
+#   Plausible sustained utilization for such a core is ~5-30% of peak, which
+#   maps to alpha ~ 3-20. The default grid brackets this with headroom:
+#       [2, 3, 5, 8, 12.6, 20, 30]
+#   and includes alpha = 12.6, the hand-calibrated reference value (chosen so
+#   T* ~ 80 rounds), as a vertical marker on every figure. The point of the
+#   sweep is to show the paper's conclusions hold across this whole range,
+#   rather than depending on the single circular value 12.6.
+# =====================================================================
+
+seed: 42
+output_dir: "./results/alpha_sensitivity"
+device: cpu                 # overridden by the sweep driver (--device)
+cost_model: measured        # FIXED for the whole sweep (FlopCounterMode)
+
+layer_mismatch: false
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 1.0                # Dirichlet heterogeneity (NOT the energy alpha)
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be     # overridden per run by --algo
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 8
+    batch_size: 32
+    warmup_rounds: 5
+    num_tiers: 2
+    server_lr: null
+    assignment_strategy: quantile
+    mu_repr: 0.01
+    mu_weight: 0.01
+    ema_model_alpha: 0.0
+    rotation_period: 2
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    # Reference value; the sweep overrides this per run via
+    # --energy-scale-factor across the documented grid above.
+    energy_scale_factor: 12.6
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+
+  fleet:
+    - type: esp32_s3
+      count: 30
+
+  # Wide SoC spread [5%, 95%] — battery death is ACTIVE, so alpha affects the
+  # absolute survival trajectory (the whole reason a full re-run per alpha is
+  # required). ESP32-S3 battery ~13.3 kJ.
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95
