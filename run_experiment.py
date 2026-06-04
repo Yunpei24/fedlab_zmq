@@ -86,6 +86,7 @@ from models.registry import get_model
 from datasets.registry import get_dataloader
 from hardware.profiles import make_fleet
 from diagnostics.layer_mismatch import LayerMismatchDiagnostic
+from core.seeding import seed_everything
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -188,8 +189,10 @@ def run_single_experiment(
         dict with keys: config, rounds (list of per-round metrics), summary
     """
     # ── Seed ─────────────────────────────────────────────────────────────────
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    # Centralized: seeds python/numpy/torch(CPU+CUDA) identically to the prior
+    # torch.manual_seed + np.random.seed pair. The fleet re-seeds python random
+    # again just before make_fleet (below) to keep fleet generation bit-stable.
+    seed_everything(seed)
 
     # ── Algorithm ────────────────────────────────────────────────────────────
     algo = get_algorithm(algo_name)
