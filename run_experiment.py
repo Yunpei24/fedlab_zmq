@@ -1127,6 +1127,30 @@ Examples:
     out_dir = Path(output_dir) / f"{algo_name}_{dataset}_{model_name}_{partition}_ncl{num_clients}_r{num_rounds}_s{seed}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Reproducibility manifest ─────────────────────────────────────────────
+    # Resolved config + git commit + seed + package versions + FLOP convention.
+    try:
+        from core.manifest import write_manifest
+        _resolved = {
+            "algorithm":    algo_name,
+            "dataset":      dataset,
+            "model":        model_name,
+            "partition":    partition,
+            "num_clients":  num_clients,
+            "num_rounds":   num_rounds,
+            "device":       device,
+            "cost_model":   _cost_model,
+            "output_dir":   str(output_dir),
+            "algo_config":  result.get("config", {}),
+        }
+        _mpath = write_manifest(
+            out_dir, _resolved, seed,
+            extra={"cost_model": _cost_model, "device": device},
+        )
+        print(f"  Manifest: {_mpath}")
+    except Exception as exc:
+        print(f"  [warn] manifest write skipped: {exc}")
+
     # ── Survival / Pareto artifacts ─────────────────────────────────────────
     # Builds survival.csv next to metrics.json and folds a "survival" summary
     # block into the JSON for the ablation runner to read in one open().

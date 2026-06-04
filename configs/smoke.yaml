@@ -1,0 +1,76 @@
+# ============================================================
+# SMOKE TEST — fast end-to-end sanity check (< 1 min, CPU-only)
+# ============================================================
+# Purpose: let a reviewer confirm the pipeline runs and writes its artifacts
+# (metrics.json, manifest.json, survival.csv) BEFORE launching a full
+# benchmark. This is NOT a paper result — 3 clients / 3 rounds is far too
+# small to mean anything; it only checks that the machinery works.
+#
+# Run:
+#   python run_experiment.py --config configs/smoke.yaml
+#
+# Expected: completes in well under a minute on a laptop CPU and creates
+#   results/smoke/fedpart_be_cifar10_resnet8_dirichlet_ncl3_r3_s42/
+#     ├── metrics.json
+#     ├── manifest.json
+#     └── survival.csv
+# ============================================================
+
+seed: 42
+output_dir: "./results/smoke"
+device: cpu                 # portable — no MPS/CUDA required
+cost_model: phi             # legacy/bit-exact path (the regression-tested default)
+
+layer_mismatch: false
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.5
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 3
+  algorithm: fedpart_be
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 1         # minimal — speed over accuracy
+    batch_size: 32
+    warmup_rounds: 1
+    num_tiers: 2
+    server_lr: null
+    assignment_strategy: quantile
+    mu_repr: 0.01
+    mu_weight: 0.01
+    ema_model_alpha: 0.0
+    rotation_period: 2
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    energy_scale_factor: 12.6
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+
+clients:
+  num_clients: 3
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+
+  fleet:
+    - type: esp32_s3
+      count: 3
+
+  # High SOC so clients survive all 3 rounds — keeps the smoke deterministic
+  # and avoids early-death noise (battery dynamics are exercised by the full
+  # survival configs, not here).
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.90
+      max_soc: 0.95
