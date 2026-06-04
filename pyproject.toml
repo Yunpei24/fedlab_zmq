@@ -1,0 +1,44 @@
+# Tool configuration only — the package build is driven by setup.py.
+# (No [build-system] table here on purpose, to avoid changing how `pip
+#  install -e .` resolves the existing setuptools build.)
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = [
+    "algorithms",
+    "core",
+    "hardware",
+    "metrics",
+    "models",
+    "datasets",
+    "diagnostics",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+# Conservative set: pyflakes (F) catches unused imports / dead vars,
+# a subset of pycodestyle (E) for obvious issues, and isort (I) for import
+# order. Kept intentionally small so the linter stays a guardrail, not a
+# style nag that would force behavior-neutral churn.
+select = ["F", "E4", "E7", "E9", "I"]
+# E741 (ambiguous one-letter name) is pure style; renaming live loop vars
+# would be behavior-neutral churn with no guardrail value.
+ignore = ["E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# These entry-point scripts bootstrap sys.path before importing first-party
+# modules, so module-level imports legitimately follow code (E402).
+"run_experiment.py" = ["E402"]
+"scripts/*.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

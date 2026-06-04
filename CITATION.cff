@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software or the FedPartBE algorithm, please cite it as below."
+title: "FedLab ZMQ: Energy-Efficient Federated Learning on Constrained IoT Devices"
+abstract: >-
+  A federated learning research framework with realistic battery simulation,
+  heterogeneous device profiles, and a centralized compute-cost model
+  (hardware/flop_cost.py). Includes FedPartBE, a battery-aware partial-network
+  update algorithm, and the phi / corrected / measured cost-model methodology.
+type: software
+authors:
+  - family-names: Nikiema
+    given-names: Joshua Juste Yunpei
+    affiliation: "Mohammed VI Polytechnic University (UM6P), College of Computing"
+    email: joshuanikiema24@gmail.com
+  - family-names: Amhoud
+    given-names: El Mehdi
+    affiliation: "Mohammed VI Polytechnic University (UM6P), College of Computing"
+  - family-names: Elhammouti
+    given-names: Hajar
+    affiliation: "Mohammed VI Polytechnic University (UM6P), College of Computing"
+  - family-names: Kissami
+    given-names: Imad
+    affiliation: "Mohammed VI Polytechnic University (UM6P), College of Computing"
+repository-code: "https://github.com/Yunpei24/fedlab_zmq"
+url: "https://github.com/Yunpei24/fedlab_zmq"
+keywords:
+  - federated learning
+  - energy efficiency
+  - edge computing
+  - IoT
+  - partial network updates
+  - battery-aware training
+version: "1.0.0"
+date-released: "2026-06-04"
+license: MIT
