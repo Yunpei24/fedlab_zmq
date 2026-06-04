@@ -37,19 +37,34 @@ def _git_commit(repo_root: Path) -> dict[str, Any]:
     """Best-effort git provenance. Never raises."""
     info: dict[str, Any] = {"commit": None, "dirty": None, "branch": None}
     try:
-        info["commit"] = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=str(repo_root),
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
-        info["branch"] = subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(repo_root),
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
+        info["commit"] = (
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(repo_root),
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
+        info["branch"] = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(repo_root),
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
         # dirty == uncommitted changes present
-        status = subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=str(repo_root),
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
+        status = (
+            subprocess.check_output(
+                ["git", "status", "--porcelain"],
+                cwd=str(repo_root),
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
         info["dirty"] = bool(status)
     except Exception:
         pass
@@ -70,6 +85,7 @@ def _flop_convention() -> float | None:
     """The FlopCounterMode MAC/FLOP factor (1.0 or 2.0), or None if unavailable."""
     try:
         from hardware.flop_cost import calibrate_convention
+
         return float(calibrate_convention())
     except Exception:
         return None

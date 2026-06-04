@@ -72,13 +72,15 @@ def derive_per_round_rows(
         acc = acc_hist[r] if r < len(acc_hist) else None
         if acc is not None:
             best_acc = max(best_acc, float(acc))
-        rows.append({
-            "round":         r,
-            "num_alive":     int(num_alive),
-            "cum_energy_j":  cum_energy,
-            "best_acc":      best_acc if acc is not None else "",
-            "mean_acc":      float(acc) if acc is not None else "",
-        })
+        rows.append(
+            {
+                "round": r,
+                "num_alive": int(num_alive),
+                "cum_energy_j": cum_energy,
+                "best_acc": best_acc if acc is not None else "",
+                "mean_acc": float(acc) if acc is not None else "",
+            }
+        )
     return rows
 
 
@@ -199,15 +201,16 @@ def write_csv(
         for row in per_round_rows:
             w.writerow(row)
         # Trailing summary
-        fh.write("# summary: " + ", ".join(
-            f"{k}={v}" for k, v in summary.items()
-        ) + "\n")
+        fh.write(
+            "# summary: " + ", ".join(f"{k}={v}" for k, v in summary.items()) + "\n"
+        )
     return path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Convenience: full pipeline from runner state
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def emit_survival_artifacts(
     output_dir: str,
@@ -220,9 +223,7 @@ def emit_survival_artifacts(
     """One-shot: derive rows + lifetimes + summary, write the CSV, return
     the summary dict (caller can fold it into metrics.json).
     """
-    rows = derive_per_round_rows(
-        rounds_metrics, accuracy_history, num_clients_total
-    )
+    rows = derive_per_round_rows(rounds_metrics, accuracy_history, num_clients_total)
     lifetimes = derive_lifetimes(client_states, num_rounds)
     summary = summary_from(rows, lifetimes, num_clients_total, num_rounds)
     path = write_csv(output_dir, rows, summary)

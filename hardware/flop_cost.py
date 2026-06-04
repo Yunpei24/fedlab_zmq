@@ -77,7 +77,6 @@ import torch
 import torch.nn as nn
 from torch.utils.flop_counter import FlopCounterMode
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Convention calibration (lazy, cached)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,18 +170,21 @@ def _arch_fingerprint(model: nn.Module) -> int:
     vs CIFAR-100 head) produce distinct fingerprints.
     """
     cls = type(model).__name__
-    shapes = tuple(sorted(
-        (name, tuple(p.shape)) for name, p in model.named_parameters()
-    ))
+    shapes = tuple(
+        sorted((name, tuple(p.shape)) for name, p in model.named_parameters())
+    )
     return hash((cls, shapes))
 
 
-def _cache_key(model: nn.Module,
-               trainable_names: frozenset,
-               input_shape: tuple,
-               batch_size: int) -> tuple:
-    return (_arch_fingerprint(model), tuple(input_shape),
-            int(batch_size), trainable_names)
+def _cache_key(
+    model: nn.Module, trainable_names: frozenset, input_shape: tuple, batch_size: int
+) -> tuple:
+    return (
+        _arch_fingerprint(model),
+        tuple(input_shape),
+        int(batch_size),
+        trainable_names,
+    )
 
 
 def _maybe_warn_high_miss_rate() -> None:
@@ -212,8 +214,8 @@ def _maybe_warn_high_miss_rate() -> None:
 # Freeze / restore (generalised to arbitrary trainable name sets)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def freeze_to_trainable(model: nn.Module,
-                        trainable_names: Iterable[str]) -> None:
+
+def freeze_to_trainable(model: nn.Module, trainable_names: Iterable[str]) -> None:
     """Set requires_grad=True on parameters in `trainable_names`, False on all
     others. Mirror of the old per-algo `_freeze_all_except_group`, but keyed
     by an explicit name set instead of a group index.
@@ -232,6 +234,7 @@ def restore_grad(model: nn.Module) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Group cost helpers (moved from algorithms/fedpart and fedpart_be)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def compute_group_flops(
     groups: list[list[str]],
@@ -253,14 +256,21 @@ def compute_group_flops(
     def _make_hook(mod_name: str):
         def _hook(module, inp, output):
             if isinstance(module, nn.Conv2d):
-                kh, kw = (module.kernel_size
-                          if isinstance(module.kernel_size, tuple)
-                          else (module.kernel_size, module.kernel_size))
+                kh, kw = (
+                    module.kernel_size
+                    if isinstance(module.kernel_size, tuple)
+                    else (module.kernel_size, module.kernel_size)
+                )
                 H_out = output.shape[2] if output.dim() >= 3 else 1
                 W_out = output.shape[3] if output.dim() >= 4 else 1
                 module_flops[mod_name] = int(
-                    2 * kh * kw * module.in_channels * module.out_channels
-                    * H_out * W_out
+                    2
+                    * kh
+                    * kw
+                    * module.in_channels
+                    * module.out_channels
+                    * H_out
+                    * W_out
                 )
             elif isinstance(module, nn.Linear):
                 module_flops[mod_name] = int(
@@ -268,11 +278,13 @@ def compute_group_flops(
                 )
             else:
                 module_flops[mod_name] = 0
+
         return _hook
 
     for mod_name, mod in model.named_modules():
-        if isinstance(mod, (nn.Conv2d, nn.Linear,
-                            nn.BatchNorm1d, nn.BatchNorm2d, nn.ReLU)):
+        if isinstance(
+            mod, (nn.Conv2d, nn.Linear, nn.BatchNorm1d, nn.BatchNorm2d, nn.ReLU)
+        ):
             hooks.append(mod.register_forward_hook(_make_hook(mod_name)))
 
     was_training = model.training
@@ -328,7 +340,7 @@ def compute_corrected_group_costs(group_flops: list[float]) -> list[float]:
     """
     corrected: list[float] = []
     for p in range(len(group_flops)):
-        downstream = sum(group_flops[p + 1:])
+        downstream = sum(group_flops[p + 1 :])
         corrected.append(group_flops[p] + 0.5 * downstream)
     return corrected
 
@@ -336,6 +348,7 @@ def compute_corrected_group_costs(group_flops: list[float]) -> list[float]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Core measurement
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _is_compiled(model: nn.Module) -> bool:
     return getattr(model, "_orig_mod", None) is not None
@@ -406,7 +419,8 @@ def measure_fwd_bwd_flops(
         m_device = _model_device(model)
         x = torch.randn(
             (batch_size,) + tuple(input_shape[1:]),
-            device=m_device, dtype=torch.float32,
+            device=m_device,
+            dtype=torch.float32,
         )
 
         with FlopCounterMode(display=False) as fc:
@@ -445,7 +459,7 @@ def round_compute_flops(
     model: nn.Module,
     trainable_names: Iterable[str],
     config: dict,
-    profile,                       # hardware.profiles.DeviceProfile
+    profile,  # hardware.profiles.DeviceProfile
     dataloader: torch.utils.data.DataLoader,
     local_epochs: int,
     *,
@@ -508,8 +522,11 @@ def round_compute_flops(
         if beta_fraction is not None:
             # server_mask: (1 + beta) / 2 * full_flops
             return float(full_flops * 0.5 * (1.0 + float(beta_fraction)))
-        if (active_group_idx is not None and active_group_idx >= 0
-                and group_flops_analytic):
+        if (
+            active_group_idx is not None
+            and active_group_idx >= 0
+            and group_flops_analytic
+        ):
             # fedpart / fedpart_be (PNU round)
             frac = group_flops_analytic[active_group_idx] / sum(group_flops_analytic)
             return float(full_flops * (1.0 / 3.0 + 2.0 / 3.0 * frac))
@@ -519,8 +536,12 @@ def round_compute_flops(
     # ── CORRECTED: full * (1/3 + 2/3 * corrected_g / sum(group_flops)) ───────
     if cost_model == "corrected":
         # 1. Contiguous-group active round → position-aware analytic formula.
-        if (groups is not None and active_group_idx is not None
-                and active_group_idx >= 0 and group_flops_analytic):
+        if (
+            groups is not None
+            and active_group_idx is not None
+            and active_group_idx >= 0
+            and group_flops_analytic
+        ):
             num_params = sum(p.numel() for p in model.parameters())
             full_flops = profile.flops_for_model(
                 num_params, batch_size, local_epochs, dataset_size
@@ -533,12 +554,20 @@ def round_compute_flops(
         #    hint) → analytic full_flops (the "frac = 1" case of the same
         #    formula: 1/3 + 2/3*1 = 1). Holds whether or not `groups` was
         #    passed alongside active_group_idx = -1.
-        if ((active_group_idx is None or active_group_idx < 0)
-                and beta_fraction is None and num_primary_params is None):
+        if (
+            (active_group_idx is None or active_group_idx < 0)
+            and beta_fraction is None
+            and num_primary_params is None
+        ):
             num_params = sum(p.numel() for p in model.parameters())
-            return float(profile.flops_for_model(
-                num_params, batch_size, local_epochs, dataset_size,
-            ))
+            return float(
+                profile.flops_for_model(
+                    num_params,
+                    batch_size,
+                    local_epochs,
+                    dataset_size,
+                )
+            )
         # 3. Scattered mask / partial backward without group structure: the
         #    analytic position-aware model is not defined here. Fall through
         #    to the measured branch below — documented behaviour.
@@ -546,7 +575,10 @@ def round_compute_flops(
     # ── MEASURED (default) ──────────────────────────────────────────────────
     input_shape = (config or {}).get("input_shape", (1, 3, 32, 32))
     per_step = measure_fwd_bwd_flops(
-        model, trainable_names, input_shape, batch_size,
+        model,
+        trainable_names,
+        input_shape,
+        batch_size,
     )
     return float(per_step * steps)
 

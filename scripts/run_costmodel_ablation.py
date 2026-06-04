@@ -38,7 +38,6 @@ import sys
 import time
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "configs/fedpartbe_survival_wide_cifar10.yaml"
 DEFAULT_OUT = ROOT / "results/costmodel_ablation"
@@ -50,15 +49,24 @@ COST_MODELS = ["phi", "corrected", "measured"]
 
 def _build_command(algo: str, cost_model: str, args, out_dir: Path) -> list[str]:
     cmd = [
-        sys.executable, str(ROOT / "run_experiment.py"),
-        "--config", str(args.config),
-        "--algo", algo,
-        "--cost-model", cost_model,
-        "--rounds", str(args.rounds),
-        "--epochs", str(args.epochs),
-        "--seed", str(args.seed),
-        "--device", args.device,
-        "--output", str(out_dir),
+        sys.executable,
+        str(ROOT / "run_experiment.py"),
+        "--config",
+        str(args.config),
+        "--algo",
+        algo,
+        "--cost-model",
+        cost_model,
+        "--rounds",
+        str(args.rounds),
+        "--epochs",
+        str(args.epochs),
+        "--seed",
+        str(args.seed),
+        "--device",
+        args.device,
+        "--output",
+        str(out_dir),
     ]
     return cmd
 
@@ -85,15 +93,15 @@ def _find_metrics_json(run_dir: Path) -> Path | None:
 
 def _extract_row(algo: str, cost_model: str, metrics_path: Path | None) -> dict:
     row: dict = {
-        "algo":        algo,
-        "cost_model":  cost_model,
-        "best_acc":    None,
-        "final_acc":   None,
+        "algo": algo,
+        "cost_model": cost_model,
+        "best_acc": None,
+        "final_acc": None,
         "alive_final": None,
         "median_lifetime": None,
-        "survival_auc":    None,
-        "total_energy_j":  None,
-        "total_bytes_gb":  None,
+        "survival_auc": None,
+        "total_energy_j": None,
+        "total_bytes_gb": None,
     }
     if metrics_path is None or not metrics_path.exists():
         row["error"] = "metrics.json not found"
@@ -102,12 +110,12 @@ def _extract_row(algo: str, cost_model: str, metrics_path: Path | None) -> dict:
         data = json.load(fh)
     summary = data.get("summary", {})
     survival = data.get("survival", {})
-    row["best_acc"]        = summary.get("best_accuracy")
-    row["final_acc"]       = summary.get("final_accuracy")
-    row["total_energy_j"]  = summary.get("total_energy_j")
-    row["total_bytes_gb"]  = summary.get("total_bytes_gb")
+    row["best_acc"] = summary.get("best_accuracy")
+    row["final_acc"] = summary.get("final_accuracy")
+    row["total_energy_j"] = summary.get("total_energy_j")
+    row["total_bytes_gb"] = summary.get("total_bytes_gb")
     row["median_lifetime"] = survival.get("median_lifetime")
-    row["survival_auc"]    = survival.get("survival_auc")
+    row["survival_auc"] = survival.get("survival_auc")
     rounds = data.get("rounds", [])
     if rounds:
         row["alive_final"] = rounds[-1].get("num_alive_clients")
@@ -120,14 +128,25 @@ def main():
     p.add_argument("--output", type=str, default=str(DEFAULT_OUT))
     p.add_argument("--rounds", type=int, default=200)
     p.add_argument("--epochs", type=int, default=8)
-    p.add_argument("--seed",   type=int, default=42)
+    p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default="cpu")
-    p.add_argument("--algos", nargs="+", default=ALGOS,
-                   help="Subset of algos to run (default: fedavg fedpart fedpart_be)")
-    p.add_argument("--cost-models", nargs="+", default=COST_MODELS,
-                   help="Subset of cost_models to run (default: phi corrected measured)")
-    p.add_argument("--dry-run", action="store_true",
-                   help="Print the planned commands without launching anything.")
+    p.add_argument(
+        "--algos",
+        nargs="+",
+        default=ALGOS,
+        help="Subset of algos to run (default: fedavg fedpart fedpart_be)",
+    )
+    p.add_argument(
+        "--cost-models",
+        nargs="+",
+        default=COST_MODELS,
+        help="Subset of cost_models to run (default: phi corrected measured)",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the planned commands without launching anything.",
+    )
     args = p.parse_args()
 
     base_out = Path(args.output)
@@ -139,7 +158,9 @@ def main():
             run_dir = base_out / f"{algo}__{cm}"
             if args.dry_run:
                 cmd = _build_command(algo, cm, args, run_dir)
-                print(f"[dry-run] {algo} / {cm}: {' '.join(shlex.quote(c) for c in cmd)}")
+                print(
+                    f"[dry-run] {algo} / {cm}: {' '.join(shlex.quote(c) for c in cmd)}"
+                )
                 continue
             run_dir = _run_one(algo, cm, args, base_out)
             metrics_json = _find_metrics_json(run_dir)
@@ -150,8 +171,17 @@ def main():
 
     # Comparison CSV
     csv_path = base_out / "comparison.csv"
-    fields = ["algo", "cost_model", "best_acc", "final_acc", "alive_final",
-              "median_lifetime", "survival_auc", "total_energy_j", "total_bytes_gb"]
+    fields = [
+        "algo",
+        "cost_model",
+        "best_acc",
+        "final_acc",
+        "alive_final",
+        "median_lifetime",
+        "survival_auc",
+        "total_energy_j",
+        "total_bytes_gb",
+    ]
     with open(csv_path, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=fields)
         w.writeheader()
@@ -164,10 +194,14 @@ def main():
     print(header)
     print("-" * len(header))
     for row in rows:
+
         def _fmt(v, w=9, p=4):
-            if v is None: return f"{'N/A':>{w}}"
-            if isinstance(v, float): return f"{v:>{w}.{p}f}"
+            if v is None:
+                return f"{'N/A':>{w}}"
+            if isinstance(v, float):
+                return f"{v:>{w}.{p}f}"
             return f"{v:>{w}}"
+
         print(
             f"{row['algo']:<12} {row['cost_model']:<10}"
             f" {_fmt(row['best_acc'])} {_fmt(row['final_acc'], 10)}"

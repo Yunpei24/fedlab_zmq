@@ -104,8 +104,8 @@ Key differences from FedAvg in this implementation
 """
 
 import gc
-import re
 import random
+import re
 from collections import OrderedDict
 from typing import Optional
 
@@ -113,18 +113,19 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
+from hardware.flop_cost import compute_group_flops as _flopcost_compute_group_flops
+from hardware.flop_cost import freeze_to_trainable as _flopcost_freeze_to_trainable
+from hardware.flop_cost import restore_grad as _flopcost_restore_grad
 from hardware.flop_cost import (
     round_compute_flops,
-    compute_group_flops as _flopcost_compute_group_flops,
-    freeze_to_trainable as _flopcost_freeze_to_trainable,
-    restore_grad as _flopcost_restore_grad,
 )
 
+from .base import AggregateResult, ClientState, FLAlgorithm, register_algorithm
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _param_group_key(param_name: str) -> str:
     """
@@ -145,8 +146,13 @@ def _param_group_key(param_name: str) -> str:
     """
     parts = param_name.split(".")
     # Strip non-parameter trailing tokens
-    if parts[-1] in ("weight", "bias", "running_mean", "running_var",
-                     "num_batches_tracked"):
+    if parts[-1] in (
+        "weight",
+        "bias",
+        "running_mean",
+        "running_var",
+        "num_batches_tracked",
+    ):
         parts = parts[:-1]
     if not parts:
         return param_name
@@ -161,14 +167,14 @@ def _param_group_key(param_name: str) -> str:
     for kw in ("shortcut", "downsample"):
         if kw in parts:
             idx = parts.index(kw)
-            return ".".join(parts[:idx + 1])
+            return ".".join(parts[: idx + 1])
 
     # 3. conv+bn pairing: leaf looks like conv1, bn1, norm1, etc.
     leaf = parts[-1]
     m = re.match(r"^(?:conv|bn|norm)(\d+)$", leaf, re.IGNORECASE)
     if m:
         parent = ".".join(parts[:-1]) if len(parts) > 1 else ""
-        return (f"{parent}._pair{m.group(1)}" if parent else f"_pair{m.group(1)}")
+        return f"{parent}._pair{m.group(1)}" if parent else f"_pair{m.group(1)}"
 
     # 4. FC / head
     if top in ("fc", "head", "classifier", "linear"):
@@ -257,17 +263,17 @@ def _active_group_idx_for_round(round_num: int, config: dict) -> int:
     if round_num < warmup:
         return -1  # full-network warmup round
 
-    num_groups    = config.get("num_layer_groups", 10)
-    rpl           = config.get("rounds_per_layer", 2)
-    strategy      = config.get("layer_selection", "sequential")
-    inter_cycle   = config.get("inter_cycle_rounds", 0)   # 0 = disabled
+    num_groups = config.get("num_layer_groups", 10)
+    rpl = config.get("rounds_per_layer", 2)
+    strategy = config.get("layer_selection", "sequential")
+    inter_cycle = config.get("inter_cycle_rounds", 0)  # 0 = disabled
 
-    pnu_round = round_num - warmup   # index within PNU phase (0-based)
+    pnu_round = round_num - warmup  # index within PNU phase (0-based)
 
     if inter_cycle > 0:
-        cycle_length  = num_groups * rpl       # PNU rounds per cycle
-        full_cycle    = cycle_length + inter_cycle   # total rounds per cycle
-        pos_in_cycle  = pnu_round % full_cycle # position within the current cycle
+        cycle_length = num_groups * rpl  # PNU rounds per cycle
+        full_cycle = cycle_length + inter_cycle  # total rounds per cycle
+        pos_in_cycle = pnu_round % full_cycle  # position within the current cycle
 
         if pos_in_cycle >= cycle_length:
             return -1  # inter-cycle full-network training round
@@ -316,6 +322,7 @@ def _restore_all_grad(model: nn.Module) -> None:
 # Algorithm
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @register_algorithm("fedpart")
 class FedPart(FLAlgorithm):
     """
@@ -327,6 +334,7 @@ class FedPart(FLAlgorithm):
 
     Registration key: "fedpart"
     """
+
     name = "fedpart"
     description = (
         "FedPart (Wang et al., NeurIPS 2024). Partial network updates: "
@@ -352,11 +360,11 @@ class FedPart(FLAlgorithm):
         5. Compute delta only for the active group's parameters.
         6. Return (partial_delta, metadata).
         """
-        device        = config.get("device", "cpu")
-        lr            = config.get("lr", 0.01)
-        momentum      = config.get("momentum", 0.9)
-        weight_decay  = config.get("weight_decay", 1e-4)
-        local_epochs  = config.get("local_epochs", 8)    # paper uses E=8
+        device = config.get("device", "cpu")
+        lr = config.get("lr", 0.01)
+        momentum = config.get("momentum", 0.9)
+        weight_decay = config.get("weight_decay", 1e-4)
+        local_epochs = config.get("local_epochs", 8)  # paper uses E=8
         max_grad_norm = config.get("max_grad_norm", None)
 
         model.train()
@@ -372,8 +380,10 @@ class FedPart(FLAlgorithm):
                 for i, g in enumerate(groups):
                     key = _param_group_key(g[0])
                     lines.append(f"    [{i:2d}] {key:<30s} ({len(g)} params)")
-                print(f"  [FedPart] {len(groups)} layer groups derived "
-                      f"(ResNet architecture, shared across all clients)")
+                print(
+                    f"  [FedPart] {len(groups)} layer groups derived "
+                    f"(ResNet architecture, shared across all clients)"
+                )
                 print("\n".join(lines))
         groups: list[list[str]] = state.custom["layer_groups"]
 
@@ -382,16 +392,16 @@ class FedPart(FLAlgorithm):
         config["num_layer_groups"] = min(
             config.get("num_layer_groups", len(groups)), len(groups)
         )
-        num_groups   = config["num_layer_groups"]
+        num_groups = config["num_layer_groups"]
 
         # ── Determine active group ────────────────────────────────────────────
         active_idx = _active_group_idx_for_round(state.round_num, config)
-        is_warmup  = (active_idx < 0)
+        is_warmup = active_idx < 0
 
         # ── Save weights before local training ────────────────────────────────
-        w_before = OrderedDict({
-            k: v.clone().cpu() for k, v in model.state_dict().items()
-        })
+        w_before = OrderedDict(
+            {k: v.clone().cpu() for k, v in model.state_dict().items()}
+        )
 
         # ── Freeze layers outside active group ───────────────────────────────
         _freeze_all_except_group(model, groups, active_idx)
@@ -440,15 +450,15 @@ class FedPart(FLAlgorithm):
         #
         current_sd = model.state_dict()
         bn_buffer_keys = [
-            k for k in w_before
+            k
+            for k in w_before
             if k.endswith(("running_mean", "running_var", "num_batches_tracked"))
         ]
         if is_warmup:
             # Full delta — all parameters + BN buffers (already included)
-            partial_delta = OrderedDict({
-                k: (w_before[k] - current_sd[k].cpu()).float()
-                for k in w_before
-            })
+            partial_delta = OrderedDict(
+                {k: (w_before[k] - current_sd[k].cpu()).float() for k in w_before}
+            )
             transmitted_keys = list(w_before.keys())
         else:
             # Partial delta — active group's learnable params + ALL BN running stats.
@@ -458,19 +468,18 @@ class FedPart(FLAlgorithm):
             all_tx_keys = list(active_keys) + [
                 k for k in bn_buffer_keys if k not in active_keys_set
             ]
-            partial_delta = OrderedDict({
-                k: (w_before[k] - current_sd[k].cpu()).float()
-                for k in all_tx_keys
-            })
+            partial_delta = OrderedDict(
+                {k: (w_before[k] - current_sd[k].cpu()).float() for k in all_tx_keys}
+            )
             transmitted_keys = all_tx_keys
 
         # ── Communication / energy accounting ─────────────────────────────────
-        uplink_bytes   = self.count_bytes(partial_delta, sparse=False)
+        uplink_bytes = self.count_bytes(partial_delta, sparse=False)
         # full_model_bytes: size of the complete model (downlink = received from server,
         # full_upload_ref = reference for compression ratio computation).
         # Both are the same value; compute once before freeing w_before.
         full_model_bytes = self.count_bytes(w_before, sparse=False)
-        downlink_bytes   = full_model_bytes   # client receives the full global model
+        downlink_bytes = full_model_bytes  # client receives the full global model
         full_upload_bytes_ref = full_model_bytes
         # w_before is now fully consumed (delta computed, sizes counted).
         # Free it immediately — it is a full state_dict clone and the dominant
@@ -488,7 +497,9 @@ class FedPart(FLAlgorithm):
         if not is_warmup and "group_flops" not in state.custom:
             input_shape = config.get("input_shape", (1, 3, 32, 32))
             state.custom["group_flops"] = _compute_group_flops(
-                groups, model, input_shape,
+                groups,
+                model,
+                input_shape,
             )
 
         if is_warmup:
@@ -500,13 +511,19 @@ class FedPart(FLAlgorithm):
 
         if profile:
             effective_flops = round_compute_flops(
-                model, trainable_names, config,
-                profile, dataloader, local_epochs,
+                model,
+                trainable_names,
+                config,
+                profile,
+                dataloader,
+                local_epochs,
                 groups=groups,
                 active_group_idx=(-1 if is_warmup else active_idx),
                 group_flops_analytic=_gf_hint,
             )
-            energy_j = profile.round_energy_j(effective_flops, uplink_bytes, downlink_bytes)
+            energy_j = profile.round_energy_j(
+                effective_flops, uplink_bytes, downlink_bytes
+            )
         else:
             # Profile-less fallback retained for tests / unit smoke runs.
             if is_warmup:
@@ -514,7 +531,7 @@ class FedPart(FLAlgorithm):
             else:
                 _gf = state.custom["group_flops"]
                 _frac = _gf[active_idx] / sum(_gf)
-            energy_j = (0.5 + 2.0 * _frac)
+            energy_j = 0.5 + 2.0 * _frac
 
         # ── Energy scale factor (calibration for experiments) ────────────────
         # Allows YAML configs to amplify per-round energy to produce
@@ -531,20 +548,20 @@ class FedPart(FLAlgorithm):
 
         metadata = {
             # Mandatory fields (framework invariant)
-            "client_id":           state.client_id,
-            "round_num":           state.round_num,
-            "beta_actual":         1.0,             # no sparsification; full precision
+            "client_id": state.client_id,
+            "round_num": state.round_num,
+            "beta_actual": 1.0,  # no sparsification; full precision
             "battery_j_remaining": state.battery_j,
-            "energy_j_consumed":   energy_j,
-            "bytes_sent":          uplink_bytes,
-            "bytes_received":      downlink_bytes,
-            "local_loss":          total_loss / max(num_batches, 1),
-            "compression_ratio":   compression_ratio,
+            "energy_j_consumed": energy_j,
+            "bytes_sent": uplink_bytes,
+            "bytes_received": downlink_bytes,
+            "local_loss": total_loss / max(num_batches, 1),
+            "compression_ratio": compression_ratio,
             # FedPart-specific
-            "active_group_idx":    active_idx,
-            "is_warmup":           is_warmup,
-            "num_layer_groups":    num_groups,
-            "transmitted_keys":    transmitted_keys,
+            "active_group_idx": active_idx,
+            "is_warmup": is_warmup,
+            "num_layer_groups": num_groups,
+            "transmitted_keys": transmitted_keys,
         }
 
         return dict(partial_delta), metadata
@@ -574,8 +591,8 @@ class FedPart(FLAlgorithm):
         # ── Determine active group from client metadata ────────────────────────
         # All clients in a round train the same group; take index from first.
         first_meta = client_updates[0][1]
-        active_idx  = first_meta.get("active_group_idx", -1)
-        is_warmup   = first_meta.get("is_warmup", True)
+        active_idx = first_meta.get("active_group_idx", -1)
+        is_warmup = first_meta.get("is_warmup", True)
 
         # Dataset-size weights for BN aggregation
         sizes = [m.get("dataset_size", 1) for _, m, _ in client_updates]
@@ -618,35 +635,32 @@ class FedPart(FLAlgorithm):
         gc.collect()
 
         # ── Metrics ───────────────────────────────────────────────────────────
-        total_bytes  = sum(m["bytes_sent"] for _, m, _ in client_updates)
+        total_bytes = sum(m["bytes_sent"] for _, m, _ in client_updates)
         total_energy = sum(m["energy_j_consumed"] for _, m, _ in client_updates)
-        avg_battery  = sum(s.battery_j for _, _, s in client_updates) / K
-        avg_loss     = sum(m["local_loss"] for _, m, _ in client_updates) / K
-        avg_cr       = sum(m["compression_ratio"] for _, m, _ in client_updates) / K
+        avg_battery = sum(s.battery_j for _, _, s in client_updates) / K
+        avg_loss = sum(m["local_loss"] for _, m, _ in client_updates) / K
+        avg_cr = sum(m["compression_ratio"] for _, m, _ in client_updates) / K
 
         participations = [1.0 if s.battery_j > 0 else 0.0 for _, _, s in client_updates]
-        p2_sum = sum(p ** 2 for p in participations)
-        jain = (
-            (sum(participations) ** 2) / (K * p2_sum)
-            if p2_sum > 0 else 0.0
-        )
+        p2_sum = sum(p**2 for p in participations)
+        jain = (sum(participations) ** 2) / (K * p2_sum) if p2_sum > 0 else 0.0
 
         return AggregateResult(
             new_weights=new_weights,
             metrics={
-                "round":               round_num,
-                "total_bytes_sent":    total_bytes,
-                "total_energy_j":      total_energy,
-                "avg_beta":            1.0,
-                "avg_battery_j":       avg_battery,
-                "avg_local_loss":      avg_loss,
-                "compression_ratio":   avg_cr,
-                "participation_rate":  sum(participations) / K,
-                "jain_index":          jain,
-                "num_clients":         K,
+                "round": round_num,
+                "total_bytes_sent": total_bytes,
+                "total_energy_j": total_energy,
+                "avg_beta": 1.0,
+                "avg_battery_j": avg_battery,
+                "avg_local_loss": avg_loss,
+                "compression_ratio": avg_cr,
+                "participation_rate": sum(participations) / K,
+                "jain_index": jain,
+                "num_clients": K,
                 # FedPart-specific metrics
-                "active_group_idx":    active_idx,
-                "is_warmup_round":     is_warmup,
+                "active_group_idx": active_idx,
+                "is_warmup_round": is_warmup,
             },
         )
 
@@ -677,18 +691,18 @@ class FedPart(FLAlgorithm):
         device_profile  : None
         """
         return {
-            "optimizer":        "sgd",  # "sgd" | "adam"
-            "lr":               0.01,
-            "momentum":         0.9,    # SGD only (ignored when optimizer=adam)
-            "weight_decay":     1e-4,
-            "local_epochs":     8,
-            "batch_size":       32,
-            "warmup_rounds":    5,
-            "rounds_per_layer": 2,      # R/L — consecutive rounds per group
-            "training_cycles":  5,      # C  — total cycles through all groups
-            "num_layer_groups": 10,     # M, overwritten at runtime from model
-            "layer_selection":  "sequential",
-            "active_group_idx": None,   # None = use round-based schedule
-            "device":           "cpu",
-            "device_profile":   None,
+            "optimizer": "sgd",  # "sgd" | "adam"
+            "lr": 0.01,
+            "momentum": 0.9,  # SGD only (ignored when optimizer=adam)
+            "weight_decay": 1e-4,
+            "local_epochs": 8,
+            "batch_size": 32,
+            "warmup_rounds": 5,
+            "rounds_per_layer": 2,  # R/L — consecutive rounds per group
+            "training_cycles": 5,  # C  — total cycles through all groups
+            "num_layer_groups": 10,  # M, overwritten at runtime from model
+            "layer_selection": "sequential",
+            "active_group_idx": None,  # None = use round-based schedule
+            "device": "cpu",
+            "device_profile": None,
         }

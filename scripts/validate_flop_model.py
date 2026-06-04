@@ -23,8 +23,6 @@ import sys
 import types
 from pathlib import Path
 
-
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -62,9 +60,9 @@ def _group_label(group_keys: list[str], group_key_fn) -> str:
 
 def main() -> None:
     fp_mod = _load_fedpart_helpers()
-    from models.registry import get_model
-    from hardware.profiles import DEVICE_PROFILES
     from hardware.flop_cost import measure_fwd_bwd_flops
+    from hardware.profiles import DEVICE_PROFILES
+    from models.registry import get_model
 
     # Setup
     model = get_model("resnet8", "cifar10").eval()
@@ -92,12 +90,14 @@ def main() -> None:
     # full fwd+bwd = every parameter trainable.
     all_names = [n for n, _ in model.named_parameters()]
     fwd_bwd_full_per_step = measure_fwd_bwd_flops(
-        model, all_names, input_shape, batch_size,
+        model,
+        all_names,
+        input_shape,
+        batch_size,
     )
     # per-group: only the group's parameters are trainable.
     fwd_bwd_per_group_per_step = [
-        measure_fwd_bwd_flops(model, g, input_shape, batch_size)
-        for g in groups
+        measure_fwd_bwd_flops(model, g, input_shape, batch_size) for g in groups
     ]
 
     # FedAvg full row
@@ -107,34 +107,40 @@ def main() -> None:
 
     # Per-group rows
     rows: list[dict] = []
-    rows.append({
-        "label":           "FedAvg full (no freeze)",
-        "group_idx":       -1,
-        "phi":             1.0,
-        "analytic_flops":  analytic_full,
-        "measured_flops":  measured_full,
-        "rel_err":         full_rel_err,
-        "ratio_measured_over_analytic": measured_full / max(analytic_full, 1.0),
-    })
+    rows.append(
+        {
+            "label": "FedAvg full (no freeze)",
+            "group_idx": -1,
+            "phi": 1.0,
+            "analytic_flops": analytic_full,
+            "measured_flops": measured_full,
+            "rel_err": full_rel_err,
+            "ratio_measured_over_analytic": measured_full / max(analytic_full, 1.0),
+        }
+    )
 
     for g_idx, g_keys in enumerate(groups):
         phi = gf[g_idx] / max(total_gf, 1)
         ana = full_flops_analytic * (1.0 / 3.0 + 2.0 / 3.0 * phi)
         meas = fwd_bwd_per_group_per_step[g_idx] * steps
         rel = (meas - ana) / max(ana, 1.0)
-        rows.append({
-            "label":           _group_label(g_keys, fp_mod._param_group_key),
-            "group_idx":       g_idx,
-            "phi":             phi,
-            "analytic_flops":  ana,
-            "measured_flops":  meas,
-            "rel_err":         rel,
-            "ratio_measured_over_analytic": meas / max(ana, 1.0),
-        })
+        rows.append(
+            {
+                "label": _group_label(g_keys, fp_mod._param_group_key),
+                "group_idx": g_idx,
+                "phi": phi,
+                "analytic_flops": ana,
+                "measured_flops": meas,
+                "rel_err": rel,
+                "ratio_measured_over_analytic": meas / max(ana, 1.0),
+            }
+        )
 
     # ── Pretty print ────────────────────────────────────────────────────────
     print("=" * 100)
-    print("FLOP model validation — ResNet-8 (3×32×32, batch=32, steps={})".format(steps))
+    print(
+        "FLOP model validation — ResNet-8 (3×32×32, batch=32, steps={})".format(steps)
+    )
     print("=" * 100)
     print(
         f"num_params={num_params}  full_flops_analytic={full_flops_analytic:.3e}  "
@@ -155,14 +161,26 @@ def main() -> None:
         )
     print()
     print("Interpretation:")
-    print("  meas/ana >> 1  -> analytic under-counts in absolute terms (expected for CNNs).")
-    print("  When ranking groups by 'measured', shallow groups should be the most expensive.")
-    print("  When ranking by 'analytic', the same shallow groups appear cheap — this is the")
-    print("  flaw that the 1/3 + 2/3*phi formula introduces, and the reason FedPartBE adds a")
+    print(
+        "  meas/ana >> 1  -> analytic under-counts in absolute terms (expected for CNNs)."
+    )
+    print(
+        "  When ranking groups by 'measured', shallow groups should be the most expensive."
+    )
+    print(
+        "  When ranking by 'analytic', the same shallow groups appear cheap — this is the"
+    )
+    print(
+        "  flaw that the 1/3 + 2/3*phi formula introduces, and the reason FedPartBE adds a"
+    )
     print("  corrected-cost formula on top of it for tier assignment.")
     print()
-    print("WARNING: measured FLOPs are ~2 orders of magnitude > analytic. The energy_scale_factor")
-    print("         (e.g. 12.6) was calibrated against the analytic estimator and will need a")
+    print(
+        "WARNING: measured FLOPs are ~2 orders of magnitude > analytic. The energy_scale_factor"
+    )
+    print(
+        "         (e.g. 12.6) was calibrated against the analytic estimator and will need a"
+    )
     print("         separate recalibration when use_measured_flops=True is enabled.")
 
     # ── CSV output ──────────────────────────────────────────────────────────

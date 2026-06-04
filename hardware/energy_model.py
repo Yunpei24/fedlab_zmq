@@ -31,18 +31,18 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Physical constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-_SPEED_OF_LIGHT_M_S: float = 3.0e8          # m/s
+_SPEED_OF_LIGHT_M_S: float = 3.0e8  # m/s
 _THERMAL_NOISE_DENSITY_W_HZ: float = 4.0e-21  # N0 = kT @ ~290 K (W/Hz)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shannon channel parameters (added to device profiles)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @dataclass
 class ChannelParams:
@@ -69,14 +69,15 @@ class ChannelParams:
         Split as: P_tx = 0.20 W (radiated) + P_circuit = 0.80 W (RF chain).
         This matches the T_Correction energy model (Nikiema & Amhoud, 2025).
     """
-    carrier_freq_hz: float      = 2.4e9      # WiFi 2.4 GHz default
-    bandwidth_hz: float         = 20.0e6     # 20 MHz channel
-    tx_power_w: float           = 0.20       # radiated power
-    p_circuit_w: float          = 0.80       # RF chain overhead
-    noise_density_w_hz: float   = _THERMAL_NOISE_DENSITY_W_HZ
+
+    carrier_freq_hz: float = 2.4e9  # WiFi 2.4 GHz default
+    bandwidth_hz: float = 20.0e6  # 20 MHz channel
+    tx_power_w: float = 0.20  # radiated power
+    p_circuit_w: float = 0.80  # RF chain overhead
+    noise_density_w_hz: float = _THERMAL_NOISE_DENSITY_W_HZ
 
     # Per-device overrides for downlink (if the device is the receiver)
-    rx_p_circuit_w: float       = 0.60       # RX chain power (less than TX)
+    rx_p_circuit_w: float = 0.60  # RX chain power (less than TX)
 
     @property
     def total_tx_power_w(self) -> float:
@@ -97,8 +98,8 @@ class ChannelParams:
 CHANNEL_WIFI5_2G = ChannelParams(
     carrier_freq_hz=2.4e9,
     bandwidth_hz=20.0e6,
-    tx_power_w=0.20,       # P_tx (radiated)
-    p_circuit_w=0.80,      # P_circuit (RF chain)
+    tx_power_w=0.20,  # P_tx (radiated)
+    p_circuit_w=0.80,  # P_circuit (RF chain)
     rx_p_circuit_w=0.60,
 )
 
@@ -115,15 +116,15 @@ CHANNEL_WIFI4_2G = ChannelParams(
 CHANNEL_ESP32 = ChannelParams(
     carrier_freq_hz=2.4e9,
     bandwidth_hz=20.0e6,
-    tx_power_w=0.05,       # 50 mW radiated (ESP32 max ~0.05 W @ 20 dBm → 15 dBm mode)
-    p_circuit_w=0.28,      # Espressif datasheet
+    tx_power_w=0.05,  # 50 mW radiated (ESP32 max ~0.05 W @ 20 dBm → 15 dBm mode)
+    p_circuit_w=0.28,  # Espressif datasheet
     rx_p_circuit_w=0.10,
 )
 
 # Smartphone LTE @ 1.8 GHz
 CHANNEL_LTE = ChannelParams(
     carrier_freq_hz=1.8e9,
-    bandwidth_hz=10.0e6,   # 10 MHz LTE channel
+    bandwidth_hz=10.0e6,  # 10 MHz LTE channel
     tx_power_w=0.25,
     p_circuit_w=1.25,
     rx_p_circuit_w=0.55,
@@ -140,8 +141,8 @@ CHANNEL_5G = ChannelParams(
 
 # Ethernet (wired — no path loss, minimal overhead; fallback only)
 CHANNEL_ETHERNET = ChannelParams(
-    carrier_freq_hz=1.0e9,   # nominal (not used in Shannon calc for wired)
-    bandwidth_hz=10.0e9,     # 10G
+    carrier_freq_hz=1.0e9,  # nominal (not used in Shannon calc for wired)
+    bandwidth_hz=10.0e9,  # 10G
     tx_power_w=0.50,
     p_circuit_w=4.50,
     rx_p_circuit_w=4.50,
@@ -151,6 +152,7 @@ CHANNEL_ETHERNET = ChannelParams(
 # ─────────────────────────────────────────────────────────────────────────────
 # Path loss model (free-space, indoor)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def friis_path_loss(distance_m: float, carrier_freq_hz: float) -> float:
     """
@@ -178,6 +180,7 @@ def friis_path_loss(distance_m: float, carrier_freq_hz: float) -> float:
 # Core Shannon energy computation
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def compute_shannon_rate_bps(
     channel: ChannelParams,
     distance_m: float = 10.0,
@@ -201,7 +204,7 @@ def compute_shannon_rate_bps(
     pl = friis_path_loss(distance_m, channel.carrier_freq_hz)
     noise_power_w = channel.noise_density_w_hz * channel.bandwidth_hz
     snr = channel.tx_power_w / (noise_power_w * pl)
-    snr = max(snr, 1e-9)   # numerical guard — avoid log2(0+)
+    snr = max(snr, 1e-9)  # numerical guard — avoid log2(0+)
     rate_bps = channel.bandwidth_hz * math.log2(1.0 + snr)
     return rate_bps
 
@@ -236,12 +239,12 @@ def compute_comm_energy(
     """
     rate_bps = compute_shannon_rate_bps(channel, distance_m)
     payload_bits = payload_bytes * 8.0
-    t_s = payload_bits / rate_bps   # transmission time in seconds
+    t_s = payload_bits / rate_bps  # transmission time in seconds
 
     if direction == "uplink":
-        power_w = channel.total_tx_power_w   # P_tx + P_circuit
+        power_w = channel.total_tx_power_w  # P_tx + P_circuit
     else:
-        power_w = channel.total_rx_power_w   # RX chain only
+        power_w = channel.total_rx_power_w  # RX chain only
 
     return power_w * t_s
 
@@ -250,9 +253,10 @@ def compute_comm_energy(
 # Unified API — works with or without ChannelParams
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def comm_energy_j(
     payload_bytes: float,
-    profile,                          # hardware.profiles.DeviceProfile
+    profile,  # hardware.profiles.DeviceProfile
     direction: str = "uplink",
     distance_m: float = 10.0,
 ) -> float:
@@ -314,6 +318,7 @@ def comm_energy_j(
 
 if __name__ == "__main__":
     import sys
+
     sys.path.insert(0, str(__import__("pathlib").Path(__file__).parents[1]))
     from hardware.profiles import DEVICE_PROFILES
 
@@ -338,12 +343,12 @@ if __name__ == "__main__":
     print("  " + "-" * 66)
 
     channel_map = {
-        "raspberry_pi_4":       CHANNEL_WIFI5_2G,
-        "raspberry_pi_zero2w":  CHANNEL_WIFI4_2G,
-        "jetson_nano":          CHANNEL_WIFI5_2G,
-        "esp32_s3":             CHANNEL_ESP32,
-        "smartphone_midrange":  CHANNEL_LTE,
-        "smartphone_highend":   CHANNEL_5G,
+        "raspberry_pi_4": CHANNEL_WIFI5_2G,
+        "raspberry_pi_zero2w": CHANNEL_WIFI4_2G,
+        "jetson_nano": CHANNEL_WIFI5_2G,
+        "esp32_s3": CHANNEL_ESP32,
+        "smartphone_midrange": CHANNEL_LTE,
+        "smartphone_highend": CHANNEL_5G,
     }
 
     for key, ch_params in channel_map.items():
@@ -352,11 +357,15 @@ if __name__ == "__main__":
             eu = compute_comm_energy(1e6, ch_params, "uplink", 10.0)
             ed = compute_comm_energy(1e6, ch_params, "downlink", 10.0)
             profile = DEVICE_PROFILES[key]
-            print(f"  {profile.name:<28} {r/1e6:>12.1f} {eu*1000:>12.2f} {ed*1000:>12.2f}")
+            print(
+                f"  {profile.name:<28} {r/1e6:>12.1f} {eu*1000:>12.2f} {ed*1000:>12.2f}"
+            )
 
     print()
-    print("Training FLOPs check (ResNet18 proxy, 10 clients) via DeviceProfile.flops_for_model:")
-    num_params = 11_173_962   # ResNet18 parameter count
+    print(
+        "Training FLOPs check (ResNet18 proxy, 10 clients) via DeviceProfile.flops_for_model:"
+    )
+    num_params = 11_173_962  # ResNet18 parameter count
     rpi = DEVICE_PROFILES["raspberry_pi_4"]
     total_flops = rpi.flops_for_model(
         num_params=num_params,

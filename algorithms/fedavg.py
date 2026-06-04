@@ -6,13 +6,15 @@ McMahan et al., AISTATS 2017
 """
 
 import gc
+from collections import OrderedDict
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from collections import OrderedDict
 
-from .base import FLAlgorithm, AggregateResult, register_algorithm
 from hardware.flop_cost import round_compute_flops
+
+from .base import AggregateResult, FLAlgorithm, register_algorithm
 
 
 @register_algorithm("fedavg")
@@ -21,25 +23,31 @@ class FedAvg(FLAlgorithm):
     Standard FedAvg baseline. Full-precision, no compression.
     Used as reference for accuracy and communication cost comparisons.
     """
+
     name = "fedavg"
     description = "Standard FedAvg (McMahan et al., 2017). No compression."
 
     def client_update(self, model, dataloader, state, config):
-        device        = config.get("device", "cpu")
-        lr            = config.get("lr", 0.01)
-        local_epochs  = config.get("local_epochs", 1)
+        device = config.get("device", "cpu")
+        lr = config.get("lr", 0.01)
+        local_epochs = config.get("local_epochs", 1)
         max_grad_norm = config.get("max_grad_norm", None)
 
-        w_before = OrderedDict({k: v.clone().cpu() for k, v in model.state_dict().items()})
+        w_before = OrderedDict(
+            {k: v.clone().cpu() for k, v in model.state_dict().items()}
+        )
 
-        model.train(); model.to(device)
+        model.train()
+        model.to(device)
         optimizer_type = config.get("optimizer", "sgd").lower()
-        momentum      = config.get("momentum", 0.9)
-        weight_decay  = config.get("weight_decay", 1e-4)
+        momentum = config.get("momentum", 0.9)
+        weight_decay = config.get("weight_decay", 1e-4)
         if optimizer_type == "adam":
             optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
         else:
-            optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+            optimizer = optim.SGD(
+                model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
+            )
         criterion = nn.CrossEntropyLoss()
 
         total_loss, num_batches = 0.0, 0
@@ -52,26 +60,32 @@ class FedAvg(FLAlgorithm):
                 if max_grad_norm is not None:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()
-                total_loss += loss.item(); num_batches += 1
+                total_loss += loss.item()
+                num_batches += 1
 
         current_sd = model.state_dict()
-        delta = OrderedDict({
-            k: (w_before[k] - current_sd[k].cpu()).float()
-            for k in w_before
-        })
+        delta = OrderedDict(
+            {k: (w_before[k] - current_sd[k].cpu()).float() for k in w_before}
+        )
         del w_before
         del current_sd
         gc.collect()
 
         profile = config.get("device_profile")
-        uplink_bytes   = self.count_bytes(delta, sparse=False)
-        downlink_bytes = self.count_bytes(delta, sparse=False)  # same size as uplink for FedAvg (full model)
+        uplink_bytes = self.count_bytes(delta, sparse=False)
+        downlink_bytes = self.count_bytes(
+            delta, sparse=False
+        )  # same size as uplink for FedAvg (full model)
         if profile:
             # FedAvg trains every parameter — the trainable set is the full model.
             trainable_names = [n for n, _ in model.named_parameters()]
             flops = round_compute_flops(
-                model, trainable_names, config,
-                profile, dataloader, local_epochs,
+                model,
+                trainable_names,
+                config,
+                profile,
+                dataloader,
+                local_epochs,
             )
             energy_j = profile.round_energy_j(flops, uplink_bytes, downlink_bytes)
         else:
@@ -83,9 +97,12 @@ class FedAvg(FLAlgorithm):
 
         del optimizer
         metadata = {
-            "client_id": state.client_id, "round_num": state.round_num,
-            "beta_actual": 1.0, "battery_j_remaining": state.battery_j,
-            "energy_j_consumed": energy_j, "bytes_sent": uplink_bytes,
+            "client_id": state.client_id,
+            "round_num": state.round_num,
+            "beta_actual": 1.0,
+            "battery_j_remaining": state.battery_j,
+            "energy_j_consumed": energy_j,
+            "bytes_sent": uplink_bytes,
             "bytes_received": downlink_bytes,
             "local_loss": total_loss / max(num_batches, 1),
             "compression_ratio": 1.0,
@@ -117,9 +134,12 @@ class FedAvg(FLAlgorithm):
                     else:
                         agg_bn[k] += v.float() * w_k
 
-        new_weights = OrderedDict({
-            k: global_sd[k].float() - (agg[k] / K).to(global_sd[k].device) for k in global_sd
-        })
+        new_weights = OrderedDict(
+            {
+                k: global_sd[k].float() - (agg[k] / K).to(global_sd[k].device)
+                for k in global_sd
+            }
+        )
         # Override BN running stats with dataset-size-weighted average
         for k, v in agg_bn.items():
             if k in new_weights:
@@ -131,21 +151,33 @@ class FedAvg(FLAlgorithm):
 
         # Participation: clients with battery <= 0 drop out in FedAvg
         participations = [1.0 if s.battery_j > 0 else 0.0 for _, _, s in client_updates]
-        jain = (sum(participations)**2 / (K * sum(p**2 for p in participations))
-                if any(p > 0 for p in participations) else 0.0)
+        jain = (
+            sum(participations) ** 2 / (K * sum(p**2 for p in participations))
+            if any(p > 0 for p in participations)
+            else 0.0
+        )
 
         return AggregateResult(
             new_weights=new_weights,
             metrics={
-                "round": round_num, "total_bytes_sent": total_bytes,
-                "total_energy_j": total_energy, "avg_beta": 1.0,
-                "avg_battery_j": sum(s.battery_j for _,_,s in client_updates)/K,
-                "avg_local_loss": sum(m["local_loss"] for _,m,_ in client_updates)/K,
-                "participation_rate": sum(participations)/K,
-                "jain_index": jain, "num_clients": K,
-            }
+                "round": round_num,
+                "total_bytes_sent": total_bytes,
+                "total_energy_j": total_energy,
+                "avg_beta": 1.0,
+                "avg_battery_j": sum(s.battery_j for _, _, s in client_updates) / K,
+                "avg_local_loss": sum(m["local_loss"] for _, m, _ in client_updates)
+                / K,
+                "participation_rate": sum(participations) / K,
+                "jain_index": jain,
+                "num_clients": K,
+            },
         )
 
     def get_default_config(self):
-        return {"lr": 0.01, "local_epochs": 1, "batch_size": 32,
-                "device": "cpu", "device_profile": None}
+        return {
+            "lr": 0.01,
+            "local_epochs": 1,
+            "batch_size": 32,
+            "device": "cpu",
+            "device_profile": None,
+        }
