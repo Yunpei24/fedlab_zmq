@@ -67,11 +67,7 @@ def main() -> None:
     fp_mod = _load_fedpart_helpers()
     from models.registry import get_model
     from hardware.profiles import DEVICE_PROFILES
-    from hardware.flop_measure import (
-        measure_fwd_bwd_full_flops,
-        measure_fwd_bwd_per_group_flops,
-        measure_fwd_flops,
-    )
+    from hardware.flop_cost import measure_fwd_bwd_flops
 
     # Setup
     model = get_model("resnet8", "cifar10").eval()
@@ -94,11 +90,18 @@ def main() -> None:
     total_gf = sum(gf)
 
     # ── Measured ────────────────────────────────────────────────────────────
-    fwd_per_step = measure_fwd_flops(model, input_shape, batch_size)
-    fwd_bwd_full_per_step = measure_fwd_bwd_full_flops(model, input_shape, batch_size)
-    fwd_bwd_per_group_per_step = measure_fwd_bwd_per_group_flops(
-        model, groups, input_shape, batch_size
+    # forward-only = empty trainable set (FlopCounterMode captures only fwd FLOPs).
+    fwd_per_step = measure_fwd_bwd_flops(model, [], input_shape, batch_size)
+    # full fwd+bwd = every parameter trainable.
+    all_names = [n for n, _ in model.named_parameters()]
+    fwd_bwd_full_per_step = measure_fwd_bwd_flops(
+        model, all_names, input_shape, batch_size,
     )
+    # per-group: only the group's parameters are trainable.
+    fwd_bwd_per_group_per_step = [
+        measure_fwd_bwd_flops(model, g, input_shape, batch_size)
+        for g in groups
+    ]
 
     # FedAvg full row
     measured_full = fwd_bwd_full_per_step * steps

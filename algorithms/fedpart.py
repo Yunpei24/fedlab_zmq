@@ -115,7 +115,13 @@ import torch.nn as nn
 import torch.optim as optim
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
-from hardware.flop_measure import compute_training_flops
+from hardware.flop_cost import (
+    round_compute_flops,
+    compute_group_flops as _flopcost_compute_group_flops,
+    compute_corrected_group_costs as _flopcost_compute_corrected_group_costs,
+    freeze_to_trainable as _flopcost_freeze_to_trainable,
+    restore_grad as _flopcost_restore_grad,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -210,92 +216,13 @@ def _compute_group_flops(
     model: nn.Module,
     input_shape: tuple = (1, 3, 32, 32),
 ) -> list[int]:
+    """Backward-compatible re-export of hardware.flop_cost.compute_group_flops.
+
+    The implementation lives in `hardware/flop_cost.py` so that every algorithm
+    sees the same per-group FLOPs (the basis of both phi and corrected cost
+    models).
     """
-    Compute FLOPs per layer group via a dummy forward pass with module hooks.
-
-    Param count is a poor proxy for convolutions: a conv with few params but
-    large spatial maps (early layers) is more expensive than a late conv with
-    the same param count but small spatial maps.
-
-    For Conv2d:  FLOPs = 2 * k_h * k_w * C_in * C_out * H_out * W_out
-    For Linear:  FLOPs = 2 * in_features * out_features
-    For BN/ReLU: 0 (negligible)
-
-    Falls back to param count if the forward pass raises an exception
-    (e.g. unexpected input shape).
-
-    Returns:
-        group_flops: list[int] of length num_groups, ≥1 each.
-    """
-    module_flops: dict[str, int] = {}
-    hooks = []
-
-    def _make_hook(mod_name: str):
-        def _hook(module, inp, output):
-            if isinstance(module, nn.Conv2d):
-                kh, kw = (module.kernel_size
-                          if isinstance(module.kernel_size, tuple)
-                          else (module.kernel_size, module.kernel_size))
-                H_out = output.shape[2] if output.dim() >= 3 else 1
-                W_out = output.shape[3] if output.dim() >= 4 else 1
-                module_flops[mod_name] = int(
-                    2 * kh * kw * module.in_channels * module.out_channels
-                    * H_out * W_out
-                )
-            elif isinstance(module, nn.Linear):
-                module_flops[mod_name] = int(2 * module.in_features * module.out_features)
-            else:
-                module_flops[mod_name] = 0
-        return _hook
-
-    for mod_name, mod in model.named_modules():
-        if isinstance(mod, (nn.Conv2d, nn.Linear,
-                            nn.BatchNorm1d, nn.BatchNorm2d, nn.ReLU)):
-            hooks.append(mod.register_forward_hook(_make_hook(mod_name)))
-
-    was_training = model.training
-    model.eval()
-    # Infer device from the first model parameter so the dummy tensor lands on
-    # the same device (MPS, CUDA, or CPU). Without this, model(dummy) raises a
-    # device-mismatch exception on MPS and falls back to param-count — silently
-    # computing wrong FLOPs proxies and wasting hook-setup time every call.
-    try:
-        _model_device = next(model.parameters()).device
-    except StopIteration:
-        _model_device = torch.device("cpu")
-    dummy = torch.zeros(input_shape, device=_model_device)
-    try:
-        with torch.no_grad():
-            model(dummy)
-    except Exception:
-        for h in hooks:
-            h.remove()
-        if was_training:
-            model.train()
-        # Fallback: use param count
-        sd = model.state_dict()
-        return [max(sum(sd[k].numel() for k in g if k in sd), 1) for g in groups]
-
-    for h in hooks:
-        h.remove()
-    if was_training:
-        model.train()
-
-    def _param_to_mod(key: str) -> str:
-        parts = key.rsplit(".", 1)
-        return parts[0] if (len(parts) == 2 and parts[1] in ("weight", "bias")) else key
-
-    result = []
-    for group in groups:
-        seen: set[str] = set()
-        total = 0
-        for key in group:
-            mod_name = _param_to_mod(key)
-            if mod_name not in seen:
-                seen.add(mod_name)
-                total += module_flops.get(mod_name, 0)
-        result.append(max(total, 1))
-    return result
+    return _flopcost_compute_group_flops(groups, model, input_shape)
 
 
 def _active_group_idx_for_round(round_num: int, config: dict) -> int:
@@ -370,27 +297,21 @@ def _freeze_all_except_group(
     groups: list[list[str]],
     active_idx: int,
 ) -> None:
-    """
-    Set requires_grad=False for all parameters outside the active group.
-    Set requires_grad=True  for parameters in the active group.
+    """Backward-compatible wrapper around hardware.flop_cost.freeze_to_trainable.
 
-    active_idx == -1 means full-network update (all params trainable).
+    `active_idx == -1` => every parameter trainable (full-network update),
+    consistent with the pre-refactor semantics.
     """
-    active_names: set[str] = set()
-    if active_idx >= 0:
-        active_names = set(groups[active_idx])
-
-    for name, param in model.named_parameters():
-        if active_idx < 0 or name in active_names:
-            param.requires_grad_(True)
-        else:
-            param.requires_grad_(False)
+    if active_idx < 0:
+        trainable = [n for n, _ in model.named_parameters()]
+    else:
+        trainable = list(groups[active_idx])
+    _flopcost_freeze_to_trainable(model, trainable)
 
 
 def _restore_all_grad(model: nn.Module) -> None:
-    """Re-enable gradients for all parameters (cleanup after local training)."""
-    for param in model.parameters():
-        param.requires_grad_(True)
+    """Re-enable gradients for all parameters (post-training cleanup)."""
+    _flopcost_restore_grad(model)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -562,34 +483,41 @@ class FedPart(FLAlgorithm):
         gc.collect()
 
         profile = config.get("device_profile")
-        if not is_warmup:
-            # FLOPs-weighted active fraction: each layer group has a different
-            # compute cost because conv FLOPs depend on spatial resolution, not
-            # just param count (early convs process large feature maps).
-            # Cache per client to avoid re-running the dummy forward pass.
-            if "group_flops" not in state.custom:
-                input_shape = config.get("input_shape", (1, 3, 32, 32))
-                state.custom["group_flops"] = _compute_group_flops(
-                    groups, model, input_shape
-                )
-            group_flops = state.custom["group_flops"]
-            active_fraction = group_flops[active_idx] / sum(group_flops)
+
+        # ── Compute FLOPs via the unified flop_cost dispatcher ───────────────
+        # The algorithm's only job here is to declare which parameters carry
+        # gradients during local training; flop_cost.round_compute_flops picks
+        # the cost_model (phi / corrected / measured) and returns FLOPs.
+        if not is_warmup and "group_flops" not in state.custom:
+            input_shape = config.get("input_shape", (1, 3, 32, 32))
+            state.custom["group_flops"] = _compute_group_flops(
+                groups, model, input_shape,
+            )
+
+        if is_warmup:
+            trainable_names = [n for n, _ in model.named_parameters()]
+            _gf_hint = None
         else:
-            active_fraction = 1.0
+            trainable_names = list(groups[active_idx])
+            _gf_hint = state.custom["group_flops"]
 
         if profile:
-            # Dispatcher: legacy analytic (1/3 + 2/3*phi_g) by default,
-            # or measured FLOPs (cached) when use_measured_flops=True.
-            effective_flops = compute_training_flops(
-                model, profile, dataloader, local_epochs, config,
-                active_group_idx=(active_idx if not is_warmup else -1),
+            effective_flops = round_compute_flops(
+                model, trainable_names, config,
+                profile, dataloader, local_epochs,
                 groups=groups,
-                group_flops_analytic=(state.custom.get("group_flops")
-                                      if not is_warmup else None),
+                active_group_idx=(-1 if is_warmup else active_idx),
+                group_flops_analytic=_gf_hint,
             )
             energy_j = profile.round_energy_j(effective_flops, uplink_bytes, downlink_bytes)
         else:
-            energy_j = (0.5 + 2.0 * active_fraction)
+            # Profile-less fallback retained for tests / unit smoke runs.
+            if is_warmup:
+                _frac = 1.0
+            else:
+                _gf = state.custom["group_flops"]
+                _frac = _gf[active_idx] / sum(_gf)
+            energy_j = (0.5 + 2.0 * _frac)
 
         # ── Energy scale factor (calibration for experiments) ────────────────
         # Allows YAML configs to amplify per-round energy to produce

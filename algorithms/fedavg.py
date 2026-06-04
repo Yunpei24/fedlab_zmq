@@ -12,7 +12,7 @@ import torch.optim as optim
 from collections import OrderedDict
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
-from hardware.flop_measure import compute_training_flops
+from hardware.flop_cost import round_compute_flops
 
 
 @register_algorithm("fedavg")
@@ -67,9 +67,11 @@ class FedAvg(FLAlgorithm):
         uplink_bytes   = self.count_bytes(delta, sparse=False)
         downlink_bytes = self.count_bytes(delta, sparse=False)  # same size as uplink for FedAvg (full model)
         if profile:
-            flops = compute_training_flops(
-                model, profile, dataloader, local_epochs, config,
-                active_group_idx=None, groups=None,
+            # FedAvg trains every parameter — the trainable set is the full model.
+            trainable_names = [n for n, _ in model.named_parameters()]
+            flops = round_compute_flops(
+                model, trainable_names, config,
+                profile, dataloader, local_epochs,
             )
             energy_j = profile.round_energy_j(flops, uplink_bytes, downlink_bytes)
         else:

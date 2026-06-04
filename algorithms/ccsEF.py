@@ -134,7 +134,7 @@ import torch.optim as optim
 from collections import OrderedDict
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
-from hardware.flop_measure import compute_training_flops
+from hardware.flop_cost import round_compute_flops
 from .fedpart import _derive_layer_groups
 from hardware.profiles import DeviceProfile
 
@@ -548,31 +548,26 @@ class CCSEFFL(FLAlgorithm):
         batch_size = dataloader.batch_size
 
         if profile is not None:
-            use_measured = bool(config.get("use_measured_flops", False))
+            # Trainable set declaration drives the dispatcher: phi mode replays
+            # the (d + 2|primary|)*2*B*S formula (via num_primary_params hint),
+            # measured/corrected use the real backward through `primary_names`.
             if freeze_secondary and not is_warmup:
-                # Partial backward: PyTorch only computes gradients for primary params.
                 primary_name_set = set(primary_names)
                 num_primary_params = sum(
                     p.numel() for n, p in model.named_parameters()
                     if n in primary_name_set
                 )
-                if use_measured:
-                    # Measured: fwd-only + (|primary|/|total|) * (full - fwd-only).
-                    flops = compute_training_flops(
-                        model, profile, dataloader, local_epochs, config,
-                        beta_fraction=(num_primary_params / max(num_params, 1)),
-                    )
-                else:
-                    # Legacy analytic: (d + 2|g_primary|) × 2 × B × S — preserved bit-for-bit.
-                    steps = (dataset_size // batch_size) * local_epochs
-                    flops = float(2 * batch_size * steps * (num_params + 2 * num_primary_params))
+                trainable_names = list(primary_name_set)
+                _np_hint = num_primary_params
             else:
                 num_primary_params = num_params
-                # Dispatcher: legacy analytic full by default, measured fwd+bwd otherwise.
-                flops = compute_training_flops(
-                    model, profile, dataloader, local_epochs, config,
-                    active_group_idx=None, groups=None,
-                )
+                trainable_names = [n for n, _ in model.named_parameters()]
+                _np_hint = None  # full path => phi falls back to full_flops
+            flops = round_compute_flops(
+                model, trainable_names, config,
+                profile, dataloader, local_epochs,
+                num_primary_params=_np_hint,
+            )
             energy_j = profile.round_energy_j(flops, uplink_bytes, downlink_bytes)
         else:
             num_primary_params = num_params

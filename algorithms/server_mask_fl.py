@@ -34,7 +34,7 @@ import random as rnd
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
 from hardware.profiles import DeviceProfile
-from hardware.flop_measure import compute_training_flops
+from hardware.flop_cost import round_compute_flops
 
 
 @register_algorithm("server_mask")
@@ -165,12 +165,15 @@ class ServerMaskFL(FLAlgorithm):
 
         profile: DeviceProfile = config.get("device_profile")
         if profile is not None:
-            # Dispatcher: legacy (1+beta)/2 * full_flops by default;
-            # measured fwd_only + beta * (fwd_bwd_full - fwd_only) when
-            # use_measured_flops=True. server_mask has no layer groups,
-            # so this is the right primitive.
-            effective_flops = compute_training_flops(
-                model, profile, dataloader, local_epochs, config,
+            # Trainable set = the scattered tensors carrying gradients this round.
+            # phi mode falls back to the legacy (1+beta)/2 formula via the
+            # beta_fraction hint; measured/corrected capture the real backward
+            # (which is near-full because grad_input must propagate through every
+            # layer regardless of mask scatter — exactly the cost (1+beta)/2 misses).
+            trainable_names = [n for n, _ in active_named_params]
+            effective_flops = round_compute_flops(
+                model, trainable_names, config,
+                profile, dataloader, local_epochs,
                 beta_fraction=beta_actual,
             )
             energy_j = profile.round_energy_j(effective_flops, uplink_bytes, downlink_bytes)

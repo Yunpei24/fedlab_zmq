@@ -76,7 +76,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
-from hardware.flop_measure import compute_training_flops
+from hardware.flop_cost import round_compute_flops
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1046,12 +1046,12 @@ class FedResonance(FLAlgorithm):
         downlink_bytes = total_bytes_dense   # server sends full weights
 
         if profile is not None:
-            # Dispatcher: legacy analytic full-train by default, measured
-            # fwd+bwd when use_measured_flops=True. fed_resonance trains the
-            # full model (compression is on the upload, not the backward).
-            flops = compute_training_flops(
-                model, profile, dataloader, local_epochs, config,
-                active_group_idx=None, groups=None,
+            # fed_resonance trains the full model — compression lives on the
+            # upload, not on the backward. trainable_names = all parameters.
+            trainable_names = [n for n, _ in model.named_parameters()]
+            flops = round_compute_flops(
+                model, trainable_names, config,
+                profile, dataloader, local_epochs,
             )
             energy_j = profile.round_energy_j(flops, total_bytes_sent, downlink_bytes)
         else:

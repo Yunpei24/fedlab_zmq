@@ -95,7 +95,12 @@ import torch.optim as optim
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
 from .fedpart import _derive_layer_groups, _param_group_key, _compute_group_flops
 from hardware.profiles import DeviceProfile
-from hardware.flop_measure import compute_training_flops
+from hardware.flop_cost import (
+    round_compute_flops,
+    compute_corrected_group_costs as _flopcost_compute_corrected_group_costs,
+    freeze_to_trainable as _flopcost_freeze_to_trainable,
+    restore_grad as _flopcost_restore_grad,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,45 +121,16 @@ from hardware.flop_measure import compute_training_flops
 
 
 def _compute_corrected_group_costs(group_flops: list[float]) -> list[float]:
+    """Backward-compatible re-export of compute_corrected_group_costs.
+
+    Position-aware analytic cost (each group pays for its own backward plus
+    half the FLOPs of every downstream group it must propagate grad_input
+    through). The canonical implementation lives in `hardware/flop_cost.py`
+    so that the cost model used for tier ASSIGNMENT (this function) and the
+    cost model used for ENERGY ACCOUNTING (round_compute_flops) cannot drift
+    apart again.
     """
-    Compute the ACTUAL energy cost of training each group, accounting for
-    downstream grad_input propagation through frozen layers.
-
-    Background (PyTorch autograd):
-      When group p is active (requires_grad=True) and all other groups are
-      frozen (requires_grad=False), backward traverses:
-        - Layers p+1 .. n-1 (downstream, frozen): compute grad_input only
-          to propagate gradient back to group p's output. Cost ≈ 0.5×backward.
-        - Layer p (active): compute grad_weight + grad_input. Full cost.
-        - Layers 0 .. p-1 (upstream, frozen): NOT traversed — their outputs
-          had requires_grad=False at forward time, so autograd stops here.
-
-    Corrected cost formula for group at position p:
-      corrected_cost_p = gf[p]                      ← active group backward
-                       + 0.5 × Σ_{i > p} gf[i]     ← downstream grad_input
-
-    Consequence for tier assignment:
-      - stem (group 0, early): HIGH corrected cost — all n-1 downstream layers
-        propagate grad_input back through it → expensive for low-battery clients!
-      - fc (group n-1, last): LOW corrected cost — no downstream layers → cheap.
-      - Late layers (layer3): medium corrected cost — few downstream layers.
-
-    The raw group_flops cost (used in the old formula) produced the WRONG
-    ranking: stem appeared cheap (small FLOPs) but is actually most expensive.
-    This inverted the tier assignment, hurting FedPartBE's energy savings.
-
-    Args:
-        group_flops: list of FLOPs per group in architectural order
-                     (groups[0] = shallowest, groups[-1] = deepest/fc)
-
-    Returns:
-        corrected_costs: list of corrected backward-dominant costs, same order.
-    """
-    corrected = []
-    for p in range(len(group_flops)):
-        downstream = sum(group_flops[p + 1:])
-        corrected.append(group_flops[p] + 0.5 * downstream)
-    return corrected
+    return _flopcost_compute_corrected_group_costs(group_flops)
 
 
 
@@ -583,27 +559,17 @@ def _freeze_all_except_group(
     groups: list[list[str]],
     active_idx: int,
 ) -> None:
-    """
-    Set requires_grad=False for all parameters outside the active group.
-    Set requires_grad=True  for parameters in the active group.
-
-    active_idx == -1 means full-network update (all params trainable).
-    """
-    active_names: set[str] = set()
-    if active_idx >= 0:
-        active_names = set(groups[active_idx])
-
-    for name, param in model.named_parameters():
-        if active_idx < 0 or name in active_names:
-            param.requires_grad_(True)
-        else:
-            param.requires_grad_(False)
+    """Backward-compatible wrapper around flop_cost.freeze_to_trainable."""
+    if active_idx < 0:
+        trainable = [n for n, _ in model.named_parameters()]
+    else:
+        trainable = list(groups[active_idx])
+    _flopcost_freeze_to_trainable(model, trainable)
 
 
 def _restore_all_grad(model: nn.Module) -> None:
-    """Re-enable gradients for all parameters (cleanup after local training)."""
-    for param in model.parameters():
-        param.requires_grad_(True)
+    """Re-enable gradients for all parameters (post-training cleanup)."""
+    _flopcost_restore_grad(model)
 
 
 def _compute_reference_representation(
@@ -758,11 +724,13 @@ class FedPartBE(FLAlgorithm):
         if is_warmup:
             _profile_wu = config.get("device_profile")
             if _profile_wu is not None:
-                # Dispatcher: legacy analytic by default, measured when
-                # use_measured_flops=True. -1 = full fwd+bwd (warmup).
-                _ff_wu = compute_training_flops(
-                    model, _profile_wu, dataloader, local_epochs, config,
-                    active_group_idx=-1, groups=None,
+                # Warmup = full training: trainable_names is the entire model.
+                # The dispatcher returns the cost under the active cost_model.
+                _trainable_wu = [n for n, _ in model.named_parameters()]
+                _ff_wu = round_compute_flops(
+                    model, _trainable_wu, config,
+                    _profile_wu, dataloader, local_epochs,
+                    groups=None, active_group_idx=-1,
                 )
                 _fb_wu = sum(v.numel() for v in model.state_dict().values()) * 4 # bytes for full model
                 _wu_energy = _profile_wu.round_energy_j(_ff_wu, _fb_wu, _fb_wu) # Energy for full model training
@@ -813,18 +781,17 @@ class FedPartBE(FLAlgorithm):
             gf = state.custom["group_flops"]
             total_gf = sum(gf) or 1.0
 
-            # Energy estimate uses same formula as the actual battery drain below
-            # (raw gf[p]/total_gf) so that the gate and accounting are consistent,
-            # and so that both FedPart and FedPartBE drain batteries at the same rate
-            # — enabling a fair survival comparison.
-            active_fraction_est = gf[active_idx] / total_gf
-
+            # Energy estimate goes through the same flop_cost dispatcher as the
+            # real accounting below — so the gate and the drain cannot drift
+            # apart under any cost_model.
             profile = config.get("device_profile")
             if profile is not None:
-                # Dispatcher: matches the real accounting site below.
-                eff_flops_est = compute_training_flops(
-                    model, profile, dataloader, local_epochs, config,
-                    active_group_idx=active_idx, groups=groups,
+                _trainable_est = list(groups[active_idx])
+                eff_flops_est = round_compute_flops(
+                    model, _trainable_est, config,
+                    profile, dataloader, local_epochs,
+                    groups=groups,
+                    active_group_idx=active_idx,
                     group_flops_analytic=gf,
                 )
                 uplink_est = int(sum(
@@ -834,7 +801,8 @@ class FedPartBE(FLAlgorithm):
                 downlink_est = sum(v.numel() for v in model.state_dict().values()) * 4
                 energy_est = profile.round_energy_j(eff_flops_est, uplink_est, downlink_est)
             else:
-                energy_est = 0.5 + 2.0 * active_fraction_est
+                # Profile-less fallback — heuristic on raw phi (gate purpose).
+                energy_est = 0.5 + 2.0 * (gf[active_idx] / total_gf)
 
             energy_est *= config.get("energy_scale_factor", 1.0)
 
@@ -867,16 +835,17 @@ class FedPartBE(FLAlgorithm):
                     )
                     # Fall through to training — active_idx unchanged.
                 else:
-                    # Assigned group too expensive. Find cheapest group by raw FLOPs.
-                    # (Corrected costs used only for tier assignment, not gating.)
+                    # Assigned group too expensive. Find the cheapest group under
+                    # the SAME cost_model used for the actual drain — the gate
+                    # must rank groups consistently with the accounting site.
                     min_group_idx = int(min(range(num_groups), key=lambda g: gf[g]))
-                    min_fraction = gf[min_group_idx] / total_gf
                     if profile is not None:
-                        # Dispatcher again, so analytic vs measured stays consistent
-                        # with the per-group selection used above and below.
-                        min_eff_flops = compute_training_flops(
-                            model, profile, dataloader, local_epochs, config,
-                            active_group_idx=min_group_idx, groups=groups,
+                        _trainable_min = list(groups[min_group_idx])
+                        min_eff_flops = round_compute_flops(
+                            model, _trainable_min, config,
+                            profile, dataloader, local_epochs,
+                            groups=groups,
+                            active_group_idx=min_group_idx,
                             group_flops_analytic=gf,
                         )
                         min_uplink_est = int(sum(
@@ -887,7 +856,7 @@ class FedPartBE(FLAlgorithm):
                             min_eff_flops, min_uplink_est, downlink_est
                         ) * config.get("energy_scale_factor", 1.0)
                     else:
-                        min_energy = (0.5 + 2.0 * min_fraction) * \
+                        min_energy = (0.5 + 2.0 * (gf[min_group_idx] / total_gf)) * \
                                      config.get("energy_scale_factor", 1.0)
 
                     if state.battery_j < min_energy:
@@ -1092,37 +1061,40 @@ class FedPartBE(FLAlgorithm):
             group_cost = gf[active_idx]
 
         profile = config.get("device_profile")
+        # Trainable set declaration: warmup = full model, PNU = active group only.
+        if is_warmup:
+            _trainable_acc = [n for n, _ in model.named_parameters()]
+            _gf_hint_acc = None
+            _active_idx_hint = -1
+        else:
+            _trainable_acc = list(groups[active_idx])
+            _gf_hint_acc = state.custom["group_flops"]
+            _active_idx_hint = active_idx
+
         if profile:
-            if not is_warmup:
-                group_flops = state.custom["group_flops"]  # guaranteed cached above
-                total_gf_acc = sum(group_flops) or 1.0
-                active_fraction = group_flops[active_idx] / total_gf_acc
-            else:
-                active_fraction = 1.0
-            # Dispatcher: legacy analytic (1/3 + 2/3*phi_g) by default,
-            # measured FLOPs when use_measured_flops=True. Same call as the
-            # gates above so estimates and actual drain stay consistent.
-            effective_flops = compute_training_flops(
-                model, profile, dataloader, local_epochs, config,
-                active_group_idx=(active_idx if not is_warmup else -1),
+            # Single dispatcher call — same cost_model as the gates above so
+            # estimate and actual drain cannot diverge. No inline FLOP math.
+            effective_flops = round_compute_flops(
+                model, _trainable_acc, config,
+                profile, dataloader, local_epochs,
                 groups=groups,
-                group_flops_analytic=(state.custom.get("group_flops")
-                                      if not is_warmup else None),
+                active_group_idx=_active_idx_hint,
+                group_flops_analytic=_gf_hint_acc,
             )
             energy_j = profile.round_energy_j(effective_flops, uplink_bytes, downlink_bytes)
         else:
-            if not is_warmup:
+            # Profile-less fallback retained for tests / smoke runs.
+            if is_warmup:
+                _active_fraction_hf = 1.0
+            else:
                 if "group_flops" not in state.custom:
                     input_shape = config.get("input_shape", (1, 3, 32, 32))
                     state.custom["group_flops"] = _compute_group_flops(
                         groups, model, input_shape
                     )
-                group_flops = state.custom["group_flops"]
-                total_gf_heu = sum(group_flops) or 1.0
-                active_fraction = group_flops[active_idx] / total_gf_heu
-            else:
-                active_fraction = 1.0
-            energy_j = 0.5 + 2.0 * active_fraction
+                _gf_acc = state.custom["group_flops"]
+                _active_fraction_hf = _gf_acc[active_idx] / max(sum(_gf_acc), 1.0)
+            energy_j = 0.5 + 2.0 * _active_fraction_hf
 
         # ── Energy scale factor (calibration) ────────────────────────────────
         energy_j *= config.get("energy_scale_factor", 1.0)

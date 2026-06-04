@@ -418,6 +418,9 @@ def run_single_experiment(
                 if _battery_before > 0.0 and client_states[cid].battery_j <= 0.0:
                     profile_name = getattr(fleet[cid], "name", f"device_{cid}")
                     alive_after = sum(1 for cs in client_states if cs.battery_j > 0)
+                    # Record the death round for survival metrics — picked up by
+                    # metrics.survival.derive_lifetimes().
+                    client_states[cid].custom["death_round"] = t
                     print(f"  ☠  Round {t+1:3d} | Client {cid:2d} [{profile_name}] "
                           f"battery depleted — {alive_after}/{num_clients} clients alive")
 
@@ -675,12 +678,27 @@ def run_single_experiment(
               f"Final Jain={summary['final_jain_index']:.4f} | "
               f"SimTime={summary['total_sim_time_s']:.0f}s")
 
+    # Compact, JSON-safe snapshot of final client states — consumed by the
+    # survival metrics module post-run. Keeps the tensor-bearing ClientState
+    # objects out of the returned (and serialized) result.
+    _client_snapshots = [
+        {
+            "client_id":     cs.client_id,
+            "battery_j":     float(cs.battery_j),
+            "death_round":   int(cs.custom.get("death_round"))
+                              if isinstance(cs.custom, dict) and "death_round" in cs.custom
+                              else None,
+        }
+        for cs in client_states
+    ]
+
     return {
         "algorithm": algo_name,
         "dataset":   dataset,
         "config": merged_config,
         "rounds": rounds_log,
         "summary": summary,
+        "client_states": _client_snapshots,
     }
 
 
@@ -928,6 +946,17 @@ Examples:
     p.add_argument("--layer-mismatch-metrics", type=str, default=None, metavar="M1,M2,...",
                    help="Comma-separated metrics: drift,loss_jump,cka (default: all three)")
 
+    # Compute-cost model (drives hardware/flop_cost.py)
+    p.add_argument("--cost-model", type=str, default=None,
+                   choices=["phi", "corrected", "measured"],
+                   help="Per-round compute-FLOP cost model. Applied uniformly to "
+                        "ALL algorithms in this run. 'phi' (legacy) reproduces "
+                        "pre-refactor analytic formulas bit-for-bit. 'corrected' "
+                        "uses the position-aware analytic model (groups only). "
+                        "'measured' runs FlopCounterMode with the algo's actual "
+                        "requires_grad mask (cached). Default: read from YAML "
+                        "'cost_model' key, else 'phi' (backwards-compatible).")
+
     # Client sampling
     p.add_argument("--sample-fraction", type=float, default=1.0,
                    help="Fraction of clients selected per round (0<f<=1, default=1.0 = all)")
@@ -1038,6 +1067,22 @@ Examples:
     if args.freeze_secondary:
         algo_config["freeze_secondary_backward"] = True
 
+    # ── cost_model (single source of truth for compute FLOPs) ────────────────
+    # Precedence: CLI > YAML training.cost_model > YAML top-level cost_model > "phi".
+    # The same value is applied to every algorithm in the run; flop_cost reads
+    # config["cost_model"] from algo_config.
+    _yaml_cfg = locals().get("cfg", {}) or {}
+    _yaml_train = _yaml_cfg.get("training") if isinstance(_yaml_cfg, dict) else None
+    _yaml_cost_model = (
+        (_yaml_train.get("cost_model") if isinstance(_yaml_train, dict) else None)
+        or (_yaml_cfg.get("cost_model") if isinstance(_yaml_cfg, dict) else None)
+    )
+    _cost_model = args.cost_model or _yaml_cost_model or "phi"
+    algo_config["cost_model"] = _cost_model
+    if _cost_model != "phi":
+        print(f"  cost_model: {_cost_model!r} (non-legacy — absolute energy will "
+              f"differ from phi by ~10–200×; recalibrate energy_scale_factor)")
+
     # ── Final device: YAML 'device' key overrides auto-detect (not CLI) ────────
     _yaml_device = cfg.get("device", None)
     if not _cli_device_explicit and _yaml_device is not None:
@@ -1079,8 +1124,35 @@ Examples:
     # Save results
     out_dir = Path(output_dir) / f"{algo_name}_{dataset}_{model_name}_{partition}_ncl{num_clients}_r{num_rounds}_s{seed}"
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Survival / Pareto artifacts ─────────────────────────────────────────
+    # Builds survival.csv next to metrics.json and folds a "survival" summary
+    # block into the JSON for the ablation runner to read in one open().
+    try:
+        from metrics.survival import emit_survival_artifacts
+        _rounds_log = result.get("rounds", [])
+        _acc_hist = [r.get("test_accuracy") for r in _rounds_log]
+        _client_states = result.get("client_states", [])  # populated by runner
+        _survival = emit_survival_artifacts(
+            output_dir=str(out_dir),
+            rounds_metrics=_rounds_log,
+            accuracy_history=_acc_hist,
+            client_states=_client_states,
+            num_clients_total=num_clients,
+            num_rounds=num_rounds,
+        )
+        # Strip non-serializable side data before folding into JSON.
+        result["survival"] = {
+            k: v for k, v in _survival.items() if not k.startswith("_")
+        }
+        result["survival"]["csv_path"] = _survival.get("_csv_path")
+        result["survival"]["lifetimes"] = _survival.get("_lifetimes", [])
+        print(f"  Survival CSV: {out_dir}/survival.csv")
+    except Exception as exc:
+        print(f"  [warn] survival metrics skipped: {exc}")
+
     with open(out_dir / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2)
+        json.dump(result, f, indent=2, default=str)
     print(f"\nResults saved: {out_dir}/metrics.json")
 
 
