@@ -21,3 +21,11 @@ algorithms/fedpart_be_lora_gs.py
 algorithms/fed_grad_align.py
 algorithms/fedpart_universal.py
 .DS_Store
+
+SERVER_MASK_FL_IMPLEMENTATION.txt
+test_server_mask.py
+notes.txt
+tests/
+results1/
+result_broui/
+aa/

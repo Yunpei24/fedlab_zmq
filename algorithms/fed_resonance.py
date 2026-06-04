@@ -76,6 +76,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
+from hardware.flop_measure import compute_training_flops
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -667,6 +668,8 @@ class FedResonance(FLAlgorithm):
         device     = config.get("device", "cpu")
         lr         = config.get("lr", 0.01)
         local_epochs = config.get("local_epochs", 1)
+        warmup_rounds = int(config.get("warmup_rounds", 0))
+        is_warmup  = state.round_num < warmup_rounds
         beta_min   = config.get("beta_min", 0.01)
         beta_max   = config.get("beta_max", 1.0)
         battery_max_j = config.get("battery_max_j", 185400.0)
@@ -738,12 +741,20 @@ class FedResonance(FLAlgorithm):
             {k: v.clone().detach().cpu() for k, v in model.state_dict().items()}
         )
 
-        # ── Step 3: Local SGD training ─────────────────────────────────────
+        # ── Step 3: Local training ─────────────────────────────────────────
         model.train()
         model.to(device)
-        optimizer = optim.SGD(
-            model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4
-        )
+        momentum = config.get("momentum", 0.9)
+        weight_decay = config.get("weight_decay", 1e-4)
+        optimizer_type = config.get("optimizer", "sgd").lower()
+        if optimizer_type == "adam":
+            optimizer = optim.Adam(
+                model.parameters(), lr=lr, weight_decay=weight_decay
+            )
+        else:
+            optimizer = optim.SGD(
+                model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
+            )
         criterion = nn.CrossEntropyLoss()
 
         total_loss = 0.0
@@ -783,7 +794,7 @@ class FedResonance(FLAlgorithm):
         b_rounds = state.custom["basis_round"]
         current_round = state.round_num
 
-        # ── Step 6: Per-layer hybrid compression ───────────────────────────
+        # ── Step 6: Per-layer hybrid compression (or warmup dense pass) ───────
         update = OrderedDict()      # what is transmitted to server
         new_error = OrderedDict()
         mode_per_layer: dict[str, str] = {}
@@ -793,6 +804,18 @@ class FedResonance(FLAlgorithm):
         drifts: list[float] = []
 
         for name, g in delta.items():
+            # Warmup: transmit full delta without any compression (= FedAvg).
+            # Bases and error buffers stay uninitialised until warmup ends.
+            if is_warmup:
+                n_bytes = g.numel() * 4
+                total_bytes_dense += n_bytes
+                total_bytes_sent  += n_bytes
+                mode_per_layer[name] = "dense"
+                update[name] = {"mode": "dense", "data": g}
+                if use_ef:
+                    new_error[name] = torch.zeros_like(g)
+                continue
+
             # Add error feedback
             if use_ef and state.error_buffer is not None:
                 u = g + state.error_buffer[name]
@@ -1023,8 +1046,12 @@ class FedResonance(FLAlgorithm):
         downlink_bytes = total_bytes_dense   # server sends full weights
 
         if profile is not None:
-            flops = profile.flops_for_model(
-                num_params, batch_size, local_epochs, dataset_size
+            # Dispatcher: legacy analytic full-train by default, measured
+            # fwd+bwd when use_measured_flops=True. fed_resonance trains the
+            # full model (compression is on the upload, not the backward).
+            flops = compute_training_flops(
+                model, profile, dataloader, local_epochs, config,
+                active_group_idx=None, groups=None,
             )
             energy_j = profile.round_energy_j(flops, total_bytes_sent, downlink_bytes)
         else:
@@ -1261,6 +1288,9 @@ class FedResonance(FLAlgorithm):
             "lr":                   0.01,
             "local_epochs":         1,
             "batch_size":           32,
+            "optimizer":            "sgd",
+            "momentum":             0.9,
+            "weight_decay":         1e-4,
             # SVD parameters
             "rank_min":             4,      # minimum truncated SVD rank
             "rank_max":             32,     # maximum truncated SVD rank

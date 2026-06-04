@@ -95,23 +95,24 @@ import torch.optim as optim
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
 from .fedpart import _derive_layer_groups, _param_group_key, _compute_group_flops
 from hardware.profiles import DeviceProfile
+from hardware.flop_measure import compute_training_flops
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _compute_group_costs(groups: list[list[str]], model: nn.Module) -> list[int]:
-    """
-    Compute cost (total param count) for each layer group.
-    Kept as fallback if FLOPs computation fails.
-    """
-    state_dict = model.state_dict()
-    costs = []
-    for group in groups:
-        cost = sum(state_dict[k].numel() for k in group if k in state_dict)
-        costs.append(max(cost, 1))
-    return costs
+# def _compute_group_costs(groups: list[list[str]], model: nn.Module) -> list[int]:
+#     """
+#     Compute cost (total param count) for each layer group.
+#     Kept as fallback if FLOPs computation fails.
+#     """
+#     state_dict = model.state_dict()
+#     costs = []
+#     for group in groups:
+#         cost = sum(state_dict[k].numel() for k in group if k in state_dict)
+#         costs.append(max(cost, 1))
+#     return costs
 
 
 def _compute_corrected_group_costs(group_flops: list[float]) -> list[float]:
@@ -241,6 +242,7 @@ def _assign_tiers_to_groups_v2(
     staleness: list[int],
     grad_norms: list[float],
     bucket_shift: int = 0,
+    enforce_staleness_cap: bool = True,
 ) -> dict[int, int]:
     """
     Cost-bucketed, staleness-driven group selection.
@@ -346,6 +348,35 @@ def _assign_tiers_to_groups_v2(
         )
         tier_assignment[t] = best_g
 
+    # Hard staleness cap: enforce τ_max = ceil(G/M) - 1 deterministically.
+    # If any group has reached the staleness cap it MUST be included in the
+    # active set for this round, regardless of priority score.  Groups at the
+    # cap are collected and substituted into tier slots one-by-one, cheapest
+    # corrected-cost first (to preserve the energy-safety invariant as much
+    # as possible).  Ties within overdue groups are broken by corrected cost
+    # ascending so that the cheapest overdue group displaces the most
+    # expensive already-assigned tier.
+    if enforce_staleness_cap:
+        tau_max = max(0, math.ceil(num_groups / num_tiers) - 1)
+        already_covered = set(tier_assignment.values())
+        overdue = [
+            g for g in range(num_groups)
+            if staleness[g] >= tau_max and g not in already_covered
+        ]
+        if overdue:
+            # Sort overdue groups cheapest corrected cost first.
+            overdue_sorted = sorted(overdue, key=lambda g: corrected_costs[g])
+            # Find tiers not already serving an overdue group, sorted by how
+            # expensive their currently assigned group is (most expensive first
+            # so we displace the costliest, preserving energy safety).
+            replaceable_tiers = sorted(
+                [t for t in range(num_tiers)
+                 if tier_assignment[t] not in overdue_sorted],
+                key=lambda t: -corrected_costs[tier_assignment[t]],
+            )
+            for g_overdue, t_replace in zip(overdue_sorted, replaceable_tiers):
+                tier_assignment[t_replace] = g_overdue
+
     return tier_assignment
 
 
@@ -424,6 +455,7 @@ def _battery_proportional_client_assignment(
     grad_norms: list[float],
     num_tiers: int,
     bucket_shift: int = 0,
+    enforce_staleness_cap: bool = True,
 ) -> tuple[dict[int, int], dict[int, int]]:
     """
     Battery-proportional group assignment for maximum fleet lifetime.
@@ -490,6 +522,25 @@ def _battery_proportional_client_assignment(
             key=lambda g: (staleness[g], grad_norms[g] / max(group_costs[g], 1e-8)),
         )
         tier_to_group[t] = best_g
+
+    # Hard staleness cap: enforce τ_max = ceil(G/M) - 1 deterministically.
+    # Mirror of the logic in _assign_tiers_to_groups_v2 — applied here so that
+    # both assignment strategies honour the hard staleness guarantee.
+    if enforce_staleness_cap:
+        _corrected = _compute_corrected_group_costs(group_costs)
+        _tau_max = max(0, math.ceil(num_groups / num_tiers) - 1)
+        _covered = set(tier_to_group.values())
+        _overdue = [g for g in range(num_groups)
+                    if staleness[g] >= _tau_max and g not in _covered]
+        if _overdue:
+            _overdue_sorted = sorted(_overdue, key=lambda g: _corrected[g])
+            _replaceable = sorted(
+                [t for t in range(num_tiers)
+                 if tier_to_group[t] not in _overdue_sorted],
+                key=lambda t: -_corrected[tier_to_group[t]],
+            )
+            for _go, _tr in zip(_overdue_sorted, _replaceable):
+                tier_to_group[_tr] = _go
 
     # ── Step 2: proportional matching ────────────────────────────────────────
     mean_battery = sum(b for _, b in client_batteries) / K
@@ -647,15 +698,16 @@ class FedPartBE(FLAlgorithm):
         5. Train with CE + weight proximal + representation proximal loss.
         6. Return partial delta and metadata.
         """
-        device        = config.get("device", "cpu")
-        lr            = config.get("lr", 0.01)
-        momentum      = config.get("momentum", 0.9)
-        weight_decay  = config.get("weight_decay", 1e-4)
-        local_epochs  = config.get("local_epochs", 8)
-        max_grad_norm = config.get("max_grad_norm", 10.0)
-        mu_weight     = config.get("mu_weight", 0.01)   # weight proximal coeff
-        mu_repr       = config.get("mu_repr", 0.1)      # representation proximal coeff
-        warmup_rounds = config.get("warmup_rounds", 5)
+        device           = config.get("device", "cpu")
+        lr               = config.get("lr", 0.01)
+        momentum         = config.get("momentum", 0.9)
+        weight_decay     = config.get("weight_decay", 1e-4)
+        local_epochs     = config.get("local_epochs", 8)
+        max_grad_norm    = config.get("max_grad_norm", 10.0)
+        mu_weight        = config.get("mu_weight", 0.01)   # weight proximal coeff
+        mu_repr          = config.get("mu_repr", 0.1)      # representation proximal coeff
+        warmup_rounds    = config.get("warmup_rounds", 5)
+        persist_optimizer = config.get("persist_optimizer", True)
 
         model.train()
         model.to(device)
@@ -706,12 +758,13 @@ class FedPartBE(FLAlgorithm):
         if is_warmup:
             _profile_wu = config.get("device_profile")
             if _profile_wu is not None:
-                _np_wu = sum(p.numel() for p in model.parameters())
-                _ff_wu = _profile_wu.flops_for_model(
-                    _np_wu, dataloader.batch_size,
-                    local_epochs, len(dataloader.dataset)
-                ) # FLOPs for forward pass
-                _fb_wu = sum(v.numel() for v in model.state_dict().values()) * 4 # FLOPs for backward pass
+                # Dispatcher: legacy analytic by default, measured when
+                # use_measured_flops=True. -1 = full fwd+bwd (warmup).
+                _ff_wu = compute_training_flops(
+                    model, _profile_wu, dataloader, local_epochs, config,
+                    active_group_idx=-1, groups=None,
+                )
+                _fb_wu = sum(v.numel() for v in model.state_dict().values()) * 4 # bytes for full model
                 _wu_energy = _profile_wu.round_energy_j(_ff_wu, _fb_wu, _fb_wu) # Energy for full model training
             else:
                 _wu_energy = 2.5  # unscaled full-model heuristic
@@ -768,13 +821,12 @@ class FedPartBE(FLAlgorithm):
 
             profile = config.get("device_profile")
             if profile is not None:
-                num_params_est = sum(p.numel() for p in model.parameters())
-                full_flops_est = profile.flops_for_model(
-                    num_params_est, dataloader.batch_size,
-                    local_epochs, len(dataloader.dataset)
+                # Dispatcher: matches the real accounting site below.
+                eff_flops_est = compute_training_flops(
+                    model, profile, dataloader, local_epochs, config,
+                    active_group_idx=active_idx, groups=groups,
+                    group_flops_analytic=gf,
                 )
-                eff_flops_est = (full_flops_est / 3.0 +
-                                 full_flops_est * 2.0 / 3.0 * active_fraction_est)
                 uplink_est = int(sum(
                     model.state_dict()[k].numel()
                     for k in groups[active_idx] if k in model.state_dict()
@@ -787,79 +839,136 @@ class FedPartBE(FLAlgorithm):
             energy_est *= config.get("energy_scale_factor", 1.0)
 
             if state.battery_j < energy_est:
-                # Assigned group too expensive. Find cheapest group by raw FLOPs.
-                # (Corrected costs used only for tier assignment, not gating.)
-                min_group_idx = int(min(range(num_groups), key=lambda g: gf[g]))
-                min_fraction = gf[min_group_idx] / total_gf
-                if profile is not None:
-                    min_eff_flops = (full_flops_est / 3.0 +
-                                     full_flops_est * 2.0 / 3.0 * min_fraction)
-                    min_uplink_est = int(sum(
-                        model.state_dict()[k].numel()
-                        for k in groups[min_group_idx] if k in model.state_dict()
-                    ) * 4)
-                    min_energy = profile.round_energy_j(
-                        min_eff_flops, min_uplink_est, downlink_est
-                    ) * config.get("energy_scale_factor", 1.0)
+                # Energy gate override: group at staleness cap cannot be skipped.
+                # If the assigned group has reached τ_max = ceil(G/M) - 1, the
+                # hard staleness guarantee requires it to be trained this round.
+                # Force the client to train the original group regardless of energy
+                # cost; log a warning so the operator can detect chronic over-drain.
+                _enforce_cap = config.get("enforce_staleness_cap", True)
+                _srv_staleness = server_state.get("staleness", [])
+                _n_tiers_srv = server_state.get("num_tiers", max(1, num_groups // 2))
+                _tau_max_gate = max(0, math.ceil(num_groups / max(_n_tiers_srv, 1)) - 1)
+                _original_group_at_cap = (
+                    _enforce_cap
+                    and len(_srv_staleness) > active_idx
+                    and _srv_staleness[active_idx] >= _tau_max_gate
+                )
+                if _original_group_at_cap:
+                    # Do NOT fire the gate for a group at the staleness cap.
+                    # The client must train it even if under-battery; the energy
+                    # accounting will drain as much as remains (clamped to 0).
+                    import warnings
+                    warnings.warn(
+                        f"[FedPartBE] Client {state.client_id}: energy gate suppressed "
+                        f"for group {active_idx} at staleness cap "
+                        f"(staleness={_srv_staleness[active_idx]}, τ_max={_tau_max_gate}). "
+                        f"Battery {state.battery_j:.1f}J < estimated {energy_est:.1f}J.",
+                        stacklevel=2,
+                    )
+                    # Fall through to training — active_idx unchanged.
                 else:
-                    min_energy = (0.5 + 2.0 * min_fraction) * \
-                                 config.get("energy_scale_factor", 1.0)
+                    # Assigned group too expensive. Find cheapest group by raw FLOPs.
+                    # (Corrected costs used only for tier assignment, not gating.)
+                    min_group_idx = int(min(range(num_groups), key=lambda g: gf[g]))
+                    min_fraction = gf[min_group_idx] / total_gf
+                    if profile is not None:
+                        # Dispatcher again, so analytic vs measured stays consistent
+                        # with the per-group selection used above and below.
+                        min_eff_flops = compute_training_flops(
+                            model, profile, dataloader, local_epochs, config,
+                            active_group_idx=min_group_idx, groups=groups,
+                            group_flops_analytic=gf,
+                        )
+                        min_uplink_est = int(sum(
+                            model.state_dict()[k].numel()
+                            for k in groups[min_group_idx] if k in model.state_dict()
+                        ) * 4)
+                        min_energy = profile.round_energy_j(
+                            min_eff_flops, min_uplink_est, downlink_est
+                        ) * config.get("energy_scale_factor", 1.0)
+                    else:
+                        min_energy = (0.5 + 2.0 * min_fraction) * \
+                                     config.get("energy_scale_factor", 1.0)
 
-                if state.battery_j < min_energy:
-                    # Below the floor for any group — permanently dead.
-                    state.battery_j = 0.0
-                    return {}, {
-                        "client_id":           state.client_id,
-                        "round_num":           state.round_num,
-                        "skipped":             True,
-                        "battery_j_remaining": state.battery_j,
-                        "energy_j_consumed":   0.0,
-                        "bytes_sent":          0,
-                        "bytes_received":      0,
-                        "local_loss":          0.0,
-                        "compression_ratio":   0.0,
-                        "beta_actual":         0.0,
-                        "active_group_idx":    active_idx,
-                        "is_warmup":           False,
-                        "num_layer_groups":    num_groups,
-                        "dataset_size":        len(dataloader.dataset),
-                    }
-                else:
-                    # Can afford cheapest group — fall back to it instead of
-                    # skipping. Prevents zombie state: a client that can't afford
-                    # its assigned (expensive) group but has enough battery for a
-                    # cheaper one should keep contributing, not become permanently
-                    # stuck skipping while technically "alive".
-                    active_idx = min_group_idx
+                    if state.battery_j < min_energy:
+                        # Below the floor for any group — permanently dead.
+                        state.battery_j = 0.0
+                        return {}, {
+                            "client_id":           state.client_id,
+                            "round_num":           state.round_num,
+                            "skipped":             True,
+                            "battery_j_remaining": state.battery_j,
+                            "energy_j_consumed":   0.0,
+                            "bytes_sent":          0,
+                            "bytes_received":      0,
+                            "local_loss":          0.0,
+                            "compression_ratio":   0.0,
+                            "beta_actual":         0.0,
+                            "active_group_idx":    active_idx,
+                            "is_warmup":           False,
+                            "num_layer_groups":    num_groups,
+                            "dataset_size":        len(dataloader.dataset),
+                        }
+                    else:
+                        # Can afford cheapest group — fall back to it instead of
+                        # skipping. Prevents zombie state: a client that can't afford
+                        # its assigned (expensive) group but has enough battery for a
+                        # cheaper one should keep contributing, not become permanently
+                        # stuck skipping while technically "alive".
+                        active_idx = min_group_idx
 
         # ── Save weights before local training ───────────────────────────────
         w_before = OrderedDict({
             k: v.clone().cpu() for k, v in model.state_dict().items()
         })
 
-        # Store global weights for proximal terms
-        w_global = {k: v.clone().to(device) for k, v in model.state_dict().items()}
+        # Global weights for proximal terms — only needed post-warmup when mu > 0.
+        # Skipped during warmup: avoids cloning the full model 30× per warmup round.
+        w_global: dict = {}
+        if not is_warmup and (mu_weight > 0 or mu_repr > 0):
+            w_global = {k: v.clone().to(device) for k, v in model.state_dict().items()}
 
         # ── Freeze layers outside active group ───────────────────────────────
         _freeze_all_except_group(model, groups, active_idx)
 
-        # ── Build frozen reference model for per-batch repr proximal ────────
-        # Correct implementation: ref_model uses global weights and is evaluated
-        # on the SAME batch x as the local model → MSE(f(x;W_local), f(x;W_global))
-        # is mathematically meaningful. A single frozen copy is reused each batch.
-        ref_model = None
-        if not is_warmup and mu_repr > 0:
-            ref_model = copy.deepcopy(model)
-            ref_model.load_state_dict({k: v.clone() for k, v in w_global.items()})
-            ref_model.eval()
-            for p in ref_model.parameters():
-                p.requires_grad_(False)
+        # ── repr proximal flag ───────────────────────────────────────────────
+        # repr proximal computed via weight-swap (no deepcopy, correct x alignment).
+        _do_repr = not is_warmup and mu_repr > 0 and w_global
+
+        # ── Live references to active group parameters (weight proximal) ────────
+        # named_parameters() returns (name, param) pairs where param is a live
+        # tensor reference — no copy. Avoids calling model.state_dict() (which
+        # copies all tensors) inside the per-batch training loop.
+        active_param_refs: dict[str, torch.nn.Parameter] = {}
+        if not is_warmup and (mu_weight > 0 or mu_repr > 0):
+            active_names_set = set(groups[active_idx])
+            active_param_refs = {
+                name: param
+                for name, param in model.named_parameters()
+                if name in active_names_set
+            }
+            
+        # Pre-allocate buffers to avoid memory allocation overhead during batch loop
+        saved_active_buffers: dict[str, torch.Tensor] = {}
+        if _do_repr:
+            saved_active_buffers = {k: torch.empty_like(p.data) for k, p in active_param_refs.items()}
 
         # ── Local training ───────────────────────────────────────────────────
         trainable_params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = optim.SGD(
-            trainable_params, lr=lr, momentum=momentum, weight_decay=weight_decay
-        )
+        optimizer_type = config.get("optimizer", "sgd").lower()
+        if optimizer_type == "adam":
+            optimizer = optim.Adam(trainable_params, lr=lr, weight_decay=weight_decay)
+        else:
+            optimizer = optim.SGD(
+                trainable_params, lr=lr, momentum=momentum, weight_decay=weight_decay
+            )
+        # Restore per-group optimizer state from previous visit (works for both
+        # SGD momentum buffer and Adam exp_avg/exp_avg_sq tensors — state_dict
+        # format is consistent within a run since optimizer_type is fixed).
+        if persist_optimizer and not is_warmup:
+            saved = state.custom.get("optimizer_states", {}).get(active_idx)
+            if saved is not None:
+                optimizer.load_state_dict(saved)
         criterion = nn.CrossEntropyLoss()
 
         total_loss = 0.0
@@ -878,22 +987,32 @@ class FedPartBE(FLAlgorithm):
                 ce_loss = criterion(out, y)
 
                 # Weight proximal term: ||W_active - W_global||^2
+                # Uses live parameter references — no state_dict() copy per batch.
                 weight_prox_loss = 0.0
-                if not is_warmup and mu_weight > 0:
-                    active_keys = groups[active_idx]
-                    for k in active_keys:
+                if active_param_refs and mu_weight > 0:
+                    for k, param in active_param_refs.items():
                         if k in w_global:
-                            param = model.state_dict()[k]
                             weight_prox_loss += torch.sum((param - w_global[k]) ** 2)
                     weight_prox_loss *= (mu_weight / 2.0)
 
                 # Representation proximal term: MSE(f(x;W_local), f(x;W_global))
-                # ref_model holds frozen global weights; evaluated on the same x
-                # as the local forward → comparison is on identical inputs.
+                # Weight-swap: temporarily restores active group to global weights,
+                # runs forward on the SAME x (correct alignment), then restores.
+                # Non-active params are frozen = already at global values, so only
+                # the active group needs swapping. Eliminates deepcopy entirely.
+                # Limited to final epoch: signal is strongest at maximum drift (epoch E-1).
+                # At epoch 0, W_local == W_global exactly → repr_prox_loss ≈ 0 (useless).
+                # Drift accumulates as δ(e) ∝ e²; epoch E-1 captures ~35% of total signal
+                # at the same 6.25% overhead as the old epoch=0 approach.
                 repr_prox_loss = 0.0
-                if not is_warmup and mu_repr > 0 and ref_model is not None:
+                if _do_repr and (epoch == local_epochs - 1 or epoch == 1):
                     with torch.no_grad():
-                        h_ref_x = ref_model(x)
+                        for k, p in active_param_refs.items():
+                            saved_active_buffers[k].copy_(p.data)
+                            p.data.copy_(w_global[k])
+                        h_ref_x = model(x).detach()
+                        for k, p in active_param_refs.items():
+                            p.data.copy_(saved_active_buffers[k])
                     repr_prox_loss = mu_repr * torch.mean((out - h_ref_x) ** 2)
 
                 # Total loss
@@ -910,13 +1029,16 @@ class FedPartBE(FLAlgorithm):
                 total_repr_prox_loss += repr_prox_loss if isinstance(repr_prox_loss, float) else repr_prox_loss.item()
                 num_batches += 1
 
+        # Save per-group optimizer state for next visit to this group.
+        if persist_optimizer and not is_warmup:
+            state.custom.setdefault("optimizer_states", {})[active_idx] = optimizer.state_dict()
+
         # ── Restore full gradient capability ─────────────────────────────────
         _restore_all_grad(model)
 
-        # Free reference model and global weights — no longer needed.
-        if ref_model is not None:
-            del ref_model
-        del w_global
+        # Free global weights (no ref_outputs to free — weight-swap leaves no residual).
+        if w_global:
+            del w_global
         gc.collect()
 
         # ── Compute delta — ONLY for active group's parameters ──────────────
@@ -951,9 +1073,10 @@ class FedPartBE(FLAlgorithm):
 
         # ── Communication / energy accounting ────────────────────────────────
         uplink_bytes   = self.count_bytes(partial_delta, sparse=False)
-        # Count bytes from w_before before freeing it
-        downlink_bytes     = self.count_bytes(w_before, sparse=False)
-        full_upload_bytes_ref = self.count_bytes(w_before, sparse=False)
+        # Count bytes from w_before before freeing it (compute once, reuse)
+        full_model_bytes      = self.count_bytes(w_before, sparse=False)
+        downlink_bytes        = full_model_bytes
+        full_upload_bytes_ref = full_model_bytes
         del w_before
         del current_sd
         gc.collect()
@@ -970,33 +1093,22 @@ class FedPartBE(FLAlgorithm):
 
         profile = config.get("device_profile")
         if profile:
-            num_params = sum(p.numel() for p in model.parameters())
-            full_flops = profile.flops_for_model(
-                num_params, dataloader.batch_size,
-                local_epochs, len(dataloader.dataset)
-            )
             if not is_warmup:
-                # FLOPs-weighted active fraction: backward pass only through
-                # the active group.  Different groups have different costs
-                # because conv FLOPs depend on spatial resolution, not just
-                # param count.  Cache group_flops to avoid recomputing.
-                # NOTE: We use the same formula as FedPart (gf[p]/total_gf) for
-                # battery drain so that both algorithms are calibrated identically
-                # and survival comparison is fair. The corrected downstream-aware
-                # formula is used only for tier assignment (see _assign_tiers_to_groups_v2).
-                if "group_flops" not in state.custom:
-                    input_shape = config.get("input_shape", (1, 3, 32, 32))
-                    state.custom["group_flops"] = _compute_group_flops(
-                        groups, model, input_shape
-                    )
-                group_flops = state.custom["group_flops"]
+                group_flops = state.custom["group_flops"]  # guaranteed cached above
                 total_gf_acc = sum(group_flops) or 1.0
                 active_fraction = group_flops[active_idx] / total_gf_acc
             else:
                 active_fraction = 1.0
-            forward_flops   = full_flops / 3.0
-            backward_flops  = full_flops * 2.0 / 3.0
-            effective_flops = forward_flops + backward_flops * active_fraction
+            # Dispatcher: legacy analytic (1/3 + 2/3*phi_g) by default,
+            # measured FLOPs when use_measured_flops=True. Same call as the
+            # gates above so estimates and actual drain stay consistent.
+            effective_flops = compute_training_flops(
+                model, profile, dataloader, local_epochs, config,
+                active_group_idx=(active_idx if not is_warmup else -1),
+                groups=groups,
+                group_flops_analytic=(state.custom.get("group_flops")
+                                      if not is_warmup else None),
+            )
             energy_j = profile.round_energy_j(effective_flops, uplink_bytes, downlink_bytes)
         else:
             if not is_warmup:
@@ -1149,24 +1261,24 @@ class FedPartBE(FLAlgorithm):
 
         # ── Warmup phase: full FedAvg ─────────────────────────────────────────
         if is_warmup:
-            # Compute dataset-size weights
-            sizes = [m.get("dataset_size", 1) for _, m, _ in client_updates]
-            total_n = sum(sizes)
-            weights = [n_k / total_n for n_k in sizes]
+            # Uniform average (1/K per client) — identical to FedPart warmup so
+            # that warmup rounds are directly comparable across algorithms.
+            K_wu = len(client_updates)
 
-            # Accumulate weighted deltas
             agg = None
-            for (update, metadata, state), w_k in zip(client_updates, weights):
+            for update, metadata, state in client_updates:
                 if agg is None:
-                    agg = {k: v.clone().float() * w_k for k, v in update.items()}
+                    agg = {k: v.clone().float() for k, v in update.items()}
                 else:
                     for k in update:
                         if k in agg:
-                            agg[k] += update[k].float() * w_k
+                            agg[k] += update[k].float()
                         else:
-                            agg[k] = update[k].float() * w_k
+                            agg[k] = update[k].float()
+            for k in agg:
+                agg[k] /= K_wu
 
-            # Apply weighted aggregate
+            # Apply averaged aggregate
             new_weights = OrderedDict()
             for k in global_sd:
                 if k in agg:
@@ -1320,10 +1432,18 @@ class FedPartBE(FLAlgorithm):
                     k = groups[g_idx][0]
                     return k.replace(".weight", "").replace(".bias", "")[:14]
 
+                # Count clients per active group from metadata
+                _clients_per_group: dict[int, int] = defaultdict(int)
+                for _, _m, _ in client_updates:
+                    if not _m.get("skipped", False):
+                        _cpg_idx = _m.get("active_group_idx", -1)
+                        if 0 <= _cpg_idx < num_groups:
+                            _clients_per_group[_cpg_idx] += 1
+
                 parts = []
                 for t in sorted(tier_map):
                     gg = tier_map[t]
-                    n = len(group_to_updates.get(gg, []))
+                    n = _clients_per_group.get(gg, 0)
                     parts.append(f"T{t}→G{gg}[{_gname(gg)}]({n}c)")
                 stale_str = ",".join(str(s) for s in staleness)
                 print(f"  [FedPartBE] R{round_num} | {' | '.join(parts)} | "
@@ -1426,6 +1546,7 @@ class FedPartBE(FLAlgorithm):
                     self._server_state["ema_grad_norms"],
                     _n_tiers,
                     bucket_shift=_phase,
+                    enforce_staleness_cap=config.get("enforce_staleness_cap", True),
                 )
             else:
                 # Equal-quantile (default): K/num_tiers clients per tier regardless
@@ -1438,6 +1559,7 @@ class FedPartBE(FLAlgorithm):
                     self._server_state["staleness"],
                     self._server_state["ema_grad_norms"],
                     bucket_shift=_phase,
+                    enforce_staleness_cap=config.get("enforce_staleness_cap", True),
                 )
                 _client_assignment = {
                     cid: _tier_to_group[tier]
@@ -1483,6 +1605,9 @@ class FedPartBE(FLAlgorithm):
         #   α=0.5: moderate smoothing (memory ~2 rounds)
         #   α=1.0: no smoothing (w_ema = w_brut) — equivalent to disabled
         _ema_model_alpha = float(config.get("ema_model_alpha", 0.0))
+        if is_warmup:
+            _ema_model_alpha = 0.0  # Disable EMA during warmup to ensure full FedAvg steps
+
         if _ema_model_alpha > 0.0:
             if "w_ema" not in self._server_state:
                 # First round: initialise EMA from current aggregated weights
@@ -1529,6 +1654,60 @@ class FedPartBE(FLAlgorithm):
         participations = [0.0 if m.get("skipped", False) else 1.0
                           for _, m, _ in client_updates]
 
+        # ── σ² — inter-client update variance (free: deltas already in memory) ──
+        # During warmup: deltas are full-model → direct estimate of gradient diversity.
+        # During PNU:    deltas are partial (each client updated only its assigned
+        #                group) → compare only within tiers (same group updated).
+        #
+        # Normalisation: Δ_k ≈ E * lr * ∇f_k  →  σ²_grad ≈ σ²_update / (E * lr)²
+        # This gives a round-by-round proxy for σ² without any extra pass.
+        sigma2_update = None
+        sigma2_gradient_approx = None
+        try:
+            _lr = float(config.get("lr", 0.01))
+            _E  = float(config.get("local_epochs", 1))
+            _norm = max((_E * _lr) ** 2, 1e-12)
+
+            if is_warmup:
+                # Full deltas → compare all clients directly
+                flat_deltas = [
+                    torch.cat([v.float().cpu().reshape(-1) for v in u.values()])
+                    for u, m, _ in client_updates
+                    if u and not m.get("skipped", False)
+                ]
+            else:
+                # PNU: group clients by their active group, compute within-group variance
+                from collections import defaultdict as _dd
+                _tier_to_group = self._server_state.get("tier_to_group", {})
+                _group_deltas: dict = _dd(list)
+                for u, m, _ in client_updates:
+                    if not u or m.get("skipped", False):
+                        continue
+                    _grp = m.get("active_group", None)
+                    if _grp is not None:
+                        flat = torch.cat([v.float().cpu().reshape(-1) for v in u.values()])
+                        _group_deltas[_grp].append(flat)
+                # Compute within-group variance, average across groups
+                _vars = []
+                for _grp_deltas in _group_deltas.values():
+                    if len(_grp_deltas) < 2:
+                        continue
+                    _d = torch.stack(_grp_deltas)
+                    _mean = _d.mean(dim=0, keepdim=True)
+                    _vars.append(float(((_d - _mean) ** 2).sum(dim=1).mean()))
+                flat_deltas = []  # signal: use _vars directly
+                if _vars:
+                    sigma2_update = float(sum(_vars) / len(_vars))
+                    sigma2_gradient_approx = sigma2_update / _norm
+
+            if flat_deltas and len(flat_deltas) >= 2:
+                _d = torch.stack(flat_deltas)
+                _mean = _d.mean(dim=0, keepdim=True)
+                sigma2_update = float(((_d - _mean) ** 2).sum(dim=1).mean())
+                sigma2_gradient_approx = sigma2_update / _norm
+        except Exception:
+            pass  # never let σ² logging crash the training loop
+
         metrics = {
             "round":               round_num,
             "total_bytes_sent":    total_bytes,
@@ -1541,6 +1720,8 @@ class FedPartBE(FLAlgorithm):
             "jain_index":          jain,
             "num_clients":         K,
             "is_warmup_round":     is_warmup,
+            "sigma2_update":       sigma2_update,
+            "sigma2_gradient_approx": sigma2_gradient_approx,
         }
 
         # FedPartBE-specific metrics
@@ -1582,8 +1763,9 @@ class FedPartBE(FLAlgorithm):
         device_profile    : None
         """
         return {
+            "optimizer":        "sgd",  # "sgd" | "adam"
             "lr":               0.01,
-            "momentum":         0.9,
+            "momentum":         0.9,    # SGD only (ignored when optimizer=adam)
             "weight_decay":     1e-4,
             "local_epochs":     8,
             "batch_size":       32,
@@ -1627,4 +1809,15 @@ class FedPartBE(FLAlgorithm):
             "verbose_groups":   False,
             "device":           "cpu",
             "device_profile":   None,
+            # persist_optimizer: carry per-group SGD momentum buffer across rounds.
+            # Each group's state is saved in state.custom["optimizer_states"][group_idx]
+            # and restored on the next visit. Beneficial when rotation_period >= 2.
+            "persist_optimizer": True,
+            # enforce_staleness_cap: when True, any group whose staleness reaches
+            # τ_max = ceil(G/M) - 1 is FORCED into the active set for the next
+            # round, overriding normal priority-based selection.  Also prevents
+            # the energy gate from skipping a group that is at the staleness cap.
+            # Set to False only for ablation studies that intentionally allow
+            # unbounded staleness growth.
+            "enforce_staleness_cap": True,
         }

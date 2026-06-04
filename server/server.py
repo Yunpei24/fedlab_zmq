@@ -70,6 +70,9 @@ CFG = {
     "model":        os.environ.get("FEDLAB_MODEL", "resnet18"),
     "num_rounds":   int(os.environ.get("FEDLAB_NUM_ROUNDS", "100")),
     "num_clients":  int(os.environ.get("FEDLAB_NUM_CLIENTS", "10")),
+    # JSON map of "client_id" → battery_j — set by hpc/launch_zmq_hpc.py
+    # to override the profile default SOC for each worker (heterogeneous fleet).
+    "client_batteries": json.loads(os.environ.get("FEDLAB_CLIENT_BATTERIES", "{}")),
     "partition":    os.environ.get("FEDLAB_PARTITION", "dirichlet"),
     "alpha":        float(os.environ.get("FEDLAB_ALPHA", "0.5")),
     "device":       os.environ.get("FEDLAB_DEVICE", "cpu"),
@@ -160,7 +163,12 @@ class FedLabServer:
             cid          = msg["client_id"]
             profile_name = msg["profile_name"]
             profile      = DEVICE_PROFILES.get(profile_name)
-            battery_j    = profile.battery.initial_energy_j if profile else 100000.0
+            battery_j    = float(
+                CFG["client_batteries"].get(
+                    str(cid),
+                    profile.battery.initial_energy_j if profile else 100000.0,
+                )
+            )
 
             self.registered[cid] = {
                 "identity":    identity,

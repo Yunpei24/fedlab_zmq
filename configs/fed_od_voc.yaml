@@ -1,0 +1,161 @@
+# ============================================================
+# FedOD — WACV 2027 main experiment config
+# PASCAL VOC 2012 + SSDLite320 MobileNetV3
+# ============================================================
+#
+# Research question
+# -----------------
+#   Does a principled backbone/head split (FedOD) outperform
+#   full-model federated training (FedAvg) on battery-constrained
+#   edge object detection, while keeping more clients alive?
+#
+# Baselines
+# ---------
+#   fedavg     : full model, all clients → upper bound accuracy, fast death
+#   fedpart_be : battery-aware layer cycling → closest FL baseline
+#   fed_od     : ours — backbone/head split (architecturally motivated)
+#
+# Model: SSDLite320 MobileNetV3-Large
+# ------------------------------------
+#   Total params:    4.03M
+#   Backbone:        3.55M (88.1%) — MobileNetV3-Large feature extractor
+#   Head:            0.48M (11.9%) — SSDLiteHead (cls + bbox regression)
+#   Input:           300×300 RGB (model.transform handles resize internally)
+#   Pretrained:      ImageNet-pretrained MobileNetV3 backbone
+#
+#   Backbone fraction α_b = 0.881 (auto-detected from model, not config-driven)
+#   Compute ratio Tier-0: ρ = (1 + α_b)/2 = (1 + 0.881)/2 = 0.94
+#   → Tier-0 clients save ~6% compute per round
+#   → Tier-0 clients save ~11.9% uplink (no head delta transmitted)
+#   → BUT backbone gradients from all K clients → better feature extractor
+#
+# Device: Raspberry Pi 4B
+# -----------------------
+#   SoC:  BCM2711 ARM Cortex-A72 @ 1.5GHz, 4 GFLOPS (FP32)
+#   RAM:  4 GB LPDDR4  ← plenty for SSDLite (requires ~50MB working set)
+#   WiFi: 802.11ac (WiFi5), 50 Mbps uplink
+#   SSDLite inference: ~2.5s/frame on CPU (RPi4, FP32)
+#
+# Energy calibration (RPi4 + SSDLite320 + local_epochs=3)
+# --------------------------------------------------------
+#   Training FLOPs per round:
+#     SSDLite params ≈ 4.03M
+#     FLOPs/step = 3 × 2 × 4.03M × 8 (batch) = 193M
+#     steps ≈ (500 images / 8) × 3 epochs = 188 steps
+#     Total FLOPs ≈ 188 × 193M ≈ 36.3 GFLOPS
+#     At 4 GFLOPS (RPi4 single-thread): ~9.1 s training time
+#     E_comp = 9.1s × 6.4W = 58 J/round
+#   TX (full model): 4.03M × 4B = 16.1MB at 50 Mbps → 2.6s → 2.6J
+#   Raw total ≈ 60.6 J/round
+#
+#   Battery min (10% SOC): 10000mAh × 5.1V × 0.1 × 3.6 = 18360 J
+#   Desired first death: ~round 40
+#   → energy_target = 18360 / 40 = 459 J/round
+#   → energy_scale_factor = 459 / 60.6 ≈ 7.6
+#
+# Usage
+# -----
+#   # Single algorithm:
+#   python run_experiment_cv.py --config configs/fed_od_voc.yaml --algo fed_od
+#
+#   # Full benchmark (all 3 algorithms):
+#   python run_experiment_cv.py --config configs/fed_od_voc.yaml --benchmark
+#
+#   # Quick smoke test:
+#   python run_experiment_cv.py --config configs/fed_od_voc.yaml --quick
+#
+#   # HPC / multi-seed:
+#   for SEED in 42 123 456; do
+#     for ALGO in fedavg fedpart_be fed_od; do
+#       python run_experiment_cv.py \
+#           --config configs/fed_od_voc.yaml \
+#           --algo $ALGO --seed $SEED \
+#           --output results/fed_od_wacv/${ALGO}_s${SEED}
+#     done
+#   done
+# ============================================================
+
+seed: 42
+output_dir: "./results/fed_od_wacv"
+device: mps    # mps (Apple Silicon) | cuda (HPC GPU) | cpu
+
+data:
+  dataset: voc2012
+  partition: dirichlet
+  alpha: 0.5       # moderate non-IID (use α=0.1 for harder split)
+  data_root: ./data
+
+# ── Detection model config ──────────────────────────────────────────────────
+detection:
+  model: ssdlite320         # only "ssdlite320" supported currently
+  num_classes: 21           # 20 VOC classes + 1 background
+  pretrained_backbone: true # use ImageNet-pretrained MobileNetV3 (strongly recommended)
+  eval_freq: 5              # evaluate mAP every 5 rounds (expensive on CPU, fast on GPU)
+  eval_max_batches: 100     # limit mAP eval to 100 batches (~800 images) for speed
+                            # set to null for full val set evaluation
+  score_threshold: 0.05     # minimum detection score for mAP computation
+
+training:
+  num_rounds: 200
+  algorithm: fed_od         # overridden by --algo in CLI
+  algo_config:
+
+    # ── Model type (required for FedOD detection mode) ───────────────────
+    model_type: "detection"
+
+    # ── Common hyperparameters ───────────────────────────────────────────
+    optimizer: "sgd"
+    lr: 0.005           # SSDLite fine-tuning: lower lr than classification
+                        # (pretrained backbone; 0.005-0.01 is standard)
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 3     # fewer epochs than classification (detection loss is heavier)
+    batch_size: 8       # small batches: OD images are large (memory constraint)
+
+    # ── Battery / energy (Raspberry Pi 4B) ──────────────────────────────
+    battery_max_j: 183600.0   # 10000mAh × 5.1V × 3.6
+    energy_scale_factor: 7.6  # calibrated: first deaths ~round 40
+
+    # ── FedOD specific ───────────────────────────────────────────────────
+    # backbone_fraction is AUTO-DETECTED from model (88.1% for SSDLite320).
+    # The config value below is used only as fallback for classification models.
+    backbone_fraction: 0.88
+
+    # Tier split threshold: battery ratio < beta_split → backbone-only Tier 0.
+    # 0.50 = 50% SOC → clients below half battery train backbone only.
+    # Lower = fewer backbone-only clients (better head, faster death).
+    # Higher = more backbone-only clients (more survival, weaker head).
+    beta_split: 0.50
+
+    server_lr: 0.5
+    warmup_rounds: 5    # 5 full-model rounds before tier assignment begins
+
+    # ── FedPartBE specific (ignored by FedOD and FedAvg) ────────────────
+    beta_min: 0.01
+    beta_max: 1.0
+    num_tiers: 3
+    assignment_strategy: quantile
+    mu_repr: 0.01
+    mu_weight: 0.01
+    ema_alpha: 0.3
+    rotation_period: 2
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    ema_model_alpha: 0
+
+clients:
+  num_clients: 20
+  sample_fraction: 1.0      # all alive clients participate each round
+  sampling_strategy: random
+  min_clients: 3
+
+  fleet:
+    - type: raspberry_pi_4
+      count: 20
+
+  # SOC spread [10%, 90%] — heterogeneous field deployment
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.10
+      max_soc: 0.90

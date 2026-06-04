@@ -1,0 +1,52 @@
+# ============================================================
+# COMPARISON — Server-Mask FL  (PROPOSED)
+# Continuous β_k, parameter-tensor-level masking, gradient importance EMA.
+# ============================================================
+seed: 42
+output_dir: "./results/comparison_server_mask/server_mask"
+device: mps
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 1.0
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: server_mask
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 5
+    batch_size: 32
+    warmup_rounds: 5
+    beta_min: 0.1
+    beta_max: 0.5
+    ema_alpha: 0.3
+    epsilon_explore: 0.05
+    battery_max_j: null      # Auto-calibrated from fleet at round 0
+    server_lr: 0.5
+    mu_weight: 0.0
+    energy_scale_factor: 12.6
+    max_grad_norm: 10.0
+    device: mps
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+  fleet:
+    - type: esp32_s3
+      count: 30
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95

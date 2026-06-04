@@ -35,6 +35,9 @@ from algorithms import fedpart_be_lora_gs    # FedPartBE-LoRA-GS    (ASSC + LoRA
 from algorithms import ccsEF                 # CCS-EF               (Nikiema et al., UM6P 2026)
 from algorithms import heterofl               # HeteroFL             (Diao et al., ICLR 2021)
 from algorithms import fjord                  # FjORD                (Samuel et al., NeurIPS 2021)
+from algorithms import fedqgate               # FedQGate             (Nikiema & Amhoud, UM6P 2026)
+from algorithms import server_mask_fl         # Server-Mask FL       (Nikiema & Amhoud, UM6P 2026)
+from algorithms import fed_od                 # FedOD                (Nikiema, UM6P 2026)
 
 __all__ = [
     "FLAlgorithm", "ClientState", "AggregateResult",

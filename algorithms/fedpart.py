@@ -115,6 +115,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
+from hardware.flop_measure import compute_training_flops
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -341,7 +342,7 @@ def _active_group_idx_for_round(round_num: int, config: dict) -> int:
     if inter_cycle > 0:
         cycle_length  = num_groups * rpl       # PNU rounds per cycle
         full_cycle    = cycle_length + inter_cycle   # total rounds per cycle
-        pos_in_cycle  = pnu_round % full_cycle
+        pos_in_cycle  = pnu_round % full_cycle # position within the current cycle
 
         if pos_in_cycle >= cycle_length:
             return -1  # inter-cycle full-network training round
@@ -478,13 +479,14 @@ class FedPart(FLAlgorithm):
         _freeze_all_except_group(model, groups, active_idx)
 
         # ── Local training ────────────────────────────────────────────────────
-        # SGD with momentum — preferred over Adam in FL literature for better
-        # generalization under non-IID data.
-        # We filter to only trainable parameters (frozen layers excluded).
         trainable_params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = optim.SGD(
-            trainable_params, lr=lr, momentum=momentum, weight_decay=weight_decay
-        )
+        optimizer_type = config.get("optimizer", "sgd").lower()
+        if optimizer_type == "adam":
+            optimizer = optim.Adam(trainable_params, lr=lr, weight_decay=weight_decay)
+        else:
+            optimizer = optim.SGD(
+                trainable_params, lr=lr, momentum=momentum, weight_decay=weight_decay
+            )
         criterion = nn.CrossEntropyLoss()
 
         total_loss, num_batches = 0.0, 0
@@ -576,16 +578,15 @@ class FedPart(FLAlgorithm):
             active_fraction = 1.0
 
         if profile:
-            num_params = sum(p.numel() for p in model.parameters())
-            full_flops = profile.flops_for_model(
-                num_params, dataloader.batch_size,
-                local_epochs, len(dataloader.dataset)
+            # Dispatcher: legacy analytic (1/3 + 2/3*phi_g) by default,
+            # or measured FLOPs (cached) when use_measured_flops=True.
+            effective_flops = compute_training_flops(
+                model, profile, dataloader, local_epochs, config,
+                active_group_idx=(active_idx if not is_warmup else -1),
+                groups=groups,
+                group_flops_analytic=(state.custom.get("group_flops")
+                                      if not is_warmup else None),
             )
-            # Forward pass is always full (needed for loss computation).
-            # Backward pass is proportional to the active group's FLOPs share.
-            forward_flops  = full_flops / 3.0
-            backward_flops = full_flops * 2.0 / 3.0
-            effective_flops = forward_flops + backward_flops * active_fraction
             energy_j = profile.round_energy_j(effective_flops, uplink_bytes, downlink_bytes)
         else:
             energy_j = (0.5 + 2.0 * active_fraction)
@@ -751,8 +752,9 @@ class FedPart(FLAlgorithm):
         device_profile  : None
         """
         return {
+            "optimizer":        "sgd",  # "sgd" | "adam"
             "lr":               0.01,
-            "momentum":         0.9,
+            "momentum":         0.9,    # SGD only (ignored when optimizer=adam)
             "weight_decay":     1e-4,
             "local_epochs":     8,
             "batch_size":       32,

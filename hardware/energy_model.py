@@ -1,17 +1,22 @@
 """
 hardware/energy_model.py
 ========================
-Physics-based energy model for federated learning communication.
+Physics-based **communication** energy model for federated learning.
 
-Provides a Shannon-capacity channel model to replace fixed-bandwidth
-energy estimates with realistic wireless energy accounting.
+This module is the single source for wireless link energy (Shannon-capacity
+channel model with Friis path loss + bandwidth-capped fallback). Compute
+energy and the analytic FLOPs estimator live in `hardware/profiles.py` on
+`DeviceProfile` and must not be duplicated here.
 
-Two computation modes:
+Two computation modes for COMMUNICATION:
   1. Shannon mode  — uses carrier frequency, transmit power, noise floor,
                      and path loss to derive a realistic bitrate, then
                      computes transmission time and energy from that rate.
   2. Fallback mode — uses the fixed uplink_mbps / downlink_mbps from the
                      CommSpec when Shannon parameters are absent.
+
+Selection is automatic in `comm_energy_j`: Shannon if `profile.channel_params`
+is set, fallback otherwise.
 
 Reference:
   - Goldsmith, A. (2005). *Wireless Communications*. Cambridge University Press.
@@ -281,84 +286,26 @@ def comm_energy_j(
         return profile.comm_energy_j(payload_bytes, direction)
 
 
-def round_energy_j(
-    profile,
-    num_flops: float,
-    uplink_bytes: float,
-    downlink_bytes: float,
-    distance_m: float = 10.0,
-    training_flop_factor: int = 3,
-) -> float:
-    """
-    Total energy for one FL round: compute + uplink + downlink.
-
-    Compute energy:
-        E_comp = P_compute * T_compute
-        T_compute = (training_flop_factor * num_flops) / peak_flops_per_sec
-
-    The training_flop_factor accounts for:
-        - Factor 1: forward pass
-        - Factor 1: backward pass (gradient computation)
-        - Factor 1: optimizer update (momentum, Adam, etc.)
-    Combined with the standard '2 * MACs = FLOPs' convention,
-    the total FLOPs for SGD is ~3× the inference FLOPs.
-
-    Reference: T_Correction energy model (Nikiema & Amhoud, 2025).
-
-    Args:
-        profile              : DeviceProfile
-        num_flops            : raw inference FLOPs (as returned by
-                               profile.flops_for_model or equivalent)
-        uplink_bytes         : bytes sent client → server
-        downlink_bytes       : bytes received server → client
-        distance_m           : wireless link distance in metres
-        training_flop_factor : multiplier for fwd+bwd+update (default 3)
-
-    Returns:
-        Total energy in Joules.
-    """
-    # ── Compute energy (with training factor) ────────────────────────────────
-    peak_flops_per_sec = profile.compute.peak_gflops * 1e9
-    t_compute_s = (training_flop_factor * num_flops) / peak_flops_per_sec
-    e_compute = profile.power.compute_w * t_compute_s
-
-    # ── Communication energy (Shannon or fallback) ────────────────────────────
-    e_uplink   = comm_energy_j(uplink_bytes,   profile, "uplink",   distance_m)
-    e_downlink = comm_energy_j(downlink_bytes, profile, "downlink", distance_m)
-
-    return e_compute + e_uplink + e_downlink
-
-
-def flops_for_model(
-    num_params: int,
-    batch_size: int,
-    local_epochs: int,
-    dataset_size: int,
-    training_flop_factor: int = 3,
-) -> float:
-    """
-    Estimate total FLOPs for local model training.
-
-    Convention:
-        FLOPs per step = training_flop_factor * 2 * num_params * batch_size
-        (2 MACs per param per sample, times fwd+bwd+update factor)
-
-    The factor 3 is standard for SGD with weight decay
-    (Kaplan et al., 2020; Hoffmann et al., 2022).
-
-    Args:
-        num_params           : number of model parameters
-        batch_size           : mini-batch size
-        local_epochs         : number of local training epochs
-        dataset_size         : number of training samples per client
-        training_flop_factor : fwd + bwd + update factor (default 3)
-
-    Returns:
-        Total FLOPs as float.
-    """
-    steps = (dataset_size // batch_size) * local_epochs
-    flops_per_step = training_flop_factor * 2 * num_params * batch_size
-    return float(flops_per_step * steps)
+# ─────────────────────────────────────────────────────────────────────────────
+# Removed: round_energy_j() and flops_for_model().
+#
+# These previously lived here as duplicates of DeviceProfile.round_energy_j /
+# DeviceProfile.flops_for_model in hardware/profiles.py. Worse, the local
+# round_energy_j applied an additional × training_flop_factor (= 3) to its
+# `num_flops` argument while every caller already passed FLOPs produced by
+# profile.flops_for_model — which already bakes in the × 3 factor. That made
+# this function a × 9 double-counter masquerading as "the same model".
+#
+# Nothing in the repository called these. run_experiment.py imported
+# round_energy_j as _round_energy_j but never invoked it. The algorithm
+# implementations all go through profile.round_energy_j() in profiles.py.
+#
+# The Shannon channel model (ChannelParams, compute_shannon_rate_bps,
+# compute_comm_energy, comm_energy_j) above is still the live communication
+# energy path, used lazily by DeviceProfile.comm_energy_j and exposed here
+# as the single entry-point. Compute energy lives exclusively in
+# DeviceProfile.compute_energy_j / .round_energy_j.
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -408,14 +355,14 @@ if __name__ == "__main__":
             print(f"  {profile.name:<28} {r/1e6:>12.1f} {eu*1000:>12.2f} {ed*1000:>12.2f}")
 
     print()
-    print("Training FLOPs check (ResNet18 proxy, 10 clients):")
+    print("Training FLOPs check (ResNet18 proxy, 10 clients) via DeviceProfile.flops_for_model:")
     num_params = 11_173_962   # ResNet18 parameter count
-    total_flops = flops_for_model(
+    rpi = DEVICE_PROFILES["raspberry_pi_4"]
+    total_flops = rpi.flops_for_model(
         num_params=num_params,
         batch_size=32,
         local_epochs=1,
         dataset_size=5000,
-        training_flop_factor=3,
     )
     print(f"  Total FLOPs (factor=3): {total_flops/1e9:.2f} GFLOPs")
     print(f"  (vs factor=1 fwd-only): {total_flops/3/1e9:.2f} GFLOPs")

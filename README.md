@@ -173,6 +173,37 @@ clients:
 
 ---
 
+## Gradient Variance Estimator (σ²)
+
+Measures the inter-client gradient variance σ² empirically, used to validate the optimal tier formula:
+
+$$M^* = \left(\frac{2G^3 K}{\sigma^2}\right)^{1/6}$$
+
+```bash
+# From the project root
+python3 -m diagnostics.gradient_variance --dataset cifar10  --model resnet8 --clients 30 --alpha 0.5 --batches 3
+python3 -m diagnostics.gradient_variance --dataset cifar100 --model resnet8 --clients 30 --alpha 0.5 --batches 3
+
+# Faster estimate (1 batch/client)
+python3 -m diagnostics.gradient_variance --dataset cifar10 --clients 30 --batches 1
+
+# On Apple Silicon
+python3 -m diagnostics.gradient_variance --dataset cifar10 --clients 30 --batches 3 --device mps
+```
+
+The result is also available interactively in the dashboard under the **σ² Estimator** tab.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dataset` | `cifar10` | Dataset name |
+| `--model` | `resnet8` | Model architecture |
+| `--clients` | `30` | Number of FL clients K |
+| `--alpha` | `0.5` | Dirichlet α (heterogeneity) |
+| `--batches` | `3` | Mini-batches per client (more = more accurate) |
+| `--device` | `cpu` | `cpu`, `mps`, or `cuda` |
+
+---
+
 ## Links
 
 - **Code**: [github.com/Yunpei24/fedlab_zmq](https://github.com/Yunpei24/fedlab_zmq)

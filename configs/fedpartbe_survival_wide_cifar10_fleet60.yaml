@@ -87,14 +87,14 @@ training:
     server_lr: null           # auto = 1/num_tiers = 0.333
     assignment_strategy: quantile  # Option A — optimal pour spread large
     mu_repr: 0.01
-    mu_weight: 0.01
-    ema_model_alpha: 0.3   # w_ema_{t+1} = 0.1·w_ema_t + 0.9·w_brut_{t+1}
+    mu_weight: 0.0
+    ema_model_alpha: 0.0   # w_ema_{t+1} = 0.1·w_ema_t + 0.9·w_brut_{t+1}
     verbose_groups: false
     # Bucket rotation: every rotation_period rounds, shift which cost-bucket each
     # tier trains by one position. Ensures each layer group is trained by all
     # energy strata over time, preventing data-distribution bias.
     # With num_tiers=3: full cycle = 30 rounds.
-    rotation_period: 2
+    rotation_period: 5
     # adaptive_rotation: étend T_rot proportionnellement aux morts de clients.
     # T_rot_eff(r) = rotation_period × ceil(K_0 / K_alive(r))
     # Maintient un budget gradient constant par phase → élimine les compound drops.

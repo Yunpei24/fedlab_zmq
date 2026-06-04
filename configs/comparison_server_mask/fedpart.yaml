@@ -1,0 +1,47 @@
+# ============================================================
+# COMPARISON — FedPart  (Partial Training, No Battery Awareness)
+# Layer-group rotation without battery adaptation.
+# Ablation: shows battery-adaptive assignment (FedPartBE/Server-Mask)
+# is necessary — raw layer rotation doesn't help survival.
+# ============================================================
+seed: 42
+output_dir: "./results/comparison_server_mask/fedpart"
+device: mps
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 1.0
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 5
+    batch_size: 32
+    warmup_rounds: 5
+    rounds_per_layer: 2     # Each layer group trained for 2 consecutive rounds
+    training_cycles: 10     # 10 full passes through all layer groups
+    energy_scale_factor: 12.6
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+  fleet:
+    - type: esp32_s3
+      count: 30
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95

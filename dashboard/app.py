@@ -964,9 +964,9 @@ with st.sidebar:
     # Navigation
     page = st.radio(
         "Navigation",
-        ["Home", "Results", "Compare Algorithms", "Survival & Fairness"],
+        ["Home", "Results", "Compare Algorithms", "Survival & Fairness", "σ² Estimator"],
         label_visibility="collapsed",
-        help="Results: single-experiment view. Compare: multi-algorithm benchmarks. Survival: battery & fairness.",
+        help="Results: single-experiment view. Compare: multi-algorithm benchmarks. Survival: battery & fairness. σ²: gradient variance & optimal M*.",
     )
 
     st.divider()
@@ -1262,7 +1262,7 @@ elif page == "Results":
 
     st.divider()
 
-    tab_acc, tab_energy, tab_battery, tab_fair, tab_table, tab_convspeed, tab_lm = st.tabs([
+    tab_acc, tab_energy, tab_battery, tab_fair, tab_table, tab_convspeed, tab_lm, tab_sigma2 = st.tabs([
         "Accuracy & Loss",
         "Energy per Round",
         "Battery & Survival",
@@ -1270,6 +1270,7 @@ elif page == "Results":
         "Summary Table",
         "Convergence Speed",
         "Layer Mismatch",
+        "σ² Evolution",
     ])
 
     # ── Accuracy & Loss ──────────────────────────────────────────────────────
@@ -1584,6 +1585,15 @@ elif page == "Results":
 
     # ── Battery Evolution ────────────────────────────────────────────────────
     with tab_battery:
+        _zoom_bat = st.toggle(
+            "Zoom y-axis to highlight differences",
+            value=False,
+            key="battery_zoom",
+            help="Starts the y-axis near the minimum value so small differences between algorithms become visible. "
+                 "Applies to all bar/histogram charts in this tab.",
+        )
+        _zoom_note = " | Zoom actif — axe Y tronqué pour mettre en évidence les écarts." if _zoom_bat else ""
+
         fig = go.Figure()
         for i, (label, exp) in enumerate(experiments.items()):
             df = exp["df"]
@@ -1639,12 +1649,16 @@ elif page == "Results":
             fig2.add_trace(go.Bar(
                 x=bar_labels, y=bar_vals,
                 marker_color=COLOR_MAP[:len(bar_labels)],
+                text=[f"{v:.3f} GB" for v in bar_vals],
+                textposition="outside",
                 showlegend=False,
             ), row=1, col=2)
 
         fig2.update_xaxes(title_text="Round", row=1, col=1)
         fig2.update_yaxes(title_text="GB", row=1, col=1)
-        fig2.update_yaxes(title_text="GB", row=1, col=2)
+        _comm_range = [min(bar_vals) * 0.97, max(bar_vals) * 1.03] if _zoom_bat and len(bar_vals) >= 2 else None
+        fig2.update_yaxes(title_text="GB", row=1, col=2,
+                          **({'range': _comm_range} if _comm_range else {}))
         fig2.update_layout(
             height=380, template="plotly_white",
             legend=dict(x=1.02, xanchor="left", y=1.0, yanchor="top"),
@@ -1655,7 +1669,7 @@ elif page == "Results":
             "**Communication (GB)** = total bytes uploaded by all clients. "
             "Uplink = compressed gradient sent to the server each round. "
             "With sparsification (β < 1), only β × |θ| floats are sent instead of the full model. "
-            "Lower total bytes = less communication overhead — key metric for bandwidth-constrained IoT."
+            f"Lower total bytes = less communication overhead — key metric for bandwidth-constrained IoT.{_zoom_note}"
         )
 
         # ── Total Energy Consumed per Round ──────────────────────────────────
@@ -1665,6 +1679,15 @@ elif page == "Results":
             "total_energy_j" in exp["df"].columns for exp in experiments.values()
         )
         if has_energy_per_round:
+            _all_rnd_vals = [
+                v for exp in experiments.values()
+                if "total_energy_j" in exp["df"].columns
+                for v in exp["df"]["total_energy_j"].dropna().tolist()
+            ]
+            _enrnd_range = (
+                [min(_all_rnd_vals) * 0.97, max(_all_rnd_vals) * 1.03]
+                if _zoom_bat and _all_rnd_vals else None
+            )
             fig_enrnd = go.Figure()
             for i, (label, exp) in enumerate(experiments.items()):
                 df = exp["df"]
@@ -1681,6 +1704,7 @@ elif page == "Results":
                 title="Total Energy Consumed per Round (J) — all clients combined",
                 xaxis_title="Round",
                 yaxis_title="Energy (J)",
+                yaxis=dict(range=_enrnd_range) if _enrnd_range else {},
                 barmode="group",
                 template="plotly_white",
                 height=400,
@@ -1698,7 +1722,7 @@ elif page == "Results":
             st.caption(
                 "**Energy per round (J)** = sum of compute + uplink energy over all active clients for that round. "
                 "E_compute = P_active × training_time; E_uplink = model_bytes / link_rate × P_tx. "
-                "Algorithms that skip clients (cyclic scheduling) show lower per-round energy but may need more rounds."
+                f"Algorithms that skip clients (cyclic scheduling) show lower per-round energy but may need more rounds.{_zoom_note}"
             )
         else:
             st.info("No `total_energy_j` column found in the selected experiments.")
@@ -1719,6 +1743,10 @@ elif page == "Results":
             total_en_vals.append(val)
 
         if total_en_labels:
+            _en_range = (
+                [min(total_en_vals) * 0.97, max(total_en_vals) * 1.03]
+                if _zoom_bat and len(total_en_vals) >= 2 else None
+            )
             fig_total_en = go.Figure(go.Bar(
                 x=total_en_labels,
                 y=total_en_vals,
@@ -1731,6 +1759,7 @@ elif page == "Results":
             fig_total_en.update_layout(
                 title="Total Energy Consumed over All Rounds (J)",
                 yaxis_title="Energy (J)",
+                yaxis=dict(range=_en_range) if _en_range else {},
                 template="plotly_white",
                 height=400,
                 font=dict(family="Inter"),
@@ -1742,7 +1771,7 @@ elif page == "Results":
             st.caption(
                 "**Total energy (J)** = cumulative compute + uplink energy summed over all rounds and all clients. "
                 "Uses `cumulative_energy_j` (last round) when available, otherwise sums `total_energy_j`. "
-                "Lower = more energy-efficient over the full experiment."
+                f"Lower = more energy-efficient over the full experiment.{_zoom_note}"
             )
         else:
             st.info("No energy data found in the selected experiments.")
@@ -2472,6 +2501,120 @@ elif page == "Results":
                 )
                 st.plotly_chart(fig_sub, width="stretch")
 
+    # ── σ² Evolution ─────────────────────────────────────────────────────────
+    with tab_sigma2:
+        st.markdown("""
+        **Variance inter-client des deltas** — proxy de σ² (variance des gradients), calculée à coût zéro
+        depuis les deltas déjà envoyés au serveur à chaque round.
+
+        - **σ²_update** : variance brute des deltas clients `||Δ_k − Δ̄||²`
+        - **σ²_grad ≈ σ²_update / (E × lr)²** : proxy normalisé vers l'espace gradient (Δ_k ≈ E·lr·∇f_k)
+        - **Warmup** (fond gris) : FedAvg complet — estimation la plus fiable (deltas complets)
+        - **PNU** : estimation intra-tier (deltas partiels — même groupe par tier)
+        """)
+
+        has_sigma2 = any(
+            "sigma2_update" in exp["df"].columns and exp["df"]["sigma2_update"].notna().any()
+            for exp in experiments.values()
+        )
+
+        if not has_sigma2:
+            st.info(
+                "σ² non disponible dans ces expériences. "
+                "Relancez une expérience avec la version mise à jour de `fedpart_be.py` "
+                "pour activer le logging automatique."
+            )
+        else:
+            _s2_smooth_col, _ = st.columns([1, 3])
+            with _s2_smooth_col:
+                _s2_smooth = st.toggle("EMA smoothing", value=True, key="s2_smooth")
+
+            fig_s2 = go.Figure()
+            for label, exp in experiments.items():
+                df = exp["df"]
+                if "sigma2_gradient_approx" not in df.columns:
+                    continue
+                col_u = df["sigma2_update"].dropna()
+                col_g = df["sigma2_gradient_approx"].dropna()
+                if col_g.empty:
+                    continue
+
+                rounds_g = df.loc[col_g.index, _round_col(df)]
+                vals_g   = col_g.values
+                if _s2_smooth:
+                    vals_g = ema_smooth(vals_g, alpha=0.2)
+
+                fig_s2.add_trace(go.Scatter(
+                    x=rounds_g, y=vals_g,
+                    mode="lines", name=f"{label} — σ²_grad",
+                    line=dict(width=2),
+                ))
+
+                rounds_u = df.loc[col_u.index, _round_col(df)]
+                vals_u   = col_u.values
+                if _s2_smooth:
+                    vals_u = ema_smooth(vals_u, alpha=0.2)
+
+                fig_s2.add_trace(go.Scatter(
+                    x=rounds_u, y=vals_u,
+                    mode="lines", name=f"{label} — σ²_update",
+                    line=dict(width=1.5, dash="dot"),
+                    visible="legendonly",
+                ))
+
+            # Shade warmup region
+            for label, exp in experiments.items():
+                df = exp["df"]
+                if "is_warmup_round" in df.columns:
+                    warmup_rounds = df[df["is_warmup_round"] == True][_round_col(df)]
+                    if not warmup_rounds.empty:
+                        fig_s2.add_vrect(
+                            x0=warmup_rounds.min(), x1=warmup_rounds.max(),
+                            fillcolor="gray", opacity=0.1, layer="below",
+                            line_width=0, annotation_text="warmup",
+                            annotation_position="top left",
+                        )
+                        break
+
+            fig_s2.update_layout(
+                xaxis_title="Round",
+                yaxis_title="σ² (proxy gradient variance)",
+                template="plotly_white",
+                height=420,
+                margin=dict(l=50, r=20, t=40, b=40),
+                legend=dict(orientation="h", y=1.08),
+            )
+            st.plotly_chart(fig_s2, use_container_width=True)
+
+            # Summary stats table
+            st.markdown("**Statistiques σ²_grad par expérience**")
+            rows_s2 = []
+            for label, exp in experiments.items():
+                df = exp["df"]
+                if "sigma2_gradient_approx" not in df.columns:
+                    continue
+                col = df["sigma2_gradient_approx"].dropna()
+                if col.empty:
+                    continue
+                warmup_mask = df.loc[col.index, "is_warmup_round"] if "is_warmup_round" in df.columns else None
+                pnu_vals = col[~warmup_mask].values if warmup_mask is not None else col.values
+                wu_vals  = col[warmup_mask].values  if warmup_mask is not None else []
+                rows_s2.append({
+                    "Expérience": label,
+                    "σ²_grad warmup (moy)": f"{float(np.mean(wu_vals)):.3f}" if len(wu_vals) > 0 else "—",
+                    "σ²_grad PNU (moy)":    f"{float(np.mean(pnu_vals)):.3f}" if len(pnu_vals) > 0 else "—",
+                    "σ²_grad min":          f"{float(col.min()):.3f}",
+                    "σ²_grad max":          f"{float(col.max()):.3f}",
+                })
+            if rows_s2:
+                st.dataframe(pd.DataFrame(rows_s2).set_index("Expérience"), use_container_width=True)
+
+            st.caption(
+                "σ²_grad ≈ σ²_update / (E·lr)² avec E=local_epochs, lr=learning_rate. "
+                "Pendant PNU : variance calculée intra-tier (même groupe). "
+                "σ²_update (tirets) = variance brute des deltas."
+            )
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Page: COMPARE ALGORITHMS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2576,6 +2719,13 @@ elif page == "Compare Algorithms":
             st.info("No accuracy or energy data found in selected experiments.")
 
     with tab_bars:
+        _zoom_cmp = st.toggle(
+            "Zoom y-axis to highlight differences",
+            value=False,
+            key="cmp_zoom",
+            help="Starts the y-axis near the minimum value so small differences between algorithms become visible.",
+        )
+
         col_b1, col_b2 = st.columns(2)
 
         with col_b1:
@@ -2589,47 +2739,66 @@ elif page == "Compare Algorithms":
                     bar_energy.append(df["total_energy_j"].sum() if "total_energy_j" in df.columns else 0)
 
             if bar_labels:
+                _comm_range_cmp = (
+                    [min(bar_comm) * 0.97, max(bar_comm) * 1.03]
+                    if _zoom_cmp and len(bar_comm) >= 2 else None
+                )
                 fig = go.Figure(go.Bar(
                     x=bar_labels, y=bar_comm,
                     marker_color=COLOR_MAP[:len(bar_labels)],
                     marker_line_color="white",
                     marker_line_width=1.5,
+                    text=[f"{v:.3f} GB" for v in bar_comm],
+                    textposition="outside",
                 ))
                 fig.update_layout(
                     title="Total Communication Cost (GB)",
                     yaxis_title="GB",
+                    yaxis=dict(range=_comm_range_cmp) if _comm_range_cmp else {},
                     template="plotly_white", height=380,
                     font=dict(family="Inter"),
                     xaxis_tickangle=-20,
+                    uniformtext_minsize=9,
+                    uniformtext_mode="hide",
                 )
                 st.plotly_chart(fig, width="stretch")
+                _zoom_note_cmp = " | Zoom actif — axe Y tronqué." if _zoom_cmp else ""
                 st.caption(
                     "**Total communication (GB)** = cumulative bytes uploaded by all clients over all rounds. "
                     "With gradient sparsification (β < 1), only β × |θ| parameters are sent instead of the full model. "
-                    "Shorter bar = less bandwidth used = better for low-bandwidth IoT deployments."
+                    f"Shorter bar = less bandwidth used = better for low-bandwidth IoT deployments.{_zoom_note_cmp}"
                 )
 
         with col_b2:
             if bar_labels and bar_energy:
+                _en_range_cmp = (
+                    [min(bar_energy) * 0.97, max(bar_energy) * 1.03]
+                    if _zoom_cmp and len(bar_energy) >= 2 else None
+                )
                 fig2 = go.Figure(go.Bar(
                     x=bar_labels, y=bar_energy,
                     marker_color=COLOR_MAP[:len(bar_labels)],
                     marker_line_color="white",
                     marker_line_width=1.5,
+                    text=[f"{v:.0f} J" for v in bar_energy],
+                    textposition="outside",
                 ))
                 fig2.update_layout(
                     title="Total Energy Consumption (J)",
                     yaxis_title="Joules",
+                    yaxis=dict(range=_en_range_cmp) if _en_range_cmp else {},
                     template="plotly_white", height=380,
                     font=dict(family="Inter"),
                     xaxis_tickangle=-20,
+                    uniformtext_minsize=9,
+                    uniformtext_mode="hide",
                 )
                 st.plotly_chart(fig2, width="stretch")
                 st.caption(
                     "**Total energy (J)** = cumulative compute + uplink energy over all rounds and all clients. "
                     "Energy = E_compute (local training) + E_uplink (model transmission). "
                     "For ESP32-S3: E_compute ≈ 0.38 W × training time; E_uplink ≈ model size / link rate × P_tx. "
-                    "Shorter bar = more energy-efficient = clients survive longer."
+                    f"Shorter bar = more energy-efficient = clients survive longer.{_zoom_note_cmp}"
                 )
 
     with tab_convergence:
@@ -3429,6 +3598,293 @@ elif page == "Survival & Fairness":
                 file_name="pareto_energy_accuracy.csv",
                 mime="text/csv",
             )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Page: σ² ESTIMATOR
+# ─────────────────────────────────────────────────────────────────────────────
+
+elif page == "σ² Estimator":
+
+    st.markdown("""
+    <div class="results-header">
+      <div class="results-header-title">Gradient Variance Estimator — σ²</div>
+      <div class="results-header-sub">
+        Mesure empirique de la variance inter-client des gradients.
+        Valide la formule M* = (2G³K/σ²)<sup>1/6</sup> sur vos données réelles.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Import du module de calcul ────────────────────────────────────────────
+    import sys as _sys, pathlib as _pathlib
+    _proj = str(_pathlib.Path(__file__).resolve().parents[1])
+    if _proj not in _sys.path:
+        _sys.path.insert(0, _proj)
+
+    try:
+        from diagnostics.gradient_variance import (
+            measure_gradient_variance, GradVarianceResult
+        )
+        from datasets.registry import NUM_CLASSES
+        _import_ok = True
+    except Exception as _e:
+        st.error(f"Import error: {_e}")
+        _import_ok = False
+
+    if _import_ok:
+
+        # ── Configuration ─────────────────────────────────────────────────────
+        st.subheader("Configuration")
+        col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+
+        with col_cfg1:
+            sv_dataset = st.selectbox(
+                "Dataset", ["cifar10", "cifar100", "mnist", "fashionmnist"],
+                index=0,
+            )
+            sv_model = st.selectbox(
+                "Modèle",
+                ["resnet8", "resnet18", "lenet5", "mlp", "vit_tiny"],
+                index=0,
+            )
+            sv_data_root = st.text_input("data_root", value="./data")
+
+        with col_cfg2:
+            sv_clients = st.slider("Clients K", 5, 100, 30, step=5)
+            sv_alpha = st.select_slider(
+                "Dirichlet α",
+                options=[0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 5.0],
+                value=0.5,
+            )
+            sv_seed = st.number_input("Seed", value=42, step=1)
+
+        with col_cfg3:
+            sv_batches = st.slider(
+                "Batches par client",
+                min_value=1, max_value=10, value=3,
+                help="Plus de batches = estimation plus précise mais plus lente."
+            )
+            sv_batch_size = st.selectbox("Batch size", [16, 32, 64, 128], index=1)
+            sv_device = st.selectbox("Device", ["cpu", "mps", "cuda"], index=0)
+            sv_G = st.slider(
+                "G (groupes de couches du modèle)",
+                min_value=2, max_value=20, value=10,
+                help="Pour ResNet-8 : G=10. Utilisé dans la formule M*.",
+            )
+
+        st.info(
+            f"Estimation : {sv_clients} clients × {sv_batches} batches × {sv_batch_size} samples "
+            f"= ~{sv_clients * sv_batches * sv_batch_size} forward/backward passes. "
+            f"Temps attendu sur CPU : 15–90s selon le modèle."
+        )
+
+        run_btn = st.button("▶ Lancer la mesure", type="primary", use_container_width=True)
+
+        # ── Calcul ────────────────────────────────────────────────────────────
+        if run_btn or "sv_result" in st.session_state:
+
+            if run_btn:
+                # Barre de progression
+                prog_bar = st.progress(0, text="Initialisation...")
+                status_txt = st.empty()
+
+                def _cb(k, total):
+                    pct = k / total if total > 0 else 0
+                    prog_bar.progress(pct, text=f"Client {k}/{total} …")
+
+                with st.spinner("Calcul en cours…"):
+                    try:
+                        result: GradVarianceResult = measure_gradient_variance(
+                            dataset=sv_dataset,
+                            model_name=sv_model,
+                            num_clients=sv_clients,
+                            alpha=sv_alpha,
+                            batches_per_client=sv_batches,
+                            batch_size=sv_batch_size,
+                            seed=int(sv_seed),
+                            device=sv_device,
+                            data_root=sv_data_root,
+                            progress_cb=_cb,
+                        )
+                        st.session_state["sv_result"] = result
+                        prog_bar.empty()
+                    except Exception as ex:
+                        st.error(f"Erreur : {ex}")
+                        st.stop()
+
+            result: GradVarianceResult = st.session_state["sv_result"]
+
+            st.divider()
+
+            # ── Métriques clés ────────────────────────────────────────────────
+            m_star_cont = result.optimal_m(sv_G, result.num_clients)
+            m_star_int = result.rounded_m(sv_G, result.num_clients)
+
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("σ² mesuré", f"{result.sigma2:,.1f}",
+                       help="Variance inter-client des gradients (norme L2 carrée, moyennée sur K clients).")
+            mc2.metric("M* (continu)", f"{m_star_cont:.3f}",
+                       help=f"M* = (2×G³×K/σ²)^{{1/6}} avec G={sv_G}, K={result.num_clients}.")
+            mc3.metric("M* (arrondi)", str(m_star_int),
+                       help="round(M*) — nombre de tiers recommandé.")
+            mc4.metric("Temps", f"{result.elapsed_s:.1f}s")
+
+            # Interprétation
+            if m_star_int == 1:
+                interp_color = "#fef3c7"
+                interp_msg = f"σ²={result.sigma2:.0f} est élevé → peu de tiers optimal. M*=1 signifie que FedPart standard (1 groupe/round) est optimal. La variance inter-client domine le staleness."
+            elif m_star_int <= 3:
+                interp_color = "#d1fae5"
+                interp_msg = f"σ²={result.sigma2:.0f} → M*={m_star_int} tiers. Configuration favorable pour FedPartBE : les {m_star_int} tiers simultanés réduisent le staleness sans exploser la variance."
+            else:
+                interp_color = "#fee2e2"
+                interp_msg = f"σ²={result.sigma2:.0f} est faible (données peu hétérogènes) → M*={m_star_int} tiers. Risque : K/M={result.num_clients}/{m_star_int}={result.num_clients//m_star_int} clients/tier, gradient bruité."
+
+            st.markdown(f"""
+            <div style="background:{interp_color}; border-radius:8px; padding:12px 16px;
+                        font-size:0.88rem; line-height:1.6; margin:8px 0;">
+              <b>Interprétation :</b> {interp_msg}
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.divider()
+
+            # ── Tabs ─────────────────────────────────────────────────────────
+            tab_bar, tab_table, tab_dist, tab_formula = st.tabs([
+                "Normes par client",
+                "Table M* (G × K)",
+                "Distribution σ²",
+                "Formule & Validation",
+            ])
+
+            with tab_bar:
+                st.markdown("**Norme du gradient de chaque client ||∇f_k||** et écart au gradient moyen **||∇f_k − ∇f̄||**")
+
+                fig_bar = go.Figure()
+                client_ids = list(range(len(result.grad_norm_per_client)))
+                sq_diffs = [v**0.5 for v in result.sigma2_per_client]  # ||∇f_k - ∇f̄||
+
+                fig_bar.add_trace(go.Bar(
+                    x=client_ids,
+                    y=result.grad_norm_per_client,
+                    name="||∇f_k||",
+                    marker_color="#3b82f6",
+                    opacity=0.7,
+                ))
+                fig_bar.add_trace(go.Bar(
+                    x=client_ids,
+                    y=sq_diffs,
+                    name="||∇f_k − ∇f̄||",
+                    marker_color="#ef4444",
+                    opacity=0.8,
+                ))
+                fig_bar.add_hline(
+                    y=result.mean_grad_norm,
+                    line_dash="dash", line_color="#1d4ed8",
+                    annotation_text=f"||∇f̄|| = {result.mean_grad_norm:.4f}",
+                    annotation_position="top right",
+                )
+                fig_bar.update_layout(
+                    barmode="group",
+                    xaxis_title="Client ID",
+                    yaxis_title="Norme L2",
+                    legend=dict(orientation="h", y=1.1),
+                    height=400,
+                    margin=dict(l=40, r=20, t=40, b=40),
+                    template="plotly_white",
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+            with tab_table:
+                st.markdown(
+                    f"**Table de M\\* = (2G³K/σ²)¹/⁶** avec σ² = {result.sigma2:.1f} mesuré "
+                    f"({sv_dataset}, α={result.alpha}, K={result.num_clients})"
+                )
+
+                import pandas as pd
+                rows_display = []
+                for G_val in [5, 10, 18]:
+                    row = {"G": G_val}
+                    for K_val in [10, 30, 50, 100]:
+                        m = result.optimal_m(G_val, K_val)
+                        m_r = result.rounded_m(G_val, K_val)
+                        row[f"K={K_val}"] = f"{m:.2f} → {m_r}"
+                    rows_display.append(row)
+
+                df_table = pd.DataFrame(rows_display).set_index("G")
+
+                # Highlight cell matching current setup
+                st.dataframe(
+                    df_table,
+                    use_container_width=True,
+                )
+                st.caption(
+                    f"Cellule de référence : G={sv_G}, K={result.num_clients} "
+                    f"→ M*={m_star_cont:.3f} ≈ {m_star_int}"
+                )
+
+            with tab_dist:
+                st.markdown("**Distribution de ||∇f_k − ∇f̄||² sur les clients**")
+
+                fig_hist = go.Figure()
+                fig_hist.add_trace(go.Histogram(
+                    x=result.sigma2_per_client,
+                    nbinsx=max(8, len(result.sigma2_per_client) // 3),
+                    marker_color="#8b5cf6",
+                    opacity=0.8,
+                    name="||∇f_k − ∇f̄||²",
+                ))
+                fig_hist.add_vline(
+                    x=result.sigma2,
+                    line_dash="dash", line_color="#dc2626",
+                    annotation_text=f"σ² = {result.sigma2:.1f}",
+                    annotation_position="top right",
+                )
+                fig_hist.update_layout(
+                    xaxis_title="||∇f_k − ∇f̄||²",
+                    yaxis_title="Nombre de clients",
+                    height=380,
+                    margin=dict(l=40, r=20, t=30, b=40),
+                    template="plotly_white",
+                )
+                st.plotly_chart(fig_hist, use_container_width=True)
+
+                # Stats
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("min ||∇f_k − ∇f̄||²", f"{min(result.sigma2_per_client):.1f}")
+                sc2.metric("médiane", f"{float(np.median(result.sigma2_per_client)):.1f}")
+                sc3.metric("max", f"{max(result.sigma2_per_client):.1f}")
+
+            with tab_formula:
+                st.markdown(f"""
+**Formule du tier optimal :**
+
+$$M^* = \\left(\\frac{{2\\,G^3\\,K}}{{\\sigma^2}}\\right)^{{1/6}}$$
+
+**Avec vos paramètres mesurés :**
+
+| Symbole | Valeur | Source |
+|---|---|---|
+| σ² | **{result.sigma2:.1f}** | Mesuré empiriquement ({result.batches_per_client} batches/client) |
+| G | {sv_G} | Choisi (ResNet-8 : 10 groupes) |
+| K | {result.num_clients} | Nombre de clients |
+| **M\\*** | **{m_star_cont:.3f} → {m_star_int}** | Résultat |
+
+**Calcul :**
+$$M^* = \\left(\\frac{{2 \\times {sv_G}^3 \\times {result.num_clients}}}{{{result.sigma2:.0f}}}\\right)^{{1/6}}
+= \\left({2 * sv_G**3 * result.num_clients / result.sigma2:.1f}\\right)^{{1/6}}
+\\approx {m_star_cont:.3f} \\approx {m_star_int}$$
+
+**Robustesse à l'estimation de σ² (puissance 1/6) :**
+
+| σ² | M* (continu) | M* (arrondi) |
+|---|---|---|
+| {result.sigma2 * 0.25:.0f} (×0.25) | {result.optimal_m(sv_G)*(result.sigma2/(result.sigma2*0.25))**(1/6):.2f} | {result.rounded_m(sv_G, result.num_clients) if True else '?'} |
+| **{result.sigma2:.0f} (mesuré)** | **{m_star_cont:.3f}** | **{m_star_int}** |
+| {result.sigma2 * 4:.0f} (×4) | {(2*sv_G**3*result.num_clients/(result.sigma2*4))**(1/6):.2f} | {max(1,round((2*sv_G**3*result.num_clients/(result.sigma2*4))**(1/6)))} |
+
+*Multiplier σ² par 4 ne change M* que d'un facteur 4^{{1/6}} ≈ 1.26 → prédiction robuste.*
+                """)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Footer (all pages)

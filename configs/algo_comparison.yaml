@@ -36,7 +36,7 @@ layer_mismatch: false
 device: mps
 
 data:
-  dataset: cifar100
+  dataset: cifar10
   model: resnet8
   partition: dirichlet
   alpha: 0.5
@@ -51,8 +51,11 @@ training:
   algo_config:
 
     # ── Hyperparamètres communs ──────────────────────────────────────────
+    optimizer: "sgd"         # "sgd" | "adam"  — optimiseur local côté client
+                             # Adam(lr=0.001) reproduit le setup du paper FedPart
+                             # SGD(lr=0.01, momentum=0.9) donne une meilleure accuracy absolue
     lr: 0.01
-    momentum: 0.9
+    momentum: 0.9            # ignoré si optimizer=adam
     weight_decay: 1.0e-4
     local_epochs: 8
     batch_size: 32
@@ -87,14 +90,14 @@ training:
     num_tiers: 3                   # nombre de groupes d'énergie
     server_lr: null                # auto = 1/num_tiers = 0.333
     assignment_strategy: quantile  # quantile | proportional
-    mu_repr: 0.1                   # régularisation représentativité (0 = désactivé)
+    mu_repr: 0.01                   # régularisation représentativité (0 = désactivé)
     mu_weight: 0.01                 # régularisation poids (0 = désactivé)
     ema_model_alpha: 0             # EMA sur poids modèle (0 = désactivé)
     ema_alpha: 0.3                 # EMA sur coût estimé par groupe
     verbose_groups: false
     rotation_period: 2            # T_rot optimal (0 collisions avec schedule de mort)
     adaptive_rotation: false        # étend T_rot quand des clients meurent
-    inter_cycle_rounds: 0          # rounds full-training inter-cycle (0 = désactivé)
+    inter_cycle_rounds: 0         # rounds full-training inter-cycle (0 = désactivé)
 
     # ── Paramètres ccsEF full / ccsEF frozen (ignorés par les autres algos) ──
     # ccsEF = Complementary Cluster Split with Error Feedback (Nikiema & Amhoud, 2026)
@@ -108,25 +111,61 @@ training:
                                    # SOC [30-80%]: 3-5 rounds pour meilleure convergence initiale
     lr_min: null                  # cosine LR decay floor (null = LR constant)
                                    # lr_t = lr_min + 0.5*(lr-lr_min)*(1+cos(πt/T))
-    max_grad_norm: 1.0            # gradient clipping — atténue les oscillations à T_rot>1
+    max_grad_norm: 10.0            # gradient clipping — atténue les oscillations à T_rot>1
     beta_max: 0.9
     beta_min: 0.01
                                    # valeur standard FL : 5.0–10.0 ; null = désactivé
-    T_rot: 3                       # période de rotation (échange C1↔C2 toutes T_rot rounds)
+    T_rot: 2                       # période de rotation (échange C1↔C2 toutes T_rot rounds)
                                    # T_rot=1 : biais 2-round minimal O(ηLζ²)
                                    # T_rot=3 : best Acc=76.35%, 20/30 alive rd200
     fleet_median_battery: null     # seuil C1/C2 (null = 0.5 * battery_max_j = 6660 J) : mis à jour automatiquement par le serveur
-    T_recluster: 10        # fréquence de re-clustering (0 = comportement statique original)
-    server_momentum: 0.9   # 0.0 = disabled, 0.9 = for strong non-IID
+    T_recluster: 10        # fréquence de re-clustering (0 = comportement statique original). Optimal = 6 pour éviter le désalignement avec T_rot
+                           # Si T_recluster = k × M × T_rot, le recluster se produit toujours à la
+                           # même position dans le cycle — tous les buffers viennent d'être mis à jour dans les M×T_rot derniers rounds.
+    # ATTENTION — server_momentum sous non-IID fort :
+    # Avec M=3 et rotation, chaque partition reçoit les gradients d'un cluster différent
+    # à chaque phase. Avec momentum=0.9, le buffer momentum mélange des mises à jour
+    # de distributions très différentes (α=0.1) → amplifie la divergence.
+    # Réglages recommandés :
+    #   ccsEF_full  : 0.9 acceptable (full backward atténue les conflits de gradient)
+    #   ccsEF_frozen: 0.0 ou 0.3 (partial gradient → conflits amplifiés par momentum fort)
+    server_momentum: 0.9
     use_fp16_uplink: true     # valeurs sparse en float16 : 6 bytes/nz vs 8 (-25% uplink)
     partial_downlink: false
+    num_partitions: 4
 
     # ccsEF full  → full backward sur g1+g2 ; EF accumulé sur le groupe secondaire
     # ccsEF frozen → backward uniquement sur groupe primaire (requires_grad=False sur secondaire)
     #                EF buffer secondaire non mis à jour ce round
     #                E_comp réduit de ~33% → meilleure survie, couverture gradient partielle
+    #
+    # LIMITATION CONNUE (ccsEF_frozen, α ≤ 0.1) :
+    #   Avec freeze_secondary + non-IID fort, chaque partition ne reçoit des gradients
+    #   que d'un seul cluster par phase. Sous α=0.1, les clusters ont des distributions
+    #   quasi-disjointes → gradients antagonistes entre phases → oscillation non convergente.
+    #   ccsEF_full n'a pas ce problème : les buffers EF secondaires accumulent les corrections.
+    #   → Pour α ≤ 0.1, utiliser ccsEF_full.  ccsEF_frozen est adapté à α ≥ 0.3.
+    #
     # La valeur ci-dessous est écrasée par --algo ccsEF_full / ccsEF_frozen dans le CLI
     freeze_secondary_backward: false   # false = ccsEF full ; true = ccsEF frozen
+
+    # Buffer age reset (Option 4) — activé par défaut.
+    # Remet à zéro le buffer EF primaire si âge > M × T_rot (client a changé de cluster).
+    # false = désactiver pour observer l'effet de la staleness (ablation).
+    buffer_age_reset: false
+
+    # Option 5 — priming sans transmission après changement de cluster.
+    # Le client fait SGD + EF pour primer le buffer, mais ne transmet rien ce round.
+    # Coût : compute + downlink uniquement (pas d'uplink).
+    buffer_priming: true
+
+    # Clipping du vecteur EF u = Δg + e avant TopK.
+    # Prévient l'explosion du buffer quand β est petit (1-β > 0.5) en fin d'entraînement.
+    # ATTENTION (non-IID fort) : 3.0 est trop agressif sous α=0.1 — les gradients sont
+    # plus grands, et le clipping élimine de l'information qui ne va PAS dans le buffer
+    # (seul u_clipped - v est stocké, pas u_original - u_clipped → perte permanente).
+    # null = désactivé (recommandé pour α ≤ 0.3). Recommandé si activé : 5.0–10.0 si data_IID est élevé (0.3-0.5)
+    ef_clip_norm: 15
 
 clients:
   num_clients: 30

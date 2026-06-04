@@ -12,6 +12,7 @@ import torch.optim as optim
 from collections import OrderedDict
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
+from hardware.flop_measure import compute_training_flops
 
 
 @register_algorithm("fedavg")
@@ -32,7 +33,13 @@ class FedAvg(FLAlgorithm):
         w_before = OrderedDict({k: v.clone().cpu() for k, v in model.state_dict().items()})
 
         model.train(); model.to(device)
-        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+        optimizer_type = config.get("optimizer", "sgd").lower()
+        momentum      = config.get("momentum", 0.9)
+        weight_decay  = config.get("weight_decay", 1e-4)
+        if optimizer_type == "adam":
+            optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        else:
+            optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
         criterion = nn.CrossEntropyLoss()
 
         total_loss, num_batches = 0.0, 0
@@ -60,9 +67,10 @@ class FedAvg(FLAlgorithm):
         uplink_bytes   = self.count_bytes(delta, sparse=False)
         downlink_bytes = self.count_bytes(delta, sparse=False)  # same size as uplink for FedAvg (full model)
         if profile:
-            num_params = sum(p.numel() for p in model.parameters())
-            flops = profile.flops_for_model(num_params, dataloader.batch_size,
-                                             local_epochs, len(dataloader.dataset))
+            flops = compute_training_flops(
+                model, profile, dataloader, local_epochs, config,
+                active_group_idx=None, groups=None,
+            )
             energy_j = profile.round_energy_j(flops, uplink_bytes, downlink_bytes)
         else:
             energy_j = 0.5 + 2.0 * 1.0  # full transmission

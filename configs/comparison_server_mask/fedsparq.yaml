@@ -1,0 +1,44 @@
+# ============================================================
+# COMPARISON — FedSparQ  (Communication-Efficient, No Battery)
+# Sparse gradient compression (Top-K EMA threshold).
+# Shows: communication reduction alone ≠ battery survival.
+# ============================================================
+seed: 42
+output_dir: "./results/comparison_server_mask/fedsparq"
+device: mps
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 1.0
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedsparq
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 5
+    batch_size: 32
+    ema_alpha: 0.1
+    energy_scale_factor: 12.6
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+  fleet:
+    - type: esp32_s3
+      count: 30
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95

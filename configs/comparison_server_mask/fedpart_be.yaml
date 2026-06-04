@@ -1,0 +1,49 @@
+# ============================================================
+# COMPARISON — FedPartBE  (Layer-Group Battery-Adaptive)
+# Direct predecessor of Server-Mask. Discrete tiers (3 groups),
+# battery-driven layer assignment.
+# CONTROLLED: local_epochs=5 (same as Server-Mask for fair comparison)
+# ============================================================
+seed: 42
+output_dir: "./results/comparison_server_mask/fedpart_be"
+device: mps
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 1.0
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 5          # Controlled: same as Server-Mask
+    batch_size: 32
+    warmup_rounds: 5
+    num_tiers: 3
+    mu_repr: 0.1
+    mu_weight: 0.01
+    assignment_strategy: quantile
+    energy_scale_factor: 12.6
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+  fleet:
+    - type: esp32_s3
+      count: 30
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95

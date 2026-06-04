@@ -63,7 +63,7 @@ data:
   dataset: cifar10
   model: resnet8
   partition: dirichlet
-  alpha: 0.5
+  alpha: 1.0
   data_root: ./data
 
 model:
@@ -79,12 +79,12 @@ training:
     local_epochs: 8
     batch_size: 32
     warmup_rounds: 5
-    num_tiers: 2
-    server_lr: 1.0            # auto = 1/num_tiers = 0.5
+    num_tiers: 3
+    server_lr: null            # auto = 1/num_tiers = 0.5
 
     # ── Sequential group selection ──────────────────────────────────────────
     group_selection: sequential   # "staleness_aware" | "sequential"
-    window_step: 1                # 0=auto(=M=3), 1=overlapping, 3=non-overlapping
+    window_step: 3                # 0=auto(=M=3), 1=overlapping, 3=non-overlapping
     # assignment_strategy s'applique toujours pour client→tier
     assignment_strategy: quantile # equal tiers, robuste pour tout spread
     # rotation_period ignoré en mode sequential (pas de cyclic rotation)
@@ -94,10 +94,11 @@ training:
     mu_repr: 0.01
     mu_weight: 0.01
     verbose_groups: false
-    inter_cycle_rounds: 0
+    inter_cycle_rounds: 2
     energy_scale_factor: 12.6
     max_grad_norm: 10.0
     ema_alpha: 0.3
+    ema_model_alpha: 0.0 
 
 clients:
   num_clients: 30

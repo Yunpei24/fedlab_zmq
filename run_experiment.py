@@ -62,28 +62,30 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 import algorithms.fedavg           # noqa — trigger @register_algorithm
-import algorithms.eceffl           # noqa
-import algorithms.leanfed          # noqa
-import algorithms.fedbacys         # noqa
-import algorithms.vaishnav         # noqa
-import algorithms.fedsparq         # noqa
-import algorithms.fedprox          # noqa
-import algorithms.scaffold         # noqa
+# import algorithms.eceffl           # noqa
+# import algorithms.leanfed          # noqa
+# import algorithms.fedbacys         # noqa
+# import algorithms.vaishnav         # noqa
+# import algorithms.fedsparq         # noqa
+# import algorithms.fedprox          # noqa
+# import algorithms.scaffold         # noqa
 import algorithms.fedpart               # noqa
 import algorithms.fedpart_be            # noqa
-import algorithms.fedpart_universal     # noqa
-import algorithms.heterofl              # noqa
-import algorithms.fjord                 # noqa
+# import algorithms.fedpart_universal     # noqa
+# import algorithms.heterofl              # noqa
+# import algorithms.fjord                 # noqa
 import algorithms.fed_resonance         # noqa
-import algorithms.fed_grad_align        # noqa
-import algorithms.fed_resonance_osmosis # noqa
-import algorithms.fed_resonance_plus    # noqa
+# import algorithms.fed_grad_align        # noqa
+# import algorithms.fed_resonance_osmosis # noqa
+# import algorithms.fed_resonance_plus    # noqa
+import algorithms.server_mask_fl        # noqa
+# import algorithms.fedmask               # noqa
+# import algorithms.hermes                # noqa
 
 from algorithms.base import get_algorithm, ClientState, list_algorithms
 from models.registry import get_model
 from datasets.registry import get_dataloader
 from hardware.profiles import DEVICE_PROFILES, make_fleet
-from hardware.energy_model import round_energy_j as _round_energy_j  # Shannon model
 from diagnostics.layer_mismatch import LayerMismatchDiagnostic
 
 
@@ -592,6 +594,7 @@ def run_single_experiment(
             # ── Survival tracking (for FedPartBE paper) ───────────────────
             "num_alive_clients":  sum(1 for cs in client_states if cs.battery_j > 0),
             "survival_ratio":     sum(1 for cs in client_states if cs.battery_j > 0) / num_clients,
+            "num_partitions":     agg_m.get("num_partitions", algo_config.get("num_partitions", 1)),
         }
         if diagnostic is not None:
             # None when freq > 1 and this round was skipped.
@@ -705,6 +708,8 @@ def run_benchmark(args):
         ("fedpart",    {"rounds_per_layer": 2, "training_cycles": 5,
                         "warmup_rounds": 5}),
         ("fedpart_be", {"num_tiers": 3, "mu_repr": 0.1, "warmup_rounds": 5}),
+        ("fedmask",    {"beta_min": 0.1, "beta_max": 0.5, "warmup_rounds": 5}),
+        ("hermes",     {"beta_min": 0.1, "beta_max": 0.5, "warmup_rounds": 5}),
     ]
     # ── Proposed algorithms ───────────────────────────────────────────────────
     _proposed = [
@@ -714,6 +719,9 @@ def run_benchmark(args):
         ("fed_resonance_osmosis", {}),
         ("fed_resonance_plus",  {"resonance_rank": 16, "use_rsvd": True,
                                   "basis_update_freq": 5}),
+        ("server_mask",         {"beta_min": 0.1, "beta_max": 0.5, "warmup_rounds": 5,
+                                  "ema_alpha": 0.3, "epsilon_explore": 0.05,
+                                  "server_lr": 0.5, "mu_weight": 0.0}),
     ]
 
     _all = _lvl1 + _lvl2 + _proposed
