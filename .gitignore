@@ -1,31 +1,63 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FedLab ZMQ — .gitignore
+# Goal: ship a clean, reproducible artifact (code + configs + tests). Everything
+# that is regenerated (results, caches, datasets) or scratch/out-of-scope is
+# ignored. NOTE: tests/ is intentionally TRACKED — it holds the canonical
+# cost-model regression guardrail (tests/test_flop_cost.py).
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Python / build ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ── Virtualenvs ─────────────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── OS / editor cruft ───────────────────────────────────────────────────────
+.DS_Store
+*.swp
+
+# ── Datasets (downloaded on demand by datasets/) ──────────────────────────────
+data/
+data_results/
+datasets/cache/
+
+# ── Experiment outputs (regenerate from configs/) ─────────────────────────────
+results/
+results1/
+result_broui/
+logs/
+
+# ── Scratch / work-in-progress (not part of the artifact) ─────────────────────
 z_*
 T_*
+aa/
 tests_brouillon/
-paper*
-docs/
-data
-data_results/
-.claude/
-venv/
-results/fedpartbe_survival_wide/
-results/Algorithms_fare_5_15/
-results/a_brouillons_result/
-results/fedpartbe_seq_wide/
-examples/
-
-analyze_benchmark.py
-parse_metrics.py
-newplot-2.png
 configs/brouillons/
+analyze_benchmark.py
+newplot-2.png
 algorithms/fedpart_be_lora_gs.py
 algorithms/fed_grad_align.py
 algorithms/fedpart_universal.py
-.DS_Store
 
+# ── Other papers in this monorepo (read-only, out of scope for this artifact) ──
+paper*
+docs/
+examples/
+
+# ── Local / private ───────────────────────────────────────────────────────────
+.claude/
+notes.txt
+parse_metrics.py
 SERVER_MASK_FL_IMPLEMENTATION.txt
 test_server_mask.py
-notes.txt
-tests/
-results1/
-result_broui/
-aa/
