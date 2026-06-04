@@ -1,30 +1,47 @@
-# FedLab ZMQ — Dependencies
-# pip install -r requirements.txt
+# FedLab ZMQ — runtime dependencies (exact pins for artifact reproducibility)
+# ─────────────────────────────────────────────────────────────────────────────
+#   pip install -r requirements.txt
+#   pip install -e .
 #
-# Tested with Python 3.12.4 on macOS (Apple Silicon).
-# PyTorch version: 2.10.0  /  torchvision: 0.25.0
-# For GPU (CUDA) builds, install torch separately:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Captured on Python 3.12.4, macOS arm64 (Apple Silicon, MPS backend).
+# For a byte-identical environment use the full lock instead:
+#   pip install -r requirements-lock.txt
+#
+# IMPORTANT — torch determines the cost model's behavior.
+#   hardware/flop_cost.py measures per-layer FLOPs with
+#   torch.utils.flop_counter.FlopCounterMode. The MAC-vs-FLOP convention
+#   (counts() returning MACs vs 2x MACs) is a property of the installed
+#   torch version. calibrate_convention() in flop_cost.py detects it at
+#   runtime (returns 1.0 or 2.0) and the test suite asserts the detected
+#   value, but to reproduce the paper's absolute FLOP/energy numbers you
+#   must use the pinned torch below. Pin torch FIRST.
+#
+# GPU (CUDA) note: the torch/torchvision pins below are macOS arm64 wheels.
+# For CUDA, install torch separately from the PyTorch index BEFORE the rest:
+#   pip install torch==2.11.0 torchvision==0.26.0 \
+#       --index-url https://download.pytorch.org/whl/cu121
+# then `pip install -r requirements.txt` (pip will keep the CUDA build).
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ── Transport (replaces FastAPI/uvicorn/httpx) ────────────────────────────────
-pyzmq>=25.1.0          # ZeroMQ bindings  (tested: 27.1.0)
-msgpack>=1.0.8         # fast binary serialization (tested: 1.1.2)
+# ── Core ML (pin torch first — drives FlopCounterMode / FLOP convention) ──────
+torch==2.11.0
+torchvision==0.26.0
 
-# ── Core ML ───────────────────────────────────────────────────────────────────
-torch>=2.1.0           # tested: 2.10.0
-torchvision>=0.16.0    # tested: 0.25.0
+# ── Transport ─────────────────────────────────────────────────────────────────
+pyzmq==27.1.0          # ZeroMQ bindings
+msgpack==1.1.2         # binary serialization
 
-# ── Data & Config ─────────────────────────────────────────────────────────────
-numpy>=1.24.0          # tested: 2.4.2
-pandas>=2.0.0          # tested: 2.3.3  (dashboard + results analysis)
-pyyaml>=6.0            # tested: 6.0.3  (YAML experiment configs)
+# ── Data & config ─────────────────────────────────────────────────────────────
+numpy==2.4.3
+pandas==2.3.3
+PyYAML==6.0.3
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
-streamlit>=1.35.0      # tested: 1.55.0
-plotly>=5.20.0         # tested: 6.6.0
+streamlit==1.55.0
+plotly==6.6.0
 
 # ── Plotting (results analysis, paper figures) ────────────────────────────────
-matplotlib>=3.7.0      # tested: 3.10.8
+matplotlib==3.10.8
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-tqdm>=4.66.0           # tested: 4.67.3  (training progress bars)
+tqdm==4.67.3

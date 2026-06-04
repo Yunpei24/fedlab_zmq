@@ -1,0 +1,41 @@
+# FedLab ZMQ — conda environment (exact pins for artifact reproducibility)
+# ─────────────────────────────────────────────────────────────────────────────
+#   conda env create -f environment.yml
+#   conda activate fedlab-zmq
+#   pip install -e .
+#
+# NOTE: torch/torchvision are installed via pip (not the conda pytorch channel)
+# to match the exact wheels the paper numbers were produced with. torch drives
+# the FlopCounterMode MAC/FLOP convention used by hardware/flop_cost.py — see
+# requirements.txt for details. The pins below are macOS arm64 (MPS) wheels;
+# for CUDA, replace the torch lines with the cu121 wheels (see requirements.txt).
+# ─────────────────────────────────────────────────────────────────────────────
+name: fedlab-zmq
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12.4
+  - pip
+  - pip:
+      # Core ML — pin torch FIRST (drives FlopCounterMode / FLOP convention)
+      - torch==2.11.0
+      - torchvision==0.26.0
+      # Transport
+      - pyzmq==27.1.0
+      - msgpack==1.1.2
+      # Data & config
+      - numpy==2.4.3
+      - pandas==2.3.3
+      - PyYAML==6.0.3
+      # Dashboard
+      - streamlit==1.55.0
+      - plotly==6.6.0
+      # Plotting
+      - matplotlib==3.10.8
+      # Utilities
+      - tqdm==4.67.3
+      # Dev / artifact evaluation
+      - pytest==9.0.3
+      - black==26.5.1
+      - isort==8.0.1
+      - ruff==0.15.15

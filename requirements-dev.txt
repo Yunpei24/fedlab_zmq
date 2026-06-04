@@ -1,0 +1,10 @@
+# FedLab ZMQ — development / artifact-evaluation tools (exact pins)
+#   pip install -r requirements-dev.txt
+# Runtime deps live in requirements.txt; install both for the full toolchain.
+
+-r requirements.txt
+
+pytest==9.0.3          # test runner (canonical guardrail: tests/test_flop_cost.py)
+black==26.5.1          # code formatter
+isort==8.0.1           # import sorting
+ruff==0.15.15          # linter (unused imports / dead vars)
