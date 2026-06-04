@@ -104,10 +104,9 @@ Key differences from FedAvg in this implementation
 """
 
 import gc
-import math
 import re
 import random
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 from typing import Optional
 
 import torch
@@ -118,7 +117,6 @@ from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
 from hardware.flop_cost import (
     round_compute_flops,
     compute_group_flops as _flopcost_compute_group_flops,
-    compute_corrected_group_costs as _flopcost_compute_corrected_group_costs,
     freeze_to_trainable as _flopcost_freeze_to_trainable,
     restore_grad as _flopcost_restore_grad,
 )
@@ -385,7 +383,6 @@ class FedPart(FLAlgorithm):
             config.get("num_layer_groups", len(groups)), len(groups)
         )
         num_groups   = config["num_layer_groups"]
-        warmup_rounds = config.get("warmup_rounds", 5)
 
         # ── Determine active group ────────────────────────────────────────────
         active_idx = _active_group_idx_for_round(state.round_num, config)

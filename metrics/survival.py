@@ -30,7 +30,6 @@ the existing runner. Drop it into run_experiment.py as a final step.
 from __future__ import annotations
 
 import csv
-import math
 import os
 from typing import Any, Optional
 

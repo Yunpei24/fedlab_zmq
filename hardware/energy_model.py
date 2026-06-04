@@ -28,7 +28,7 @@ Authors: J. Nikiema & E. Amhoud — UM6P
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 

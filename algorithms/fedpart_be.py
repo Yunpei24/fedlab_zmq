@@ -86,7 +86,6 @@ import copy
 import gc
 import math
 from collections import OrderedDict, defaultdict
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -94,7 +93,6 @@ import torch.optim as optim
 
 from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
 from .fedpart import _derive_layer_groups, _param_group_key, _compute_group_flops
-from hardware.profiles import DeviceProfile
 from hardware.flop_cost import (
     round_compute_flops,
     compute_corrected_group_costs as _flopcost_compute_corrected_group_costs,
@@ -134,83 +132,6 @@ def _compute_corrected_group_costs(group_flops: list[float]) -> list[float]:
 
 
 
-def _compute_staleness_priority(
-    staleness: list[int],
-    costs: list[int],
-) -> list[float]:
-    """
-    Legacy priority: (staleness + 1) / (cost / max_cost).
-    Kept for reference. Superseded by _compute_joint_priority.
-    """
-    max_cost = max(costs) if costs else 1.0
-    priority = []
-    for s, c in zip(staleness, costs):
-        norm_cost = c / max_cost
-        priority.append((s + 1) / (norm_cost + 1e-8))
-    return priority
-
-
-def _compute_joint_priority(
-    staleness: list[int],
-    costs: list[float],
-    grad_norms: list[float],
-) -> list[float]:
-    """
-    Gradient-importance-aware priority (Option B).
-
-    priority[g] = (staleness[g] + 1) * grad_norm_norm[g] / (cost_norm[g] + eps)
-
-    Interpretation — utility per joule, weighted by staleness urgency:
-      - High grad_norm  → group needs updating → boost priority
-      - Low cost        → safe for low-battery clients → boost priority
-      - High staleness  → overdue → boost priority
-
-    Effect: low-battery clients receive groups that are BOTH cheap AND
-    important (high gradient signal), so cheap groups are no longer
-    systematically undertrained relative to expensive ones.
-
-    Args:
-        staleness:   rounds since each group was last updated
-        costs:       FLOPs (or param count) per group
-        grad_norms:  mean L2 delta norm per group from last round (EMA-smoothed)
-
-    Returns:
-        priority: list[float] of length num_groups
-    """
-    max_cost = max(costs) if max(costs) > 0 else 1.0
-    max_norm = max(grad_norms) if max(grad_norms) > 0 else 1.0
-    # Floor: ensures groups with zero EMA (never trained yet, or long-neglected)
-    # still get non-zero priority so staleness can rescue them from starvation.
-    # Without this floor, norm_grad → 0 after many missed rounds and the group
-    # can never be selected regardless of staleness.
-    floor = 0.1  # 10% of max norm as minimum effective importance
-    priority = []
-    for s, c, n in zip(staleness, costs, grad_norms):
-        norm_cost = c / max_cost
-        norm_grad = max(n / max_norm, floor)   # ← starvation prevention
-        priority.append((s + 1) * norm_grad / (norm_cost + 1e-8))
-    return priority
-
-
-def _assign_tiers_to_groups(
-    num_tiers: int,
-    num_groups: int,
-    priority: list[float],
-) -> dict[int, int]:
-    """
-    Legacy: assign tiers to groups based on priority score.
-    Kept for reference. Superseded by _assign_tiers_to_groups_v2.
-    """
-    sorted_group_indices = sorted(
-        range(num_groups), key=lambda g: priority[g], reverse=True
-    )
-    tier_assignment = {}
-    for tier_idx in range(num_tiers):
-        group_idx = sorted_group_indices[tier_idx % num_groups]
-        tier_assignment[tier_idx] = group_idx
-    return tier_assignment
-
-
 def _assign_tiers_to_groups_v2(
     num_tiers: int,
     num_groups: int,
@@ -223,7 +144,7 @@ def _assign_tiers_to_groups_v2(
     """
     Cost-bucketed, staleness-driven group selection.
 
-    Fixes the perpetual-group-0 bug in _assign_tiers_to_groups:
+    Fixes the perpetual-group-0 bug of the old priority-score assignment:
       The old formula (staleness+1)*norm_grad/norm_cost lets a cheap group
       with high gradient norm dominate regardless of staleness, because
       1/norm_cost for the stem layer (very cheap) overwhelms the staleness term.
@@ -539,7 +460,6 @@ def _battery_proportional_client_assignment(
         if t in covered:
             continue
         # Reassign the client whose ideal cost is already closest to this tier
-        target_cost = selected_costs[t]
         best_cid = min(
             bat_map.keys(),
             key=lambda cid: abs(
@@ -1026,7 +946,6 @@ class FedPartBE(FLAlgorithm):
                 k: (w_before[k] - current_sd[k].cpu()).float()
                 for k in w_before
             })
-            transmitted_keys = list(w_before.keys())
         else:
             # Partial delta — active group's learnable params + ALL BN running stats
             active_keys = groups[active_idx]
@@ -1038,7 +957,6 @@ class FedPartBE(FLAlgorithm):
                 k: (w_before[k] - current_sd[k].cpu()).float()
                 for k in all_tx_keys
             })
-            transmitted_keys = all_tx_keys
 
         # ── Communication / energy accounting ────────────────────────────────
         uplink_bytes   = self.count_bytes(partial_delta, sparse=False)
@@ -1306,8 +1224,6 @@ class FedPartBE(FLAlgorithm):
             group_sizes: dict[int, float] = defaultdict(float)
             group_weighted_sums: dict[str, torch.Tensor] = {}
             active_groups: list[int] = []
-            ema_sum: dict[int, float] = defaultdict(float)
-            ema_cnt: dict[int, int] = defaultdict(int)
 
             new_weights = OrderedDict({k: v.float() for k, v in global_sd.items()})
 

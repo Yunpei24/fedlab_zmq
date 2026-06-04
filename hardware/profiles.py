@@ -22,7 +22,6 @@ Values sourced from:
 
 from dataclasses import dataclass, field
 from typing import Optional
-import math
 
 # ChannelParams is imported lazily to avoid circular imports;
 # type annotation uses string forward-reference.

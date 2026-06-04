@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 from collections import OrderedDict
 
-from .base import FLAlgorithm, ClientState, AggregateResult, register_algorithm
+from .base import FLAlgorithm, AggregateResult, register_algorithm
 from hardware.flop_cost import round_compute_flops
 
 

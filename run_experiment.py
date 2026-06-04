@@ -48,7 +48,6 @@ import argparse
 import copy
 import gc
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -85,7 +84,7 @@ import algorithms.server_mask_fl        # noqa
 from algorithms.base import get_algorithm, ClientState, list_algorithms
 from models.registry import get_model
 from datasets.registry import get_dataloader
-from hardware.profiles import DEVICE_PROFILES, make_fleet
+from hardware.profiles import make_fleet
 from diagnostics.layer_mismatch import LayerMismatchDiagnostic
 
 

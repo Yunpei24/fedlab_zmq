@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import os
 import shlex
 import subprocess
 import sys
