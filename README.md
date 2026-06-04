@@ -50,18 +50,98 @@ All messages are serialized with **msgpack**. PyTorch tensors are embedded as `t
 ## Quick Start
 
 ```bash
-pip install -r requirements.txt
-pip install -e .
+# 1. Install (exact pinned versions — see Reproducibility below)
+pip install -r requirements.txt        # runtime deps
+pip install -e .                       # the fedlab-zmq package
+#   or, for the full dev/eval toolchain (pytest, black, isort, ruff):
+#   pip install -r requirements-dev.txt && pip install -e .
+#   or with conda:  conda env create -f environment.yml && conda activate fedlab-zmq
 
-# Run a full benchmark
-python run_experiment.py --config configs/fedpartbe_survival_wide.yaml
+# 2. Sanity-check the install (canonical cost-model regression guardrail)
+make test            # == python -m pytest  → 11 passed
 
-# Launch the dashboard
-streamlit run dashboard/app.py
+# 3. Fast end-to-end smoke run (< 1 min, CPU only) — confirms the pipeline works
+make smoke           # == python run_experiment.py --config configs/smoke.yaml
 
-# Compare experiment results
-python scripts/compare_results.py --results results/exp1 results/exp2
+# 4. Run a full experiment
+python run_experiment.py --config configs/fedpartbe_survival_wide.yaml --device mps
 ```
+
+Every run writes, into its `results/<run>/` directory:
+`metrics.json` (per-round metrics + summary), `manifest.json` (resolved config,
+git commit, seed, package versions, FLOP convention, timestamp), and
+`survival.csv` (per-client lifetimes for the survival/Pareto figures).
+
+---
+
+## Reproducibility
+
+This repository is set up for artifact evaluation:
+
+- **Pinned dependencies.** `requirements.txt` pins exact runtime versions
+  (`torch==2.11.0` first); `requirements-lock.txt` is a full `pip freeze`
+  snapshot; `environment.yml` is the conda equivalent. Tested with
+  **Python 3.12.4** on macOS arm64 (Apple Silicon, MPS).
+- **Centralized seeding.** `core/seeding.py:seed_everything(seed)` seeds
+  python / numpy / torch (CPU+CUDA; MPS via `torch.manual_seed`) and is called
+  by the experiment runner. Residual non-determinism (cuDNN, MPS reduction
+  order, FlopCounter absolute energy vs. torch version) is documented in that
+  module; strict deterministic mode is opt-in and **off by default** so the
+  `cost_model="phi"` numbers stay bit-exact.
+- **Per-run manifest.** `core/manifest.py` records exactly what produced each
+  result (see above).
+- **Config-driven.** All experiment parameters (K, SoC range, α, E, rounds, lr,
+  seed, `cost_model`, `energy_scale_factor`, …) live in versioned YAML configs
+  in `configs/` — one per paper table/figure. No magic constants in code.
+
+### Reproducing the paper
+
+Paper: *"FedPartBE: Battery-Energy Aware Partial Network Training for Federated
+Learning"* (Nikiema & Amhoud, 2026). Two execution modes:
+**single-process** (`run_experiment.py`, laptop/dev) and **ZMQ distributed**
+(`hpc/launch_zmq_hpc.py --group <group>`, HPC/SLURM). The master config
+`configs/fedpartbe_survival_wide_cifar10.yaml` defines the experiment *groups*;
+the standalone configs below run one experiment each.
+
+| Paper artifact | Config / command | What it produces |
+|---|---|---|
+| **Smoke** (not a result) | `python run_experiment.py --config configs/smoke.yaml` | < 1 min sanity check |
+| **Table 1** — FedPartBE vs baselines | `configs/fedpartbe_benchmark.yaml` · or `--group benchmark` | accuracy / energy / Jain vs FedAvg, FedPart, … |
+| **Table 3** — component ablation | `configs/fedpartbe_ablation_no_repr.yaml`, `…_no_staleness.yaml`, `…_m1.yaml` · or `--group ablation` | effect of repr-prox, staleness, single-tier |
+| **Figure 4** — #tiers M sweep | `configs/fedpartbe_sensitivity_tiers.yaml` · or `--group sensitivity` | accuracy vs number of energy tiers |
+| **Figure 5** — Dirichlet α sweep | `configs/fedpartbe_sensitivity_alpha.yaml` · or `--group sensitivity` | accuracy vs heterogeneity α |
+| **Table 4** — other datasets/models | `--group dataset` | CIFAR-100, TinyImageNet, MobileNetV2 |
+| **Experiment A** — survival curve | `configs/fedpartbe_survival.yaml` | % clients alive vs rounds |
+| **Experiment B** — wide battery spread | `configs/fedpartbe_survival_wide.yaml` (CIFAR-10: `…_cifar10.yaml`; 60-client: `…_fleet60.yaml`) | survival + accuracy under SoC ∈ [5%, 95%] |
+| **Cost-model methodology** — {algo}×{phi,corrected,measured} ablation | `python scripts/run_costmodel_ablation.py` | does the FedPartBE-vs-FedPart gap widen under the corrected/measured cost model? → `results/costmodel_ablation/comparison.csv` |
+
+> Confirm the exact Table/Figure numbers against the paper draft — the mapping
+> above is taken from the headers inside each config file.
+
+**Expected runtime / hardware.** Configs default to CIFAR-10 / ResNet-8 /
+30 ESP32-S3 / 200 rounds. On an Apple M-series laptop (`--device mps`) a single
+200-round run is on the order of tens of minutes; the full Table 1 sweep is
+intended for the UM6P HPC (SLURM, see `hpc/` and the `hpc:` block in the master
+config). The smoke config runs in well under a minute on a laptop CPU.
+
+### Compute-cost model
+
+`hardware/flop_cost.py` is the **single source of truth** for the per-round
+compute FLOPs of every algorithm. It exposes three models via the `cost_model`
+config key (CLI `--cost-model`, else YAML, else `"phi"`):
+
+- **`phi`** (default, legacy) — reproduces the pre-refactor analytic per-algo
+  formulas bit-for-bit; this is the path the paper numbers use and the one the
+  regression test `tests/test_flop_cost.py` pins.
+- **`corrected`** — position-aware analytic model for contiguous layer groups.
+- **`measured`** — `torch.utils.flop_counter.FlopCounterMode` with the
+  algorithm's actual `requires_grad` mask (cached).
+
+The MAC-vs-FLOP convention is a property of the installed torch version;
+`calibrate_convention()` detects it at runtime (returns `1.0` or `2.0`) and the
+test suite asserts the detected value. Pin `torch` (see `requirements.txt`) to
+reproduce absolute FLOP/energy figures. Communication energy lives separately
+in `hardware/energy_model.py` (Shannon channel model).
 
 ---
 
@@ -208,3 +288,25 @@ The result is also available interactively in the dashboard under the **σ² Est
 
 - **Code**: [github.com/Yunpei24/fedlab_zmq](https://github.com/Yunpei24/fedlab_zmq)
 - **Dashboard**: [fedlabzmq-dashboard.streamlit.app](https://fedlabzmq-dashboard.streamlit.app)
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+## Citation
+
+If you use this software or the FedPartBE algorithm, please cite it using the
+metadata in [`CITATION.cff`](CITATION.cff):
+
+```bibtex
+@software{nikiema_fedlab_zmq_2026,
+  title  = {FedLab ZMQ: Energy-Efficient Federated Learning on Constrained IoT Devices},
+  author = {Nikiema, Joshua Juste Yunpei and Amhoud, El Mehdi and
+            Elhammouti, Hajar and Kissami, Imad},
+  year   = {2026},
+  url    = {https://github.com/Yunpei24/fedlab_zmq},
+  note   = {Mohammed VI Polytechnic University (UM6P)}
+}
+```
