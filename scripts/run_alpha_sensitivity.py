@@ -5,10 +5,13 @@ scripts/run_alpha_sensitivity.py
 Sensitivity sweep over the compute energy_scale_factor (alpha).
 
 The hand-calibrated alpha = 12.6 (chosen so the fleet dies at T* ~ 80 rounds)
-is circular: it was tuned against the analytic FLOPs it is meant to convert.
-Instead of trusting one value, this driver sweeps alpha over a hardware-
-justified range and reports, for each paper conclusion, whether it holds
-across the WHOLE grid (and on what sub-range otherwise).
+is circular: it was tuned against the analytic 'phi' FLOPs it is meant to
+convert, and 12.6 under cost_model="measured" (real FLOPs, ~150x larger) is
+~150x too hot. Instead of trusting one value, this driver sweeps alpha over a
+PHYSICALLY-justified range (alpha = 1 / sustained-utilization >= 1) and reports,
+for each paper conclusion, whether it holds across the WHOLE grid (and on what
+sub-range otherwise). See configs/alpha_sensitivity_base.yaml for the full
+rationale and the choice of a non-degenerate device scenario.
 
 Why a full re-run per alpha (no post-hoc rescaling)
 ---------------------------------------------------
@@ -33,7 +36,7 @@ Outputs (under results/alpha_sensitivity/<grid>/)
     aggregated_wide.csv    one row per (algo, alpha), all metrics
     aggregated_long.csv    tidy: one row per (algo, alpha, metric, value)
     relative.csv           per-alpha cross-algo ratios (expected ~flat)
-    figures/               PNGs: relative block + absolute block, vline @12.6
+    figures/               PNGs: relative block + absolute block, marker @ ref alpha
     robustness_summary.md  per-conclusion verdict + paper-ready sentence
     <algo>__a<alpha>/      per-run dir (resolved_config.yaml, metrics.json,
                            manifest.json, survival.csv)
@@ -59,14 +62,17 @@ DEFAULT_OUT = ROOT / "results/alpha_sensitivity"
 
 ALGOS = ["fedavg", "fedpart", "fedpart_be"]
 
-# alpha grid. Justification (see configs/alpha_sensitivity_base.yaml):
-# an FPU/SIMD-less MCU (ESP32-S3 class) sustains ~5-30% of peak FLOP/s on real
-# conv/BN, so effective energy/analytic-FLOP is inflated by ~1/utilization,
-# i.e. alpha ~ 3-20. The grid brackets this with headroom and includes 12.6
-# (the hand-calibrated reference) as a marker.
-ALPHA_GRID_FULL = [2.0, 3.0, 5.0, 8.0, 12.6, 20.0, 30.0]
-ALPHA_GRID_SMOKE = [3.0, 12.6, 30.0]
-ALPHA_REFERENCE = 12.6
+# alpha grid (see configs/alpha_sensitivity_base.yaml for the full rationale).
+# Under cost_model="measured", FLOPs are real, so alpha is a PHYSICAL
+# utilization-gap multiplier: alpha = 1 / sustained-utilization-of-peak >= 1.
+# alpha = 1 is the unbeatable ideal; real edge CPUs sustain ~5-30% of peak
+# (alpha ~ 3-20). The grid brackets that; the documented central marker is
+# alpha = 5 (~20% sustained utilization). alpha < 1 is physically impossible
+# and is intentionally NOT included (it would re-introduce a circular
+# survival-target calibration).
+ALPHA_GRID_FULL = [1.0, 2.0, 3.0, 5.0, 10.0, 20.0]
+ALPHA_GRID_SMOKE = [1.0, 5.0, 20.0]
+ALPHA_REFERENCE = 5.0
 
 # Accuracy thresholds for the cost-to-accuracy metric.
 ACC_THRESHOLDS = [0.60, 0.70, 0.75]
@@ -95,11 +101,14 @@ def _resolve_config(
     seed: int,
     device: str,
     run_dir: Path,
+    cost_model: str = "measured",
+    rounds: int | None = None,
+    epochs: int | None = None,
 ) -> dict:
     cfg = copy.deepcopy(base)
     cfg["seed"] = seed
     cfg["device"] = device
-    cfg["cost_model"] = "measured"  # frozen for the whole sweep
+    cfg["cost_model"] = cost_model  # frozen across the sweep (default measured)
     cfg["output_dir"] = str(run_dir)
 
     cfg.setdefault("training", {})
@@ -107,16 +116,22 @@ def _resolve_config(
     ac = cfg["training"].setdefault("algo_config", {})
     ac["energy_scale_factor"] = float(alpha)
     # mirror cost_model into algo_config (flop_cost reads it from there)
-    ac["cost_model"] = "measured"
+    ac["cost_model"] = cost_model
 
     if grid == "smoke":
-        # Fast pipeline check: 3 clients, 20 rounds, 3 alphas, light epochs.
+        # Fast pipeline check: 3 clients, 20 rounds, light epochs. Keeps the
+        # base fleet device (truncated to 3 clients).
         cfg["training"]["num_rounds"] = 20
         ac["local_epochs"] = 1
         cfg.setdefault("clients", {})
         cfg["clients"]["num_clients"] = 3
-        cfg["clients"]["fleet"] = [{"type": "esp32_s3", "count": 3}]
         cfg["clients"]["min_clients"] = 1
+
+    # Explicit overrides (e.g. the pre-grid diagnostic) win over everything.
+    if rounds is not None:
+        cfg["training"]["num_rounds"] = int(rounds)
+    if epochs is not None:
+        ac["local_epochs"] = int(epochs)
     return cfg
 
 
@@ -134,10 +149,15 @@ def _run_one(
     device: str,
     base_out: Path,
     dry_run: bool,
+    cost_model: str = "measured",
+    rounds: int | None = None,
+    epochs: int | None = None,
 ) -> dict:
     run_dir = base_out / f"{algo}__a{alpha:g}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    cfg = _resolve_config(base, algo, alpha, grid, seed, device, run_dir)
+    cfg = _resolve_config(
+        base, algo, alpha, grid, seed, device, run_dir, cost_model, rounds, epochs
+    )
     cfg_path = run_dir / "resolved_config.yaml"
     with open(cfg_path, "w") as fh:
         yaml.safe_dump(cfg, fh, sort_keys=False)
@@ -463,7 +483,9 @@ def _make_figures(df, rel_df, fig_dir: Path):
     plt.close(fig)
 
 
-def _robustness(df, rel_df, base_out: Path, grid: str, seed: int):
+def _robustness(
+    df, rel_df, base_out: Path, grid: str, seed: int, cost_model="measured"
+):
     """Per-conclusion verdict + paper sentence. Returns the markdown string."""
     # Cast to plain Python float so the summary text doesn't show np.float64(...).
     alphas = sorted(float(a) for a in df["alpha"].unique())
@@ -564,7 +586,10 @@ def _robustness(df, rel_df, base_out: Path, grid: str, seed: int):
     lines = []
     lines.append(f"# alpha sensitivity — robustness summary ({grid} grid)\n")
     lines.append(f"- seed: **{seed}** (fixed across the whole grid)")
-    lines.append("- cost_model: **measured** (frozen)")
+    lines.append(
+        f"- cost_model: **{cost_model}** (frozen)"
+        + ("  — APPENDIX CONTRAST" if cost_model != "measured" else "")
+    )
     lines.append(f"- alpha grid: {alphas}  (reference marker: {ALPHA_REFERENCE})")
     lines.append(
         f"- battery death active in this scenario: "
@@ -648,7 +673,7 @@ def _robustness(df, rel_df, base_out: Path, grid: str, seed: int):
             f"the survival order (FedPartBE >= FedPart > FedAvg) and the energy "
             f"order (FedPartBE <= FedPart <= FedAvg) both hold for every alpha in "
             f"[{amin:g}, {amax:g}] tested, so the findings do not depend on the "
-            f"hand-calibrated alpha=12.6"
+            f"specific choice of alpha (central marker {ALPHA_REFERENCE:g})"
         )
     else:
         abs_clause = (
@@ -671,13 +696,19 @@ def _robustness(df, rel_df, base_out: Path, grid: str, seed: int):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _estimate_seconds(n_runs, base, grid, jobs, sec_cre):
+def _estimate_seconds(
+    n_runs, base, grid, jobs, sec_cre, rounds_ov=None, epochs_ov=None
+):
     if grid == "smoke":
         rounds, clients, epochs = 20, 3, 1
     else:
         rounds = base.get("training", {}).get("num_rounds", 200)
         clients = base.get("clients", {}).get("num_clients", 30)
         epochs = base.get("training", {}).get("algo_config", {}).get("local_epochs", 8)
+    if rounds_ov is not None:
+        rounds = rounds_ov
+    if epochs_ov is not None:
+        epochs = epochs_ov
     # per_run = fixed overhead (torch import + dataset load + FlopCounterMode
     # calibration) + linear training term. Both are device-dependent and only a
     # ballpark — refined live after the first real run.
@@ -706,6 +737,24 @@ def main():
         "--alpha-grid", nargs="+", type=float, default=None, help="Override alpha grid."
     )
     p.add_argument(
+        "--cost-model",
+        choices=["measured", "phi", "corrected"],
+        default="measured",
+        help="Cost model for the whole sweep. Default 'measured' (real FLOPs, "
+        "alpha = physical utilization gap). Use 'phi' for the appendix "
+        "CONTRAST sweep (show the gap is marginal under the legacy analytic "
+        "model, large under measured).",
+    )
+    p.add_argument(
+        "--rounds",
+        type=int,
+        default=None,
+        help="Override num_rounds (e.g. a short pre-grid survival diagnostic).",
+    )
+    p.add_argument(
+        "--epochs", type=int, default=None, help="Override local_epochs (E)."
+    )
+    p.add_argument(
         "--est-sec-per-run",
         type=float,
         default=DEFAULT_SEC_PER_CLIENT_ROUND_EPOCH,
@@ -727,7 +776,13 @@ def main():
     alphas = args.alpha_grid or (
         ALPHA_GRID_SMOKE if args.grid == "smoke" else ALPHA_GRID_FULL
     )
-    base_out = Path(args.output) if args.output else DEFAULT_OUT / args.grid
+    # Include cost_model in the path so the measured sweep and the phi contrast
+    # sweep don't overwrite each other.
+    base_out = (
+        Path(args.output)
+        if args.output
+        else DEFAULT_OUT / f"{args.grid}_{args.cost_model}"
+    )
     base_out.mkdir(parents=True, exist_ok=True)
 
     jobs = [(a, al) for a in args.algos for al in alphas]
@@ -735,12 +790,18 @@ def main():
 
     # Duration estimate BEFORE launching.
     eta_s, per_run = _estimate_seconds(
-        n, base, args.grid, args.jobs, args.est_sec_per_run
+        n, base, args.grid, args.jobs, args.est_sec_per_run, args.rounds, args.epochs
     )
     print("=" * 70)
     print(f"alpha sensitivity sweep — grid={args.grid}")
+    print(
+        f"  cost_model: {args.cost_model}"
+        + ("  (APPENDIX CONTRAST)" if args.cost_model != "measured" else "")
+    )
     print(f"  algos     : {args.algos}")
     print(f"  alpha grid: {alphas}   (reference {ALPHA_REFERENCE})")
+    if args.rounds or args.epochs:
+        print(f"  overrides : rounds={args.rounds} epochs={args.epochs}")
     print(f"  runs      : {n}  ({len(args.algos)} algos x {len(alphas)} alphas)")
     print(f"  parallel  : {args.jobs} job(s)")
     print(
@@ -753,7 +814,17 @@ def main():
     if args.dry_run:
         for a, al in jobs:
             r = _run_one(
-                base, a, al, args.grid, args.seed, args.device, base_out, dry_run=True
+                base,
+                a,
+                al,
+                args.grid,
+                args.seed,
+                args.device,
+                base_out,
+                dry_run=True,
+                cost_model=args.cost_model,
+                rounds=args.rounds,
+                epochs=args.epochs,
             )
             print(f"[dry-run] {a} a={al:g}: {r['cmd']}")
         return
@@ -765,7 +836,17 @@ def main():
     def _do(job):
         a, al = job
         return _run_one(
-            base, a, al, args.grid, args.seed, args.device, base_out, dry_run=False
+            base,
+            a,
+            al,
+            args.grid,
+            args.seed,
+            args.device,
+            base_out,
+            dry_run=False,
+            cost_model=args.cost_model,
+            rounds=args.rounds,
+            epochs=args.epochs,
         )
 
     t_start = time.time()
@@ -825,7 +906,7 @@ def main():
         except Exception as exc:
             print(f"[warn] figures skipped: {exc}")
 
-    md = _robustness(df, rel_df, base_out, args.grid, args.seed)
+    md = _robustness(df, rel_df, base_out, args.grid, args.seed, args.cost_model)
 
     print(f"\nCSV (wide): {wide_path}")
     print(f"CSV (long): {long_path}")

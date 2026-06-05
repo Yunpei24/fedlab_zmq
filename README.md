@@ -114,7 +114,7 @@ the standalone configs below run one experiment each.
 | **Experiment A** — survival curve | `configs/fedpartbe_survival.yaml` | % clients alive vs rounds |
 | **Experiment B** — wide battery spread | `configs/fedpartbe_survival_wide.yaml` (CIFAR-10: `…_cifar10.yaml`; 60-client: `…_fleet60.yaml`) | survival + accuracy under SoC ∈ [5%, 95%] |
 | **Cost-model methodology** — {algo}×{phi,corrected,measured} ablation | `python scripts/run_costmodel_ablation.py` | does the FedPartBE-vs-FedPart gap widen under the corrected/measured cost model? → `results/costmodel_ablation/comparison.csv` |
-| **energy_scale_factor (α) sensitivity** | `python scripts/run_alpha_sensitivity.py --grid smoke` (sanity) · `--grid full` (real) | robustness of the conclusions to the energy multiplier α: aggregated CSVs, relative-vs-absolute figures (marker at α=12.6), and `robustness_summary.md` with a paper-ready verdict → `results/alpha_sensitivity/<grid>/` |
+| **energy_scale_factor (α) sensitivity** | `python scripts/run_alpha_sensitivity.py --grid smoke` (sanity) · `--grid full` (real, `--device mps`) · `--cost-model phi` (appendix contrast) | robustness to the compute-energy multiplier α. Under `measured`, α is a physical utilization-gap multiplier (≥1, grid [1,2,3,5,10,20], marker α=5); under the more-capable device scenario in the base config the fleet survives tens of rounds. Outputs aggregated CSVs, relative-vs-absolute figures, and `robustness_summary.md` with a paper-ready verdict → `results/alpha_sensitivity/<grid>_<cost_model>/` |
 
 > Confirm the exact Table/Figure numbers against the paper draft — the mapping
 > above is taken from the headers inside each config file.

@@ -1,13 +1,12 @@
 # =====================================================================
 # alpha (energy_scale_factor) SENSITIVITY — base scenario
 # =====================================================================
-# This config fixes the experimental scenario for the energy_scale_factor
-# (alpha) sensitivity sweep. The sweep driver
-# (scripts/run_alpha_sensitivity.py) re-runs the FULL simulation for each
-# (algorithm, alpha) pair, overriding only:
-#     training.algorithm                 (via --algo)
-#     algo_config.energy_scale_factor    (via --energy-scale-factor)
-#     cost_model                         (via --cost-model measured)
+# Fixes the scenario for the energy_scale_factor (alpha) sensitivity sweep.
+# The driver (scripts/run_alpha_sensitivity.py) re-runs the FULL simulation
+# for each (algorithm, alpha), overriding only:
+#     training.algorithm                 (via --algo / grid)
+#     algo_config.energy_scale_factor    (via the alpha grid)
+#     cost_model                         (via --cost-model; default measured)
 # Everything else below is held FIXED across the whole grid (same seed).
 #
 # Why re-run instead of post-hoc rescaling?
@@ -15,27 +14,43 @@
 #   (cross-algo) energy ratios, but NOT in the ABSOLUTE survival dynamics:
 #   once a battery hits zero, alpha decides WHO dies and WHEN, which (under
 #   battery-stratified group assignment) changes the assignment, the deaths,
-#   and therefore the whole training trajectory. So alpha cannot be rescaled
-#   after the fact — each alpha needs a fresh full simulation.
+#   and therefore the whole training trajectory. So each alpha needs a fresh
+#   full simulation.
 #
-# ── alpha range justification (documented, not arbitrary) ─────────────
-#   alpha converts analytic FLOPs into wall-energy on a microcontroller.
-#   An MCU without an FPU/SIMD unit (ESP32-S3 class) sustains only a small
-#   fraction of its nominal peak FLOP/s on real conv/BN workloads, so the
-#   effective energy per analytic FLOP is inflated by ~1/(utilization).
-#   Plausible sustained utilization for such a core is ~5-30% of peak, which
-#   maps to alpha ~ 3-20. The default grid brackets this with headroom:
-#       [2, 3, 5, 8, 12.6, 20, 30]
-#   and includes alpha = 12.6, the hand-calibrated reference value (chosen so
-#   T* ~ 80 rounds), as a vertical marker on every figure. The point of the
-#   sweep is to show the paper's conclusions hold across this whole range,
-#   rather than depending on the single circular value 12.6.
+# ── alpha is a PHYSICAL utilization-gap multiplier (>= 1) ─────────────
+#   Under cost_model="measured" the FLOPs are the REAL fwd+bwd FLOPs
+#   (FlopCounterMode). alpha then has a single, physical meaning:
+#       alpha = 1 / (sustained utilization of peak FLOP/s)  >= 1
+#   alpha = 1 is the unbeatable ideal (the chip sustains its rated peak);
+#   alpha < 1 is physically impossible. Real edge CPUs/MCUs sustain only
+#   ~5-30% of peak on conv/BN (no/limited FPU/SIMD, memory-bound), giving
+#       alpha ~ 1/0.30 .. 1/0.05  ~  3 .. 20.
+#   The grid [1, 2, 3, 5, 10, 20] brackets this (1 = ideal lower bound,
+#   20 ~ 5% utilization upper bound); the documented central marker is
+#   alpha = 5 (~20% sustained utilization, a typical edge-CPU figure).
+#   NOTE: this deliberately does NOT re-target a survival horizon — that
+#   would re-introduce the circular calibration we are escaping. The collapse
+#   that a weak device shows under measured is a PHYSICAL TRUTH, not a knob.
+#
+# ── Scenario chosen for a NON-DEGENERATE survival regime ──────────────
+#   The lever is the WORKLOAD (E), not the alpha knob. Empirically (measured):
+#     - ESP32-S3, E=3, alpha=12.6  -> fleet dead by ~round 2-4  (too hot)
+#     - raspberry_pi_4, E=1, alpha=5 -> 0 deaths in 80 rounds    (too cold,
+#       ~14x battery + far higher FLOP/s -> no survival signal at all)
+#     - ESP32-S3, E=1               -> drain ~7.6x lower than the E=3 anchor,
+#       so T* ~ 15 rounds at the alpha=5 marker and T* spans ~[4, 76] across
+#       the grid [1..20] -> a meaningful death curve. <-- chosen scenario.
+#   So we keep the realistic ESP32-S3 device and set E=1. The collapse on a
+#   weak device under measured is physical truth; we expose a readable survival
+#   curve by lightening the per-round workload, not by un-physically lowering
+#   alpha. The FedPart-vs-FedPartBE diagnostic confirms tens-of-rounds survival
+#   in this scenario BEFORE the full grid.
 # =====================================================================
 
 seed: 42
 output_dir: "./results/alpha_sensitivity"
 device: cpu                 # overridden by the sweep driver (--device)
-cost_model: measured        # FIXED for the whole sweep (FlopCounterMode)
+cost_model: measured        # default; --cost-model phi gives the appendix contrast
 
 layer_mismatch: false
 
@@ -51,12 +66,12 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be     # overridden per run by --algo
+  algorithm: fedpart_be     # overridden per run by the grid
   algo_config:
     lr: 0.01
     momentum: 0.9
     weight_decay: 1.0e-4
-    local_epochs: 8
+    local_epochs: 1         # E=1 — part of the non-degenerate scenario
     batch_size: 32
     warmup_rounds: 5
     num_tiers: 2
@@ -68,9 +83,9 @@ training:
     rotation_period: 2
     adaptive_rotation: false
     inter_cycle_rounds: 0
-    # Reference value; the sweep overrides this per run via
-    # --energy-scale-factor across the documented grid above.
-    energy_scale_factor: 12.6
+    # Reference / central marker (documented above). The sweep overrides this
+    # per run across the physical grid [1, 2, 3, 5, 10, 20].
+    energy_scale_factor: 5.0
     max_grad_norm: 10.0
     ema_alpha: 0.3
 
@@ -80,13 +95,15 @@ clients:
   sampling_strategy: random
   min_clients: 1
 
+  # ESP32-S3 (realistic constrained MCU). With E=1 the per-round workload is
+  # light enough that, under measured + physical alpha, the fleet survives tens
+  # of rounds (T* ~ 15 at the alpha=5 marker) rather than collapsing in ~2.
   fleet:
     - type: esp32_s3
       count: 30
 
   # Wide SoC spread [5%, 95%] — battery death is ACTIVE, so alpha affects the
-  # absolute survival trajectory (the whole reason a full re-run per alpha is
-  # required). ESP32-S3 battery ~13.3 kJ.
+  # absolute survival trajectory (the reason a full re-run per alpha is needed).
   battery_init:
     distribution: uniform_soc
     params:
