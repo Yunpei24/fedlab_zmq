@@ -1053,12 +1053,21 @@ class FedResonance(FLAlgorithm):
                 model, trainable_names, config,
                 profile, dataloader, local_epochs,
             )
-            energy_j = profile.round_energy_j(flops, total_bytes_sent, downlink_bytes)
+            _bd = profile.round_energy_breakdown(
+                flops,
+                total_bytes_sent,
+                downlink_bytes,
+                config.get("energy_scale_factor", 1.0),
+                config.get("alpha_applies_to", "compute"),
+            )
         else:
             actual_beta_proxy = total_bytes_sent / max(total_bytes_dense, 1)
-            energy_j = 0.5 + 2.0 * actual_beta_proxy
+            _e = (0.5 + 2.0 * actual_beta_proxy) * config.get(
+                "energy_scale_factor", 1.0
+            )
+            _bd = {"compute": _e, "uplink": 0.0, "downlink": 0.0, "total": _e}
 
-        energy_j *= config.get("energy_scale_factor", 1.0)
+        energy_j = _bd["total"]
         state.battery_j = max(0.0, state.battery_j - energy_j)
         state.round_num += 1
 
@@ -1073,6 +1082,9 @@ class FedResonance(FLAlgorithm):
             "beta_actual":          beta,
             "battery_j_remaining":  state.battery_j,
             "energy_j_consumed":    energy_j,
+            "energy_compute_j":     _bd["compute"],
+            "energy_uplink_j":      _bd["uplink"],
+            "energy_downlink_j":    _bd["downlink"],
             "bytes_sent":           total_bytes_sent,
             "bytes_received":       downlink_bytes,
             "local_loss":           total_loss / max(num_batches, 1),

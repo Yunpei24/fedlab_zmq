@@ -521,8 +521,12 @@ class FedPart(FLAlgorithm):
                 active_group_idx=(-1 if is_warmup else active_idx),
                 group_flops_analytic=_gf_hint,
             )
-            energy_j = profile.round_energy_j(
-                effective_flops, uplink_bytes, downlink_bytes
+            _bd = profile.round_energy_breakdown(
+                effective_flops,
+                uplink_bytes,
+                downlink_bytes,
+                config.get("energy_scale_factor", 1.0),
+                config.get("alpha_applies_to", "compute"),
             )
         else:
             # Profile-less fallback retained for tests / unit smoke runs.
@@ -531,12 +535,12 @@ class FedPart(FLAlgorithm):
             else:
                 _gf = state.custom["group_flops"]
                 _frac = _gf[active_idx] / sum(_gf)
-            energy_j = 0.5 + 2.0 * _frac
+            _e = (0.5 + 2.0 * _frac) * config.get("energy_scale_factor", 1.0)
+            _bd = {"compute": _e, "uplink": 0.0, "downlink": 0.0, "total": _e}
 
-        # ── Energy scale factor (calibration for experiments) ────────────────
-        # Allows YAML configs to amplify per-round energy to produce
-        # realistic dropout timelines in simulations with small models.
-        energy_j *= config.get("energy_scale_factor", 1.0)
+        # energy_scale_factor (alpha) is applied inside round_energy_breakdown,
+        # to the compute term only by default (see DeviceProfile docs).
+        energy_j = _bd["total"]
 
         # ── Battery update (invariant: never negative) ─────────────────────────
         state.battery_j = max(0.0, state.battery_j - energy_j)
@@ -553,6 +557,9 @@ class FedPart(FLAlgorithm):
             "beta_actual": 1.0,  # no sparsification; full precision
             "battery_j_remaining": state.battery_j,
             "energy_j_consumed": energy_j,
+            "energy_compute_j": _bd["compute"],
+            "energy_uplink_j": _bd["uplink"],
+            "energy_downlink_j": _bd["downlink"],
             "bytes_sent": uplink_bytes,
             "bytes_received": downlink_bytes,
             "local_loss": total_loss / max(num_batches, 1),

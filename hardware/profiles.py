@@ -180,6 +180,47 @@ class DeviceProfile:
             + self.comm_energy_j(downlink_bytes, "downlink")
         )
 
+    def round_energy_breakdown(
+        self,
+        num_flops: float,
+        uplink_bytes: float,
+        downlink_bytes: float,
+        alpha: float = 1.0,
+        alpha_applies_to: str = "compute",
+    ) -> dict:
+        """
+        Per-round energy split into {compute, uplink, downlink, total}, with the
+        energy_scale_factor ``alpha`` applied per ``alpha_applies_to``:
+
+          - "compute" (default): alpha multiplies ONLY the compute term. This is
+            the physically correct reading — alpha is the compute utilization
+            gap (1/sustained-utilization >= 1); a radio transmission is not
+            affected by the lack of an FPU/SIMD unit. Comm keeps its own physics
+            (per-device bandwidth + tx/rx power).
+          - "total": alpha multiplies the whole round (compute+uplink+downlink).
+            This reproduces the legacy behavior `round_energy_j(...) * alpha`
+            bit-for-bit and exists ONLY for backward reproduction.
+
+        The breakdown's "total" is what actually drains the battery, so callers
+        must consume `total` (not recompute energy elsewhere) to keep survival
+        dynamics consistent with the reported split.
+        """
+        compute = self.compute_energy_j(num_flops)
+        uplink = self.comm_energy_j(uplink_bytes, "uplink")
+        downlink = self.comm_energy_j(downlink_bytes, "downlink")
+        if alpha_applies_to == "total":
+            compute *= alpha
+            uplink *= alpha
+            downlink *= alpha
+        else:  # "compute" — alpha is a compute-only utilization gap
+            compute *= alpha
+        return {
+            "compute": compute,
+            "uplink": uplink,
+            "downlink": downlink,
+            "total": compute + uplink + downlink,
+        }
+
     def flops_for_model(
         self,
         num_params: int,

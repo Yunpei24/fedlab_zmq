@@ -87,11 +87,18 @@ class FedAvg(FLAlgorithm):
                 dataloader,
                 local_epochs,
             )
-            energy_j = profile.round_energy_j(flops, uplink_bytes, downlink_bytes)
+            _bd = profile.round_energy_breakdown(
+                flops,
+                uplink_bytes,
+                downlink_bytes,
+                config.get("energy_scale_factor", 1.0),
+                config.get("alpha_applies_to", "compute"),
+            )
         else:
-            energy_j = 0.5 + 2.0 * 1.0  # full transmission
+            _e = (0.5 + 2.0 * 1.0) * config.get("energy_scale_factor", 1.0)
+            _bd = {"compute": _e, "uplink": 0.0, "downlink": 0.0, "total": _e}
 
-        energy_j *= config.get("energy_scale_factor", 1.0)
+        energy_j = _bd["total"]
         state.battery_j = max(0.0, state.battery_j - energy_j)
         state.round_num += 1
 
@@ -102,6 +109,9 @@ class FedAvg(FLAlgorithm):
             "beta_actual": 1.0,
             "battery_j_remaining": state.battery_j,
             "energy_j_consumed": energy_j,
+            "energy_compute_j": _bd["compute"],
+            "energy_uplink_j": _bd["uplink"],
+            "energy_downlink_j": _bd["downlink"],
             "bytes_sent": uplink_bytes,
             "bytes_received": downlink_bytes,
             "local_loss": total_loss / max(num_batches, 1),

@@ -176,11 +176,18 @@ class ServerMaskFL(FLAlgorithm):
                 profile, dataloader, local_epochs,
                 beta_fraction=beta_actual,
             )
-            energy_j = profile.round_energy_j(effective_flops, uplink_bytes, downlink_bytes)
+            _bd = profile.round_energy_breakdown(
+                effective_flops,
+                uplink_bytes,
+                downlink_bytes,
+                config.get("energy_scale_factor", 1.0),
+                config.get("alpha_applies_to", "compute"),
+            )
         else:
-            energy_j = 0.5 + 2.0 * beta_actual
+            _e = (0.5 + 2.0 * beta_actual) * config.get("energy_scale_factor", 1.0)
+            _bd = {"compute": _e, "uplink": 0.0, "downlink": 0.0, "total": _e}
 
-        energy_j *= config.get("energy_scale_factor", 1.0)
+        energy_j = _bd["total"]
 
         # ── Battery update ────────────────────────────────────────────────────
         state.battery_j = max(0.0, state.battery_j - energy_j)
@@ -192,6 +199,9 @@ class ServerMaskFL(FLAlgorithm):
             "beta_actual": beta_actual,
             "battery_j_remaining": state.battery_j,
             "energy_j_consumed": energy_j,
+            "energy_compute_j": _bd["compute"],
+            "energy_uplink_j": _bd["uplink"],
+            "energy_downlink_j": _bd["downlink"],
             "bytes_sent": uplink_bytes,
             "bytes_received": downlink_bytes,
             "local_loss": total_loss / max(num_batches, 1),

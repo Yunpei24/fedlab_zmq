@@ -683,12 +683,17 @@ class FedPartBE(FLAlgorithm):
                 _fb_wu = (
                     sum(v.numel() for v in model.state_dict().values()) * 4
                 )  # bytes for full model
-                _wu_energy = _profile_wu.round_energy_j(
-                    _ff_wu, _fb_wu, _fb_wu
-                )  # Energy for full model training
+                _wu_energy = _profile_wu.round_energy_breakdown(
+                    _ff_wu,
+                    _fb_wu,
+                    _fb_wu,
+                    config.get("energy_scale_factor", 1.0),
+                    config.get("alpha_applies_to", "compute"),
+                )[
+                    "total"
+                ]  # Energy for full model training (alpha on compute only)
             else:
-                _wu_energy = 2.5  # unscaled full-model heuristic
-            _wu_energy *= config.get("energy_scale_factor", 1.0)
+                _wu_energy = 2.5 * config.get("energy_scale_factor", 1.0)
 
             if state.battery_j < _wu_energy:
                 # Can't afford a full training round.
@@ -759,14 +764,18 @@ class FedPartBE(FLAlgorithm):
                     * 4
                 )
                 downlink_est = sum(v.numel() for v in model.state_dict().values()) * 4
-                energy_est = profile.round_energy_j(
-                    eff_flops_est, uplink_est, downlink_est
-                )
+                energy_est = profile.round_energy_breakdown(
+                    eff_flops_est,
+                    uplink_est,
+                    downlink_est,
+                    config.get("energy_scale_factor", 1.0),
+                    config.get("alpha_applies_to", "compute"),
+                )["total"]
             else:
                 # Profile-less fallback — heuristic on raw phi (gate purpose).
-                energy_est = 0.5 + 2.0 * (gf[active_idx] / total_gf)
-
-            energy_est *= config.get("energy_scale_factor", 1.0)
+                energy_est = (0.5 + 2.0 * (gf[active_idx] / total_gf)) * config.get(
+                    "energy_scale_factor", 1.0
+                )
 
             if state.battery_j < energy_est:
                 # Energy gate override: group at staleness cap cannot be skipped.
@@ -823,9 +832,13 @@ class FedPartBE(FLAlgorithm):
                             )
                             * 4
                         )
-                        min_energy = profile.round_energy_j(
-                            min_eff_flops, min_uplink_est, downlink_est
-                        ) * config.get("energy_scale_factor", 1.0)
+                        min_energy = profile.round_energy_breakdown(
+                            min_eff_flops,
+                            min_uplink_est,
+                            downlink_est,
+                            config.get("energy_scale_factor", 1.0),
+                            config.get("alpha_applies_to", "compute"),
+                        )["total"]
                     else:
                         min_energy = (
                             0.5 + 2.0 * (gf[min_group_idx] / total_gf)
@@ -1068,8 +1081,12 @@ class FedPartBE(FLAlgorithm):
                 active_group_idx=_active_idx_hint,
                 group_flops_analytic=_gf_hint_acc,
             )
-            energy_j = profile.round_energy_j(
-                effective_flops, uplink_bytes, downlink_bytes
+            _bd = profile.round_energy_breakdown(
+                effective_flops,
+                uplink_bytes,
+                downlink_bytes,
+                config.get("energy_scale_factor", 1.0),
+                config.get("alpha_applies_to", "compute"),
             )
         else:
             # Profile-less fallback retained for tests / smoke runs.
@@ -1083,10 +1100,14 @@ class FedPartBE(FLAlgorithm):
                     )
                 _gf_acc = state.custom["group_flops"]
                 _active_fraction_hf = _gf_acc[active_idx] / max(sum(_gf_acc), 1.0)
-            energy_j = 0.5 + 2.0 * _active_fraction_hf
+            _e = (0.5 + 2.0 * _active_fraction_hf) * config.get(
+                "energy_scale_factor", 1.0
+            )
+            _bd = {"compute": _e, "uplink": 0.0, "downlink": 0.0, "total": _e}
 
-        # ── Energy scale factor (calibration) ────────────────────────────────
-        energy_j *= config.get("energy_scale_factor", 1.0)
+        # energy_scale_factor (alpha) applied inside round_energy_breakdown —
+        # compute term only by default (alpha = compute utilization gap).
+        energy_j = _bd["total"]
 
         # ── Battery update ───────────────────────────────────────────────────
         state.battery_j = max(0.0, state.battery_j - energy_j)
@@ -1104,6 +1125,9 @@ class FedPartBE(FLAlgorithm):
             "beta_actual": 1.0,
             "battery_j_remaining": state.battery_j,
             "energy_j_consumed": energy_j,
+            "energy_compute_j": _bd["compute"],
+            "energy_uplink_j": _bd["uplink"],
+            "energy_downlink_j": _bd["downlink"],
             "bytes_sent": uplink_bytes,
             "bytes_received": downlink_bytes,
             "local_loss": total_ce_loss / max(num_batches, 1),

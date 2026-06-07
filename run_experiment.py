@@ -313,6 +313,11 @@ def run_single_experiment(
     rounds_log = []
     cumulative_bytes = 0.0
     cumulative_energy = 0.0
+    # Energy breakdown (compute / uplink / downlink) — additive instrumentation
+    # for the device-profile study; total stays == cumulative_energy.
+    cumulative_compute_e = 0.0
+    cumulative_uplink_e = 0.0
+    cumulative_downlink_e = 0.0
     # Simulated wall-clock time (parallel client assumption):
     # each round contributes max(client_train_times) rather than their sum,
     # mirroring real distributed execution where all clients train in parallel.
@@ -485,8 +490,14 @@ def run_single_experiment(
                     "train_loss": 0.0,
                     "total_bytes": 0,
                     "total_energy_j": 0.0,
+                    "compute_energy_j": 0.0,
+                    "uplink_energy_j": 0.0,
+                    "downlink_energy_j": 0.0,
                     "cumulative_bytes": cumulative_bytes,
                     "cumulative_energy_j": cumulative_energy,
+                    "cumulative_compute_energy_j": cumulative_compute_e,
+                    "cumulative_uplink_energy_j": cumulative_uplink_e,
+                    "cumulative_downlink_energy_j": cumulative_downlink_e,
                     "avg_battery_j": 0.0,
                     "avg_beta": 1.0,
                     "jain_index": 0.0,
@@ -526,6 +537,16 @@ def run_single_experiment(
 
         # Save participant count before freeing client_tuples (used in metrics).
         _num_participated = len(client_tuples)
+        # Energy breakdown summed across participants (before client_tuples freed).
+        round_compute_e = sum(
+            m.get("energy_compute_j", 0.0) for _, m, _ in client_tuples
+        )
+        round_uplink_e = sum(
+            m.get("energy_uplink_j", 0.0) for _, m, _ in client_tuples
+        )
+        round_downlink_e = sum(
+            m.get("energy_downlink_j", 0.0) for _, m, _ in client_tuples
+        )
         # Free client updates: update dicts (partial deltas) are large and no
         # longer needed after server_aggregate has consumed them.
         # No gc.collect() here: Python ref-counting frees the dict of tensors
@@ -597,6 +618,9 @@ def run_single_experiment(
         total_energy = agg_m.get("total_energy_j", 0.0)
         cumulative_bytes += total_bytes
         cumulative_energy += total_energy
+        cumulative_compute_e += round_compute_e
+        cumulative_uplink_e += round_uplink_e
+        cumulative_downlink_e += round_downlink_e
         elapsed = time.time() - t0
 
         # Simulated parallel round time = max client training time.
@@ -621,8 +645,14 @@ def run_single_experiment(
             "train_loss": agg_m.get("avg_local_loss", 0.0),
             "total_bytes": total_bytes,
             "total_energy_j": total_energy,
+            "compute_energy_j": round_compute_e,
+            "uplink_energy_j": round_uplink_e,
+            "downlink_energy_j": round_downlink_e,
             "cumulative_bytes": cumulative_bytes,
             "cumulative_energy_j": cumulative_energy,
+            "cumulative_compute_energy_j": cumulative_compute_e,
+            "cumulative_uplink_energy_j": cumulative_uplink_e,
+            "cumulative_downlink_energy_j": cumulative_downlink_e,
             "avg_battery_j": agg_m.get("avg_battery_j", 0.0),
             "avg_beta": agg_m.get("avg_beta", 1.0),
             "jain_index": _jain_all,
@@ -1113,6 +1143,16 @@ Examples:
         "sensitivity sweep (scripts/run_alpha_sensitivity.py). Default: read "
         "from YAML algo_config.energy_scale_factor.",
     )
+    p.add_argument(
+        "--alpha-applies-to",
+        choices=["compute", "total"],
+        default=None,
+        help="Whether energy_scale_factor (alpha) scales compute energy only "
+        "('compute', default for all reported results — alpha is the compute "
+        "utilization gap; comm keeps its own physics) or the whole round "
+        "('total', legacy reproduction only). Default: YAML "
+        "algo_config.alpha_applies_to, else 'compute'.",
+    )
 
     # Client sampling
     p.add_argument(
@@ -1266,6 +1306,17 @@ Examples:
     if args.energy_scale_factor is not None:
         algo_config["energy_scale_factor"] = args.energy_scale_factor
         print(f"  energy_scale_factor (alpha): {args.energy_scale_factor}")
+
+    # ── alpha_applies_to (compute-only vs total) ─────────────────────────────
+    # Precedence: CLI > YAML algo_config.alpha_applies_to > "compute".
+    _applies = (
+        args.alpha_applies_to
+        or algo_config.get("alpha_applies_to")
+        or "compute"
+    )
+    algo_config["alpha_applies_to"] = _applies
+    if _applies != "compute":
+        print(f"  alpha_applies_to: {_applies!r} (legacy — alpha scales total energy)")
 
     # ── Final device: YAML 'device' key overrides auto-detect (not CLI) ────────
     _yaml_device = cfg.get("device", None)
