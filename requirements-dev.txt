@@ -8,3 +8,8 @@ pytest==9.0.3          # test runner (canonical guardrail: tests/test_flop_cost.
 black==26.5.1          # code formatter
 isort==8.0.1           # import sorting
 ruff==0.15.15          # linter (unused imports / dead vars)
+
+# Notebook (notebooks/fed_resonance_compression_explorer.ipynb)
+nbformat==5.10.4
+nbclient==0.11.0
+ipykernel==7.2.0
