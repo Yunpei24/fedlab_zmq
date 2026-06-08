@@ -104,12 +104,23 @@ def _resolve_config(
     cost_model: str = "measured",
     rounds: int | None = None,
     epochs: int | None = None,
+    fleet_device: str | None = None,
 ) -> dict:
     cfg = copy.deepcopy(base)
     cfg["seed"] = seed
     cfg["device"] = device
     cfg["cost_model"] = cost_model  # frozen across the sweep (default measured)
     cfg["output_dir"] = str(run_dir)
+
+    # Override the fleet device profile (targeted robustness on the extremes:
+    # esp32_s3 = compute-bound, smartphone_highend = least compute-bound).
+    if fleet_device is not None:
+        cfg.setdefault("clients", {})
+        _count = 30
+        _fleet = cfg.get("clients", {}).get("fleet") or []
+        if _fleet and isinstance(_fleet[0], dict):
+            _count = _fleet[0].get("count", 30)
+        cfg["clients"]["fleet"] = [{"type": fleet_device, "count": _count}]
 
     cfg.setdefault("training", {})
     cfg["training"]["algorithm"] = algo
@@ -152,11 +163,22 @@ def _run_one(
     cost_model: str = "measured",
     rounds: int | None = None,
     epochs: int | None = None,
+    fleet_device: str | None = None,
 ) -> dict:
     run_dir = base_out / f"{algo}__a{alpha:g}"
     run_dir.mkdir(parents=True, exist_ok=True)
     cfg = _resolve_config(
-        base, algo, alpha, grid, seed, device, run_dir, cost_model, rounds, epochs
+        base,
+        algo,
+        alpha,
+        grid,
+        seed,
+        device,
+        run_dir,
+        cost_model,
+        rounds,
+        epochs,
+        fleet_device,
     )
     cfg_path = run_dir / "resolved_config.yaml"
     with open(cfg_path, "w") as fh:
@@ -763,6 +785,12 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--no-figures", action="store_true")
     p.add_argument(
+        "--fleet-device",
+        default=None,
+        help="Override the fleet device profile (targeted robustness on the "
+        "extremes, e.g. esp32_s3 or smartphone_highend).",
+    )
+    p.add_argument(
         "--aggregate-only",
         action="store_true",
         help="Skip simulation; re-aggregate existing run dirs into the "
@@ -776,13 +804,12 @@ def main():
     alphas = args.alpha_grid or (
         ALPHA_GRID_SMOKE if args.grid == "smoke" else ALPHA_GRID_FULL
     )
-    # Include cost_model in the path so the measured sweep and the phi contrast
-    # sweep don't overwrite each other.
-    base_out = (
-        Path(args.output)
-        if args.output
-        else DEFAULT_OUT / f"{args.grid}_{args.cost_model}"
+    # Include cost_model (and fleet device, if overridden) in the path so the
+    # measured/phi sweeps and the per-extreme sweeps don't overwrite each other.
+    _suffix = f"{args.grid}_{args.cost_model}" + (
+        f"_{args.fleet_device}" if args.fleet_device else ""
     )
+    base_out = Path(args.output) if args.output else DEFAULT_OUT / _suffix
     base_out.mkdir(parents=True, exist_ok=True)
 
     jobs = [(a, al) for a in args.algos for al in alphas]
@@ -825,6 +852,7 @@ def main():
                 cost_model=args.cost_model,
                 rounds=args.rounds,
                 epochs=args.epochs,
+                fleet_device=args.fleet_device,
             )
             print(f"[dry-run] {a} a={al:g}: {r['cmd']}")
         return
@@ -847,6 +875,7 @@ def main():
             cost_model=args.cost_model,
             rounds=args.rounds,
             epochs=args.epochs,
+            fleet_device=args.fleet_device,
         )
 
     t_start = time.time()

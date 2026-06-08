@@ -1,0 +1,120 @@
+# =====================================================================
+# DEVICE-PROFILE ENERGY STUDY — base config
+# =====================================================================
+# A profile-driven ENERGY PROJECTION (not a real deployment): the same FL
+# workload is replayed across device profiles from hardware/profiles.py to show
+# how the compute-vs-comm energy balance — and the algorithms' energy/survival
+# benefit — shift with the device class.
+#
+# The driver (scripts/run_device_profile_study.py) runs every algorithm on every
+# profile with cost_model="measured" and alpha_applies_to="compute", overriding
+# per profile: clients.fleet (device) and algo_config.energy_scale_factor (the
+# device's physical alpha below). Everything else here is held fixed.
+#
+# ── Per-device physical alpha (compute utilization gap = 1/sustained-util) ────
+#   ESTIMATES, not measurements. Under cost_model="measured" the FLOPs are real,
+#   so alpha (>=1) only converts "peak FLOP/s" into "sustained FLOP/s" for each
+#   chip's microarchitecture. Lower sustained utilization -> higher alpha.
+#   Documented assumptions (replace raspberry_pi_4 with a MEASURED anchor when
+#   available, then rescale the others by the utilization ratio):
+#       esp32_s3            : Xtensa LX7, no FPU/SIMD       ~10% util -> alpha=10
+#       raspberry_pi_zero2w : Cortex-A53 + NEON (in-order)  ~20% util -> alpha=5
+#       raspberry_pi_4      : Cortex-A72 + NEON (OoO)       ~33% util -> alpha=3
+#       smartphone_midrange : mobile CPU/DSP                ~50% util -> alpha=2
+#       smartphone_highend  : NPU-class                     ~65% util -> alpha=1.5
+#   The algo COMPARISON does not hinge on these exact values: relative (cross-
+#   algo) energy ratios are alpha-invariant (alpha cancels) and the survival
+#   order is alpha-robust (see the targeted alpha sweep on the two extremes).
+device_alpha:
+  esp32_s3: 10.0
+  raspberry_pi_zero2w: 5.0
+  raspberry_pi_4: 3.0
+  smartphone_midrange: 2.0
+  smartphone_highend: 1.5
+
+# Optional: a real measured alpha anchor for one device (hook). If set, the
+# driver rescales the others by the utilization ratio. Leave null to use the
+# documented estimates above as-is.
+device_alpha_measured_anchor: null    # e.g. {device: raspberry_pi_4, alpha: 2.7}
+
+profiles:
+  - esp32_s3
+  - raspberry_pi_zero2w
+  - raspberry_pi_4
+  - smartphone_midrange
+  - smartphone_highend
+
+algos:
+  - fedavg
+  - fedpart
+  - fedpart_be
+  - fed_resonance
+  - server_mask
+
+# ── Fixed workload (held across all profiles) ────────────────────────────────
+# E=1 keeps the per-round workload light enough that the battery-constrained
+# profiles (ESP32 class) show a survival curve over tens of rounds rather than
+# collapsing in ~2; the capable profiles (RPi/smartphone) simply never die and
+# are read on total energy / rounds-to-accuracy instead.
+#
+# ESP32 MEMORY CAVEAT: resnet8 + grads + optimizer (~15 MB) does NOT fit in the
+# ESP32-S3's 8 MB RAM (DeviceProfile.can_run_model() returns False). The ESP32
+# row is therefore an ENERGY PROJECTION on that profile, not an executable
+# deployment; RPi/smartphone genuinely run the model. The driver flags this.
+
+seed: 42
+output_dir: "./results/device_profile_study"
+device: cpu                 # overridden by the driver (--device)
+cost_model: measured
+
+layer_mismatch: false
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 1.0                # Dirichlet heterogeneity (NOT the energy alpha)
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be     # overridden per run by the driver
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 1
+    batch_size: 32
+    warmup_rounds: 5
+    num_tiers: 2
+    server_lr: null
+    assignment_strategy: quantile
+    mu_repr: 0.01
+    mu_weight: 0.01
+    ema_model_alpha: 0.0
+    rotation_period: 2
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    energy_scale_factor: 3.0      # overridden per profile by device_alpha
+    alpha_applies_to: compute     # physical: alpha scales compute only
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+
+  fleet:
+    - type: esp32_s3              # overridden per run by the driver
+      count: 30
+
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95
