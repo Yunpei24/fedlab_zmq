@@ -52,7 +52,10 @@ algorithms/fedpart_universal.py
 
 # ── Other papers in this monorepo (read-only, out of scope for this artifact) ──
 paper*
-docs/
+# docs/ is scratch/other-paper notes — ignored, EXCEPT the shipped methodology.
+docs/*
+!docs/methodology_fr.md
+!docs/methodology_en.md
 examples/
 
 # ── Local / private ───────────────────────────────────────────────────────────
