@@ -1,0 +1,90 @@
+# =====================================================================
+# FedPartBE — CONVERGENCE scenario (capable device, honest measured cost)
+# =====================================================================
+# Why this config exists:
+#   On an ESP32-S3 (0.5 GFLOPS, ~7 kJ mean battery), one FULL ResNet-8 round
+#   under cost_model=measured costs ~10 kJ/client > the battery — so the fleet
+#   dies DURING warmup (which trains the full model) before partial training
+#   can help. That is the physical infeasibility finding, not a bug; ESP32
+#   cannot converge ResNet-8 under honest accounting.
+#
+#   To actually REACH CONVERGENCE we change the SCENARIO (the device), not a
+#   magic knob: raspberry_pi_4 has ~48x the ESP32 sustained FLOP/s and ~25x the
+#   battery (183 kJ). Its physical alpha (utilization gap) is ~3, not 10. With
+#   warmup_rounds=1 and E=1 the fleet survives the full 200 rounds and trains.
+#
+#   Levers if you want faster/slower: raise local_epochs (RPi4 can afford a few;
+#   low-SoC clients are the limit), or switch fleet to jetson_nano (472 GFLOPS,
+#   360 kJ, alpha~1.5) for effectively unconstrained convergence.
+# =====================================================================
+
+seed: 42
+output_dir: "./results/converge"
+device: mps
+cost_model: measured          # honest accounting (FlopCounterMode)
+
+layer_mismatch: false
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 1.0                  # Dirichlet heterogeneity (NOT the energy alpha)
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be
+  algo_config:
+    optimizer: adam
+    lr: 0.001
+    weight_decay: 1.0e-4
+    local_epochs: 1           # affordable per-round workload (raise if battery allows)
+    batch_size: 32
+    warmup_rounds: 1          # minimal full-model warmup (warmup is the costly phase)
+    num_tiers: 4
+    server_lr: 0.3
+    assignment_strategy: quantile
+    mu_repr: 0.01
+    mu_weight: 0.0
+    ema_model_alpha: 0.0
+    rotation_period: 4
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    energy_scale_factor: 3.0  # raspberry_pi_4 physical alpha (~33% sustained util)
+    alpha_applies_to: compute
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+    persist_optimizer: false
+    enforce_staleness_cap: false
+
+    # --- fed_resonance uniquement (optionnel ; sinon défauts get_default_config) ---
+    # Ignoré par fedavg/fedpart/fedpart_be ; lu seulement par --algo fed_resonance.
+    # svd_fast (défaut True) = SVD une seule passe (résultats identiques, plus rapide).
+    rank_min: 4
+    rank_max: 32
+    spectral_energy_thresh: 0.95
+    use_rsvd: true
+    use_error_feedback: true
+    svd_fast: true
+    # battery_max_j: 183600   # = capacité RPi4 (le défaut 185400 est déjà ~bon)
+
+clients:
+  num_clients: 30
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+
+  # Capable device → the fleet survives long enough to converge.
+  fleet:
+    - type: raspberry_pi_4
+      count: 30
+
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.95

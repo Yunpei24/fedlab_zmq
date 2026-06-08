@@ -311,6 +311,147 @@ def svd_compress(
     return U, S, Vt
 
 
+def _rank_from_singvals(
+    sv: torch.Tensor,
+    energy_thresh: float,
+    rank_criterion: str,
+    rank_min: int,
+    total: Optional[float] = None,
+) -> int:
+    """
+    Pick a rank from singular values `sv` (descending). Mirrors the
+    energy/elbow logic of adaptive_rank() exactly, but operates on an
+    already-computed spectrum (no extra decomposition).
+
+    `total` is the energy denominator sum(sigma_i^2). For a FULL spectrum it is
+    sv.pow(2).sum() (default). For a TRUNCATED spectrum (randomized SVD on a
+    large matrix) pass the exact Frobenius energy ||G||_F^2 so the captured
+    fraction is measured against the true total.
+    """
+    energy = sv.pow(2)
+    tot = float(total) if total is not None else float(energy.sum().item())
+    if tot < 1e-12:
+        return 1
+
+    if rank_criterion == "elbow":
+        cumsum = energy.cumsum(0)
+        E = cumsum / tot
+        nr = E.numel()
+        if nr <= 1:
+            return max(1, rank_min)
+        t_axis = torch.linspace(0.0, 1.0, nr, dtype=torch.float32, device=sv.device)
+        L = E[0] + t_axis * (E[-1] - E[0])
+        knee_idx = int((E - L).abs().argmax().item())
+        return max(rank_min, knee_idx + 1)
+
+    # "energy" (default): smallest r with cumulative energy >= energy_thresh
+    cumsum = energy.cumsum(0)
+    mask = (cumsum / tot) >= energy_thresh
+    if mask.any():
+        r = int(mask.nonzero(as_tuple=False)[0].item()) + 1
+    else:
+        r = int(sv.numel())
+    return max(1, r)
+
+
+def compress_low_rank(
+    tensor: torch.Tensor,
+    energy_thresh: float,
+    rank_min: int,
+    rank_max: int,
+    rank_criterion: str = "energy",
+    rank_budget_bytes: int = 0,
+    size_threshold: int = 256,
+    rsvd_oversample: int = 10,
+    rsvd_power_iter: int = 1,
+    forced_rank: Optional[int] = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    """
+    SINGLE-PASS rank selection + factorization (replaces adaptive_rank()+
+    svd_compress(), which decomposed the matrix twice).
+
+    Returns (U, S, Vt, rank) with U:(m,r), S:(r,), Vt:(r,n).
+
+      - SMALL matrices (min(m, n) <= size_threshold): ONE full
+        torch.linalg.svd(full_matrices=False); rank chosen from the exact S via
+        the energy/elbow criterion; truncate. No randomized SVD, no power
+        iterations. (For ResNet-8, every layer lands here.) The rank is
+        identical to adaptive_rank() because both read the exact spectrum; the
+        reconstruction is at least as accurate (full SVD vs the old rSVD).
+
+      - LARGE matrices: ONE randomized_svd at (rank_max + oversample); the
+        energy denominator is the exact ||G||_F^2 = G.pow(2).sum() (O(mn),
+        cheap); rank chosen from the truncated top-k spectrum; truncate.
+
+      - "budget" criterion: rank from the byte budget (no spectrum needed),
+        then ONE factorization at that rank.
+
+    A single decomposition per matrix — never svdvals THEN randomized_svd.
+    """
+    t = tensor.float()
+    m, n = t.shape
+    mn = min(m, n)
+    small = mn <= size_threshold
+
+    def _factor_full(rank):
+        U, S, Vh = torch.linalg.svd(t, full_matrices=False)
+        rank = max(1, min(rank, S.numel()))
+        return (
+            U[:, :rank].contiguous(),
+            S[:rank].contiguous(),
+            Vh[:rank, :].contiguous(),
+        )
+
+    def _factor_rsvd(rank):
+        return randomized_svd(t, rank, rsvd_oversample, rsvd_power_iter)
+
+    try:
+        # ── Forced rank (battery-critical / svd_forced): skip selection ───────
+        if forced_rank is not None:
+            r = max(rank_min, min(rank_max, forced_rank, mn))
+            U, S, Vt = _factor_full(r) if small else _factor_rsvd(r)
+            return U, S, Vt, S.numel()
+
+        # ── "budget": rank from bytes (no spectrum), then one factorization ───
+        if rank_criterion == "budget":
+            bytes_per_rank = 4 * (m + 1 + n)
+            if bytes_per_rank <= 0 or rank_budget_bytes <= 0:
+                r = max(1, rank_min)
+            else:
+                r = int(rank_budget_bytes // bytes_per_rank)
+            r = max(rank_min, min(rank_max, r, mn))
+            U, S, Vt = _factor_full(r) if small else _factor_rsvd(r)
+            return U, S, Vt, S.numel()
+
+        # ── SMALL: one full SVD; pick rank from exact S ───────────────────────
+        if small:
+            U, S, Vh = torch.linalg.svd(t, full_matrices=False)
+            r = _rank_from_singvals(S, energy_thresh, rank_criterion, rank_min)
+            r = max(rank_min, min(rank_max, r))
+            return (
+                U[:, :r].contiguous(),
+                S[:r].contiguous(),
+                Vh[:r, :].contiguous(),
+                r,
+            )
+
+        # ── LARGE: one randomized SVD; Frobenius energy as denominator ────────
+        k = min(rank_max + rsvd_oversample, mn)
+        U, S, Vt = randomized_svd(t, k, rsvd_oversample, rsvd_power_iter)
+        total_energy = float(t.pow(2).sum().item())  # ||G||_F^2 (exact)
+        r = _rank_from_singvals(
+            S, energy_thresh, rank_criterion, rank_min, total=total_energy
+        )
+        r = max(rank_min, min(rank_max, r, S.numel()))
+        return U[:, :r].contiguous(), S[:r].contiguous(), Vt[:r, :].contiguous(), r
+    except Exception:
+        # Degenerate fallback: rank-1 zeros (same shape contract as svd_compress)
+        U = torch.zeros(m, 1, dtype=t.dtype, device=t.device)
+        S = torch.zeros(1, dtype=t.dtype, device=t.device)
+        Vt = torch.zeros(1, n, dtype=t.dtype, device=t.device)
+        return U, S, Vt, 1
+
+
 def svd_decompress(U: torch.Tensor, S: torch.Tensor, Vt: torch.Tensor) -> torch.Tensor:
     """
     Reconstruct a matrix from its truncated SVD.
@@ -684,6 +825,16 @@ class FedResonance(FLAlgorithm):
         rsvd_power_iter = int(config.get("rsvd_power_iter", 2))
         profile    = config.get("device_profile")
 
+        # ── Single-pass SVD (speed optimization; default on) ───────────────
+        # svd_fast=True fuses rank selection + factorization into ONE
+        # decomposition (compress_low_rank). Set False to A/B against the
+        # legacy svdvals-then-rSVD path. svd_size_threshold routes small
+        # matrices through a full SVD (exact); svd_fast_power_iter is the rSVD
+        # power-iteration count for LARGE matrices only (small ones use full SVD).
+        svd_fast            = bool(config.get("svd_fast", True))
+        svd_size_threshold  = int(config.get("svd_size_threshold", 256))
+        svd_fast_power_iter = int(config.get("svd_fast_power_iter", 1))
+
         # ── Q3: Rank selection criterion ───────────────────────────────────
         rank_criterion     = str(config.get("rank_criterion", "energy"))
         rank_budget_bytes  = int(config.get("rank_budget_bytes", 0))
@@ -737,9 +888,17 @@ class FedResonance(FLAlgorithm):
         battery_critical = beta < 0.1
 
         # ── Step 2: Save weights before training ───────────────────────────
-        w_before = OrderedDict(
-            {k: v.clone().detach().cpu() for k, v in model.state_dict().items()}
-        )
+        if svd_fast:
+            # Keep the pre-training snapshot ON DEVICE; only the delta (what we
+            # actually transmit) is moved to host below. Avoids two full-model
+            # host transfers per round (w_before.cpu() + w_after.cpu()).
+            w_before = OrderedDict(
+                {k: v.detach().clone() for k, v in model.state_dict().items()}
+            )
+        else:
+            w_before = OrderedDict(
+                {k: v.clone().detach().cpu() for k, v in model.state_dict().items()}
+            )
 
         # ── Step 3: Local training ─────────────────────────────────────────
         model.train()
@@ -773,13 +932,23 @@ class FedResonance(FLAlgorithm):
 
         # ── Step 4: Compute delta = w_before - w_after ─────────────────────
         w_after = model.state_dict()
-        delta = OrderedDict({
-            k: (w_before[k] - w_after[k].cpu()).float()
-            for k in w_before
-        })
-        del w_before
-        del w_after
-        gc.collect()
+        if svd_fast:
+            # Subtract on-device (w_before kept on device above), move only the
+            # delta to host. Per-round gc.collect() removed (pure overhead:
+            # ref-counting frees these dicts immediately, no cycles).
+            delta = OrderedDict(
+                {k: (w_before[k] - w_after[k]).float().cpu() for k in w_before}
+            )
+            del w_before
+            del w_after
+        else:
+            delta = OrderedDict({
+                k: (w_before[k] - w_after[k].cpu()).float()
+                for k in w_before
+            })
+            del w_before
+            del w_after
+            gc.collect()
 
         # ── Step 5: Initialize persistent state ───────────────────────────
         if state.error_buffer is None and use_ef:
@@ -923,20 +1092,38 @@ class FedResonance(FLAlgorithm):
                 G = _matrix_form(u)
                 m_dim, n_dim = G.shape
 
-                if mode == "svd_forced":
-                    r = rank_min
-                else:
-                    # Q3: pass rank_criterion and rank_budget_bytes through
-                    r = adaptive_rank(
-                        G, eps, use_rsvd, rsvd_oversample, rsvd_power_iter,
+                if svd_fast:
+                    # Single-pass: one decomposition does rank selection AND
+                    # factorization (no svdvals-then-rSVD double pass).
+                    U, S, Vt, r = compress_low_rank(
+                        G,
+                        eps,
+                        rank_min,
+                        rank_max,
                         rank_criterion=rank_criterion,
                         rank_budget_bytes=rank_budget_bytes,
-                        rank_min=rank_min,
+                        size_threshold=svd_size_threshold,
+                        rsvd_oversample=rsvd_oversample,
+                        rsvd_power_iter=svd_fast_power_iter,
+                        forced_rank=(rank_min if mode == "svd_forced" else None),
                     )
-                    r = max(rank_min, min(rank_max, r))
+                else:
+                    # Legacy double-SVD path (kept for A/B via svd_fast=False).
+                    if mode == "svd_forced":
+                        r = rank_min
+                    else:
+                        r = adaptive_rank(
+                            G, eps, use_rsvd, rsvd_oversample, rsvd_power_iter,
+                            rank_criterion=rank_criterion,
+                            rank_budget_bytes=rank_budget_bytes,
+                            rank_min=rank_min,
+                        )
+                        r = max(rank_min, min(rank_max, r))
+                    U, S, Vt = svd_compress(
+                        G, r, use_rsvd, rsvd_oversample, rsvd_power_iter
+                    )
 
                 ranks_used.append(r)
-                U, S, Vt = svd_compress(G, r, use_rsvd, rsvd_oversample, rsvd_power_iter)
                 G_approx = svd_decompress(U, S, Vt)
 
                 # Q4: soft projection in SVD mode
@@ -1235,7 +1422,10 @@ class FedResonance(FLAlgorithm):
             else:
                 new_weights[k] = global_sd[k].float()
         del agg
-        gc.collect()
+        # Per-round gc.collect() is pure overhead (ref-counting frees `agg`
+        # immediately). Keep it only on the legacy path for A/B parity.
+        if not bool(config.get("svd_fast", True)):
+            gc.collect()
 
         # ── Round-level metrics ────────────────────────────────────────────
         total_bytes  = sum(m["bytes_sent"]        for _, m, _ in client_updates)
@@ -1309,7 +1499,13 @@ class FedResonance(FLAlgorithm):
             "spectral_energy_thresh": 0.95, # fraction of spectral energy for adaptive rank
             "use_rsvd":             True,   # use randomized SVD (faster for large matrices)
             "rsvd_oversample":      10,     # oversampling parameter p for rSVD accuracy
-            "rsvd_power_iter":      2,      # power iterations q for rSVD accuracy
+            "rsvd_power_iter":      2,      # power iterations q for rSVD accuracy (legacy path)
+            # Single-pass SVD speed optimization (fuses rank-selection +
+            # factorization into ONE decomposition). svd_fast=False reverts to
+            # the legacy svdvals-then-rSVD double pass for A/B.
+            "svd_fast":             True,
+            "svd_size_threshold":   256,    # min(m,n)<=thr -> one full SVD (exact)
+            "svd_fast_power_iter":  1,      # rSVD power iters for LARGE matrices only
             # Switch criteria
             "subspace_drift_thresh": 0.1,   # tau_drift: max normalized Frobenius drift
             "rank_coherence_thresh": 0.7,   # tau_rank: min subspace alignment quality
