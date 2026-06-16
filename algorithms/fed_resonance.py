@@ -577,6 +577,207 @@ def _count_subspace_bytes(r: int) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Quantisation mode + analytic compression FLOPs + energy-aware mode selection
+# (all gated behind config["energy_aware_selection"]; default OFF -> no change).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _count_quant_bytes(n: int, bits: int) -> int:
+    """Byte cost of a b-bit quantised payload: ceil(n*bits/8) + 8 (float32 scale+min)."""
+    return (n * bits + 7) // 8 + 8
+
+
+def quantize_compress(t: torch.Tensor, bits: int = 8, stochastic: bool = False) -> dict:
+    """Uniform (or stochastic) b-bit quantisation. bits<=1 => signSGD
+    (sign + mean-magnitude scale)."""
+    flat = t.flatten().float()
+    if bits <= 1:
+        scale = flat.abs().mean()
+        return {"qmode": "sign", "signs": (flat >= 0), "scale": scale,
+                "shape": list(t.shape)}
+    levels = (1 << bits) - 1
+    lo = flat.min(); hi = flat.max()
+    span = hi - lo
+    scale = (span / levels) if float(span) > 0 else torch.tensor(1.0, dtype=flat.dtype)
+    q = (flat - lo) / scale
+    q = torch.floor(q + torch.rand_like(q)) if stochastic else torch.round(q)
+    q = q.clamp(0, levels).to(torch.int32)
+    return {"qmode": "uniform", "codes": q, "scale": scale, "min": lo,
+            "bits": bits, "shape": list(t.shape)}
+
+
+def quantize_decompress(packed: dict) -> torch.Tensor:
+    if packed["qmode"] == "sign":
+        s = packed["scale"]
+        return torch.where(packed["signs"], s, -s).reshape(packed["shape"]).float()
+    return ((packed["codes"].float() * packed["scale"] + packed["min"])
+            .reshape(packed["shape"]).float())
+
+
+def _compression_flops(mode: str, m: int, n: int, r: int = 0) -> float:
+    """ANALYTIC FLOPs of each compressor primitive (FLOP = 2*MAC convention,
+    consistent with hardware/flop_cost.py).
+
+    IMPORTANT: do NOT measure these with PyTorch FlopCounterMode — torch.linalg.svd
+    and torch.linalg.qr dispatch to LAPACK, which FlopCounterMode does not have a
+    flop formula for (it returns 0 FLOPs, verified empirically). Only matmul-based
+    primitives (subspace projection) could be cross-checked with FlopCounterMode.
+    """
+    mn = m * n
+    k = max(r, 1)
+    if mode == "dense":
+        return 0.0
+    if mode in ("svd", "svd_forced"):
+        return 6.0 * mn * min(m, n)          # full SVD (LAPACK gesdd)
+    if mode == "rsvd":
+        return 2.0 * mn * k + (k * k) * (m + n)
+    if mode == "subspace":
+        return 2.0 * mn * k                   # B^T G and B alpha (two matmuls)
+    if mode in ("sparse", "quant"):
+        return float(mn)                      # single O(n) scan
+    return 0.0
+
+
+def _energy_aware_select(
+    u: torch.Tensor, name: str, bases: dict, *,
+    rank_min: int, rank_max: int, eps: float, rank_criterion: str,
+    error_budget: float, quant_bits: int, quant_stochastic: bool, topk_ratio: float,
+    peak_gflops: float, compute_w: float, alpha: float, e_per_byte: float,
+    svd_kwargs: dict, force_svd: bool = False,
+    quantize_payloads: bool = False, payload_bits: int = 8,
+) -> tuple:
+    """Choose the per-layer mode minimising (compression-compute + uplink-comm)
+    energy subject to relative reconstruction error <= error_budget. DENSE is
+    always a candidate (error 0, compute 0, full comm), so a compressing mode is
+    selected only when the comm it saves outweighs its compute cost — the
+    cost/comm threshold falls out automatically.
+
+    If force_svd is True, the SVD candidate is returned regardless of energy
+    (used on periodic basis-refresh rounds to transmit + server-cache the basis).
+
+    Returns (mode, packed_update, residual, n_bytes, basis_U_or_None, rank, log,
+    svd_candidate_U). svd_candidate_U is the SVD candidate's left factor (always
+    computed).
+    """
+    G = _matrix_form(u)
+    m_dim, n_dim = G.shape
+    g_norm = float(u.norm()) + 1e-12
+    numel = u.numel()
+
+    def _energy(flops, nbytes):
+        e_comp = (flops / (peak_gflops * 1e9)) * compute_w * alpha
+        e_comm = nbytes * e_per_byte
+        return e_comp + e_comm, e_comp, e_comm
+
+    # candidate = (mode, packed, recon, nbytes, flops, basis_U, rank)
+    cands = []
+    cands.append(("dense", {"mode": "dense", "data": u.clone()}, u, numel * 4, 0.0, None, 0))
+
+    pq = quantize_compress(u, quant_bits, quant_stochastic)
+    bits_eff = 1 if pq["qmode"] == "sign" else quant_bits
+    cands.append(("quant",
+                  {"mode": "quant", "packed": pq, "shape": list(u.shape)},
+                  quantize_decompress(pq), _count_quant_bytes(numel, bits_eff),
+                  _compression_flops("quant", m_dim, n_dim), None, 0))
+
+    vals, idx = sparse_topk_compress(u, topk_ratio)
+    cands.append(("sparse",
+                  {"mode": "sparse", "values": vals, "indices": idx, "shape": list(u.shape)},
+                  sparse_topk_decompress(vals, idx, list(u.shape)),
+                  vals.numel() * 8, _compression_flops("sparse", m_dim, n_dim), None, 0))
+
+    U, S, Vt, r = compress_low_rank(G, eps, rank_min, rank_max,
+                                    rank_criterion=rank_criterion, **svd_kwargs)
+    cands.append(("svd",
+                  {"mode": "svd", "U": U, "S": S, "Vt": Vt, "shape": list(u.shape)},
+                  svd_decompress(U, S, Vt).reshape(u.shape),
+                  _count_svd_bytes(m_dim, n_dim, r),
+                  _compression_flops("svd", m_dim, n_dim), U, r))
+
+    if name in bases and bases[name] is not None and bases[name].shape[0] == m_dim:
+        B = bases[name].float()
+        rB = B.shape[1]
+        alpha_cols = B.t() @ G
+        cands.append(("subspace",
+                      {"mode": "subspace", "alpha_cols": alpha_cols,
+                       "shape": list(u.shape), "layer_name": name},
+                      (B @ alpha_cols).reshape(u.shape),
+                      rB * n_dim * 4, _compression_flops("subspace", m_dim, n_dim, rB),
+                      None, rB))
+
+    # ── Composed candidates: structural mode ⊕ b-bit quantisation of the FLOAT
+    # payloads (U/S/Vt, sparse values, alpha_cols). Quantisation is an orthogonal
+    # 2nd-stage codec: ~÷4 on float bytes at 8-bit for ~0.008 added rel-error, and
+    # it composes with every structural mode (dense⊕quant == the plain quant mode,
+    # so it is not duplicated). Error compounds (truncation ⊕ quant) and is
+    # re-checked against error_budget below; bytes/FLOPs include the extra scan.
+    if quantize_payloads:
+        pb = payload_bits
+        st = quant_stochastic
+        # svd ⊕ quant : quantise U,S,Vt. The basis the server caches is the
+        # DEQUANTISED U, so the client stores that same Uq to stay synced.
+        qU, qS, qVt = (quantize_compress(U, pb, st), quantize_compress(S, pb, st),
+                       quantize_compress(Vt, pb, st))
+        Uq, Sq, Vtq = (quantize_decompress(qU), quantize_decompress(qS),
+                       quantize_decompress(qVt))
+        cands.append(("svd_q",
+                      {"mode": "svd", "U": qU, "S": qS, "Vt": qVt,
+                       "shape": list(u.shape), "qfactors": True},
+                      svd_decompress(Uq, Sq, Vtq).reshape(u.shape),
+                      (_count_quant_bytes(U.numel(), pb) + _count_quant_bytes(S.numel(), pb)
+                       + _count_quant_bytes(Vt.numel(), pb)),
+                      _compression_flops("svd", m_dim, n_dim)
+                      + float(U.numel() + S.numel() + Vt.numel()),
+                      Uq, r))
+        # sparse ⊕ quant : quantise values; indices stay int (positional).
+        qv = quantize_compress(vals, pb, st)
+        cands.append(("sparse_q",
+                      {"mode": "sparse", "values": qv, "indices": idx,
+                       "shape": list(u.shape), "qfactors": True},
+                      sparse_topk_decompress(quantize_decompress(qv), idx, list(u.shape)),
+                      _count_quant_bytes(vals.numel(), pb) + vals.numel() * 4,
+                      _compression_flops("sparse", m_dim, n_dim) + float(vals.numel()),
+                      None, 0))
+        # subspace ⊕ quant : quantise alpha_cols (basis is server-side already).
+        if name in bases and bases[name] is not None and bases[name].shape[0] == m_dim:
+            Bq = bases[name].float(); rBq = Bq.shape[1]
+            a = Bq.t() @ G
+            qa = quantize_compress(a, pb, st)
+            cands.append(("subspace_q",
+                          {"mode": "subspace", "alpha_cols": qa,
+                           "shape": list(u.shape), "layer_name": name, "qfactors": True},
+                          (Bq @ quantize_decompress(qa)).reshape(u.shape),
+                          _count_quant_bytes(a.numel(), pb),
+                          _compression_flops("subspace", m_dim, n_dim, rBq) + float(a.numel()),
+                          None, rBq))
+
+    best = None
+    log = []
+    for mode, packed, recon, nbytes, flops, bU, rk in cands:
+        rel_err = 0.0 if mode == "dense" else float((u - recon).norm()) / g_norm
+        etot, ecomp, ecomm = _energy(flops, nbytes)
+        log.append({"mode": mode, "rel_err": rel_err, "bytes": nbytes,
+                    "e_compute": ecomp, "e_comm": ecomm, "e_total": etot})
+        if rel_err <= error_budget and (best is None or etot < best[0]):
+            best = (etot, mode, packed, recon, nbytes, bU, rk)
+
+    # U of the SVD candidate (computed every call), exposed so the caller can
+    # maintain a server-synced subspace basis on periodic refresh rounds.
+    svd_cand_U = next((c[5] for c in cands if c[0] == "svd"), None)
+
+    if force_svd:
+        # Periodic basis-refresh round: TRANSMIT the SVD (U,S,Vt) so the server
+        # caches the same basis, regardless of energy. This is what makes a
+        # subsequent 'subspace' upload decodable server-side.
+        svd_cand = next((c for c in cands if c[0] == "svd"), None)
+        if svd_cand is not None:
+            mode, packed, recon, nbytes, _flops, bU, rk = svd_cand
+            return mode, packed, (u - recon), nbytes, bU, rk, log, svd_cand_U
+
+    _, mode, packed, recon, nbytes, bU, rk = best   # dense always feasible
+    return mode, packed, (u - recon), nbytes, bU, rk, log, svd_cand_U
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # EXTENSION 1: Hybrid Compression (Layer-Type-Aware)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -607,14 +808,21 @@ def _detect_layer_type(name: str, tensor: torch.Tensor) -> str:
     if tensor.dim() == 2 and tensor.shape[0] > 5000:
         return "embedding"
 
-    # Normalization layers: small parameter count
-    norm_keywords = ["norm", "bn", "ln", "batch_norm", "layer_norm"]
+    # Normalization layers: BN/LN scale/shift parameters + running buffers.
+    norm_keywords = ["norm", "bn", "ln", "batch_norm", "layer_norm",
+                     "running_mean", "running_var", "num_batches_tracked"]
     if any(kw in name_lower for kw in norm_keywords) and tensor.numel() < 512:
         return "norm"
 
     # Bias vectors
     if "bias" in name_lower and tensor.dim() == 1:
         return "bias"
+
+    # Any remaining 1-D tensor (e.g. BatchNorm weight/running_mean/running_var
+    # named by Sequential index like "stem.1.weight", which the keyword check
+    # above misses) cannot be meaningfully SVD-compressed (rank <= 1) -> dense.
+    if tensor.dim() == 1:
+        return "norm"
 
     # Convolutional layers (3D or 4D tensors)
     if tensor.dim() >= 3:
@@ -839,6 +1047,35 @@ class FedResonance(FLAlgorithm):
         rank_criterion     = str(config.get("rank_criterion", "energy"))
         rank_budget_bytes  = int(config.get("rank_budget_bytes", 0))
 
+        # ── Energy-aware per-layer mode selection (flag-gated) ──────────────
+        energy_aware = bool(config.get("energy_aware_selection", False))
+        error_budget = float(config.get("error_budget", 0.10))
+        quant_bits   = int(config.get("quant_bits", 8))
+        quant_stoch  = bool(config.get("quant_stochastic", False))
+        ea_topk      = float(config.get("ea_topk_ratio", 0.10))
+        # Every K rounds, FORCE an SVD upload for each compressible layer so the
+        # basis is transmitted and server-cached; on the K-1 rounds in between,
+        # 'subspace' becomes a decodable candidate (it reuses that synced basis).
+        # 0 => never refresh (subspace stays unavailable under energy-aware).
+        ea_refresh_period = int(config.get("ea_basis_refresh_period", 0))
+        # Composed candidates: quantise the float payloads of svd/sparse/subspace
+        # (2nd-stage codec). Adds svd_q/sparse_q/subspace_q to the energy-aware set.
+        ea_quant_payloads = bool(config.get("ea_quantize_payloads", False))
+        ea_payload_bits   = int(config.get("ea_payload_bits", quant_bits))
+        if profile is not None:
+            try:
+                _ea_pg  = float(profile.compute.peak_gflops)
+                _ea_cw  = float(profile.power.compute_w)
+                _ea_epb = float(profile.comm_energy_j(1_000_000.0, "uplink")) / 1_000_000.0
+            except Exception:
+                _ea_pg, _ea_cw, _ea_epb = 3.0, 5.0, 1.0e-7
+        else:
+            _ea_pg  = float(config.get("ea_peak_gflops", 3.0))
+            _ea_cw  = float(config.get("ea_compute_w", 5.0))
+            _ea_epb = float(config.get("ea_uplink_energy_per_byte", 1.0e-7))
+        _ea_alpha = float(config.get("energy_scale_factor", 1.0))
+        ea_layer_log: dict[str, list] = {}
+
         # ── Q4: Soft projection ────────────────────────────────────────────
         use_soft_proj      = bool(config.get("use_soft_projection", False))
         soft_proj_adaptive = bool(config.get("soft_projection_adaptive", False))
@@ -1028,6 +1265,47 @@ class FedResonance(FLAlgorithm):
                 total_bytes_sent += dense_bytes
                 if use_ef:
                     new_error[name] = torch.zeros_like(u)
+                continue
+
+            # ── ENERGY-AWARE PATH (flag-gated): min-energy mode per layer ──────
+            if energy_aware and numel >= rank_min * 2 and not battery_critical:
+                # Periodic refresh: on a refresh round, force an SVD upload so the
+                # server caches a fresh basis and 'subspace' can fire in between.
+                ea_force_svd = (
+                    ea_refresh_period > 0
+                    and (current_round - b_rounds.get(name, -10**9)) >= ea_refresh_period
+                )
+                ea_mode, ea_packed, ea_resid, ea_bytes, ea_U, ea_r, ea_log, ea_svd_U = \
+                    _energy_aware_select(
+                        u, name, bases,
+                        rank_min=rank_min, rank_max=rank_max, eps=eps,
+                        rank_criterion=rank_criterion, error_budget=error_budget,
+                        quant_bits=quant_bits, quant_stochastic=quant_stoch,
+                        topk_ratio=ea_topk, peak_gflops=_ea_pg, compute_w=_ea_cw,
+                        alpha=_ea_alpha, e_per_byte=_ea_epb,
+                        svd_kwargs=dict(rank_budget_bytes=rank_budget_bytes,
+                                        size_threshold=svd_size_threshold,
+                                        rsvd_oversample=rsvd_oversample,
+                                        rsvd_power_iter=svd_fast_power_iter),
+                        force_svd=ea_force_svd,
+                        quantize_payloads=ea_quant_payloads,
+                        payload_bits=ea_payload_bits,
+                    )
+                update[name] = ea_packed
+                mode_per_layer[name] = ea_mode
+                total_bytes_sent += ea_bytes
+                ea_layer_log[name] = ea_log
+                if ea_U is not None:          # SVD uploaded -> refresh stored basis
+                    # The basis is TRANSMITTED with the SVD upload, so the server
+                    # caches the SAME U (see server_aggregate). This is the only way
+                    # client and server stay basis-synchronised; a purely local basis
+                    # would desync the server's subspace decode.
+                    bases[name] = ea_U.detach()
+                    b_rounds[name] = current_round
+                if ea_r:
+                    ranks_used.append(ea_r)
+                if use_ef:
+                    new_error[name] = ea_resid
                 continue
 
             # Existing logic for conv/linear layers
@@ -1367,27 +1645,40 @@ class FedResonance(FLAlgorithm):
                     dense[name] = packed["data"].float()
 
                 elif mode in ("svd", "svd_forced"):
-                    U   = packed["U"].float()
-                    S   = packed["S"].float()
-                    Vt  = packed["Vt"].float()
+                    # qfactors=True => U,S,Vt are b-bit quantised payloads (svd⊕quant).
+                    if packed.get("qfactors"):
+                        U  = quantize_decompress(packed["U"]).float()
+                        S  = quantize_decompress(packed["S"]).float()
+                        Vt = quantize_decompress(packed["Vt"]).float()
+                    else:
+                        U   = packed["U"].float()
+                        S   = packed["S"].float()
+                        Vt  = packed["Vt"].float()
                     shape = packed["shape"]
                     G_approx = svd_decompress(U, S, Vt)
                     dense[name] = G_approx.reshape(shape).float()
-                    # Cache U as basis for future subspace reconstruction.
-                    # U is already transmitted — zero extra bytes needed.
+                    # Cache the (dequantised) U as basis for future subspace
+                    # reconstruction — matches the Uq the client stored.
                     client_bases[name] = (U.contiguous(), round_num)
 
                 elif mode == "sparse":
-                    values = packed["values"].float()
+                    # qfactors=True => values are quantised (sparse⊕quant); indices int.
+                    values = (quantize_decompress(packed["values"]).float()
+                              if packed.get("qfactors") else packed["values"].float())
                     indices = packed["indices"].long()
                     shape = packed["shape"]
                     dense[name] = sparse_topk_decompress(values, indices, shape)
 
+                elif mode == "quant":
+                    dense[name] = quantize_decompress(packed["packed"]).float()
+
                 elif mode == "subspace":
                     # alpha_cols: (r, n_dim) — only coefficients, no basis transmitted.
                     # Server reconstructs using its cached basis (extracted from last
-                    # SVD update for this client/layer).
-                    alpha_cols = packed["alpha_cols"].float()
+                    # SVD update for this client/layer). qfactors=True => alpha_cols
+                    # is a quantised payload (subspace⊕quant).
+                    alpha_cols = (quantize_decompress(packed["alpha_cols"]).float()
+                                  if packed.get("qfactors") else packed["alpha_cols"].float())
                     shape = packed["shape"]
                     if name in client_bases:
                         B, _ = client_bases[name]
@@ -1496,7 +1787,7 @@ class FedResonance(FLAlgorithm):
             # SVD parameters
             "rank_min":             4,      # minimum truncated SVD rank
             "rank_max":             32,     # maximum truncated SVD rank
-            "spectral_energy_thresh": 0.95, # fraction of spectral energy for adaptive rank
+            "spectral_energy_thresh": 0.95, # fraction of spectral energy for adaptive rank: Precisely, physically it means that we want to choose the smallest rank r such that the sum of the squares of the top r singular values (the spectral energy captured by the rank-r approximation) is at least 95% of the sum of the squares of all singular values (the total spectral energy of the original matrix). This criterion ensures that we retain most of the important information in the gradient while achieving compression.
             "use_rsvd":             True,   # use randomized SVD (faster for large matrices)
             "rsvd_oversample":      10,     # oversampling parameter p for rSVD accuracy
             "rsvd_power_iter":      2,      # power iterations q for rSVD accuracy (legacy path)
@@ -1509,6 +1800,30 @@ class FedResonance(FLAlgorithm):
             # Switch criteria
             "subspace_drift_thresh": 0.1,   # tau_drift: max normalized Frobenius drift
             "rank_coherence_thresh": 0.7,   # tau_rank: min subspace alignment quality
+            # ENERGY-AWARE per-layer mode selection (flag-gated; default OFF =
+            # current structure/battery rule => existing results unchanged). When
+            # True: per layer choose argmin(compression-compute + uplink-comm)
+            # energy s.t. relative-error <= error_budget, with DENSE always a
+            # candidate and "quant" added to the mode set. This couple
+            # (False/True) IS the "without/with cost-accounting" ablation.
+            "energy_aware_selection":     False,
+            "error_budget":               0.10,   # max relative reconstruction error
+            "quant_bits":                 8,       # bits for quant mode (1 => signSGD)
+            "quant_stochastic":           False,
+            "ea_topk_ratio":              0.10,    # top-k fraction for sparse candidate
+            # Every K rounds, force an SVD upload per layer so the basis is
+            # transmitted + server-cached; on the K-1 rounds in between, 'subspace'
+            # is a decodable candidate that reuses that synced basis. 0 => off
+            # (subspace never available under energy-aware; SVD almost never wins).
+            "ea_basis_refresh_period":    0,
+            # Composed candidates: quantise the float payloads of svd/sparse/subspace
+            # (adds svd_q/sparse_q/subspace_q). 2nd-stage codec, ~÷4 bytes at 8-bit.
+            "ea_quantize_payloads":       False,
+            "ea_payload_bits":            8,       # bits for the payload quantiser
+            # Fallback energy params used only when no device_profile is set:
+            "ea_peak_gflops":             3.0,
+            "ea_compute_w":               5.0,
+            "ea_uplink_energy_per_byte":  1.0e-7,
             # Battery model (E-CEFFL formula)
             "beta_min":             0.01,
             "beta_max":             1.0,

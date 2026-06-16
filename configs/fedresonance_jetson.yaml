@@ -1,0 +1,86 @@
+# =====================================================================
+# FedResonance — flotte HOMOGÈNE Jetson Nano (compute bon marché)
+# =====================================================================
+# But : sur Jetson (472 GFLOPS, e_byte/e_flop≈1573) le compute de compression est
+# quasi gratuit, donc la sélection énergie-aware choisit les modes LOW-RANK
+# (svd/subspace) — et, avec ea_quantize_payloads, leurs variantes quantifiées
+# (svd_q/subspace_q). C'est le pendant « compute-cheap » de l'étude RPi4
+# (où quant gagne). Le harness fixe device_profile=jetson_nano par client.
+#
+# Ablation : energy_aware_selection false = règle structurelle (sans cost-accounting)
+#            energy_aware_selection true  = sélection énergie-aware (avec cost-accounting)
+# =====================================================================
+
+seed: 121
+output_dir: "./results/fedresonance/jetson"
+device: mps                   # device de calcul de la SIM (pas l'appareil modélisé)
+cost_model: measured          # comptabilité honnête (FlopCounterMode)
+layer_mismatch: false
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.5                  # hétérogénéité Dirichlet
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fed_resonance
+  algo_config:
+    optimizer: adam
+    lr: 0.003
+    weight_decay: 1.0e-4
+    local_epochs: 1
+    batch_size: 32
+    warmup_rounds: 5          # warmup = full-model dense (= FedAvg)
+    energy_scale_factor: 1.5  # alpha physique Jetson (~util plus haute que RPi4)
+    alpha_applies_to: compute
+    max_grad_norm: 10.0
+
+    # --- compression spectrale (régime structurel) ---
+    rank_min: 4
+    rank_max: 8
+    spectral_energy_thresh: 0.55
+    use_rsvd: true
+    use_error_feedback: true      # error-feedback ON (réinjecte le résidu de compression)
+    svd_fast: true
+    rsvd_oversample: 20
+    rsvd_power_iter: 1
+    subspace_drift_thresh: 0.1
+    rank_coherence_thresh: 0.7
+
+    # --- sélection énergie-aware (avec cost-accounting) ---
+    energy_aware_selection: true   # ← ABLATION : false = sans cost-accounting
+    error_budget: 0.50             # large -> subspace réutilisable malgré la dérive
+    quant_bits: 8                  # mode quant : 8 bits (err ~0.008) vs 4 bits (err ~0.03)
+    quant_stochastic: false        # quant déterministe (round vers le plus proche) vs stochastique (round aléatoire selon la distance): change comment on arrondit chaque valeur à un niveau de quantification
+    ea_topk_ratio: 0.10
+
+    # --- options avancées (UTILES sur Jetson) ---
+    # Rafraîchissement périodique de base : tous les K rounds, force un upload SVD
+    # (base transmise + cachée serveur) pour que 'subspace' soit décodable entre-temps.
+    ea_basis_refresh_period: 5
+    # Candidats composés : quantifie les charges utiles de svd/sparse/subspace
+    # -> svd_q / subspace_q / sparse_q (codec 2e étage, ~÷4 octets à 8-bit).
+    ea_quantize_payloads: true
+    ea_payload_bits: 8
+
+clients:
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+
+  fleet:
+    - type: jetson_nano
+      count: 40
+
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.55

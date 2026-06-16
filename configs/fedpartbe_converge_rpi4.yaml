@@ -29,7 +29,7 @@ data:
   dataset: cifar10
   model: resnet8
   partition: dirichlet
-  alpha: 1.0                  # Dirichlet heterogeneity (NOT the energy alpha)
+  alpha: 0.5                  # Dirichlet heterogeneity (NOT the energy alpha)
   data_root: ./data
 
 model:
@@ -40,22 +40,23 @@ training:
   algorithm: fedpart_be
   algo_config:
     optimizer: adam
-    lr: 0.001
+    lr: 0.003
+    momentum: 0.9            # ignored if optimizer=adam
     weight_decay: 1.0e-4
     local_epochs: 1           # affordable per-round workload (raise if battery allows)
     batch_size: 32
-    warmup_rounds: 1          # minimal full-model warmup (warmup is the costly phase)
+    warmup_rounds: 5          # minimal full-model warmup (warmup is the costly phase)
     num_tiers: 4
-    server_lr: 0.3
+    server_lr: null
     assignment_strategy: quantile
-    mu_repr: 0.01
+    mu_repr: 0.07
     mu_weight: 0.0
     ema_model_alpha: 0.0
     rotation_period: 4
     adaptive_rotation: false
     inter_cycle_rounds: 0
     energy_scale_factor: 3.0  # raspberry_pi_4 physical alpha (~33% sustained util)
-    alpha_applies_to: compute
+    alpha_applies_to: compute # "compute" | "total" — whether energy alpha scales only compute or compute+comm
     max_grad_norm: 10.0
     ema_alpha: 0.3
     persist_optimizer: false
@@ -65,15 +66,56 @@ training:
     # Ignoré par fedavg/fedpart/fedpart_be ; lu seulement par --algo fed_resonance.
     # svd_fast (défaut True) = SVD une seule passe (résultats identiques, plus rapide).
     rank_min: 4
-    rank_max: 32
-    spectral_energy_thresh: 0.95
+    rank_max: 8
+    spectral_energy_thresh: 0.45
     use_rsvd: true
     use_error_feedback: true
     svd_fast: true
     # battery_max_j: 183600   # = capacité RPi4 (le défaut 185400 est déjà ~bon)
+    subspace_drift_thresh: 0.1     
+    rank_coherence_thresh: 0.7    
+    rsvd_oversample: 20       
+    rsvd_power_iter: 1 
+
+    # --- énergie-aware mode selection (NOUVEAU ; défaut false = comportement actuel) ---
+    # Lu seulement par --algo fed_resonance.
+    # false = règle actuelle (par structure de couche + batterie) ; true = choisit
+    # PAR COUCHE le mode minimisant (énergie compute de compression + énergie comm)
+    # sous contrainte d'erreur, avec 'dense' toujours candidat et 'quant' ajouté.
+    # ⮕ CE FLAG (false/true) EST L'ABLATION « without/with cost-accounting » du papier.
+    energy_aware_selection: true
+    # Erreur de reconstruction relative max tolérée par couche : ||C(g)-g|| / ||g||.
+    # Seuls les modes dont l'erreur <= ce budget sont candidats (dense a erreur 0).
+    error_budget: 0.60
+    # Nombre de bits du mode 'quant' (8/4/2 = quantification uniforme ; 1 = signSGD).
+    # ATTENTION : 1 (signSGD) a une erreur relative ~0.2-0.4 > error_budget=0.10,
+    # donc quant est REJETE -> seul 'dense' reste faisable -> upload = modèle complet
+    # (comm x4 vs FedResonance compressé). Utiliser 8 (err ~0.008) ou 4 avec budget 0.20.
+    quant_bits: 8
+    # Quantification stochastique (arrondi aléatoire, non-biaisée) si true ;
+    # arrondi déterministe si false.
+    quant_stochastic: true
+    # Fraction de poids conservés par le candidat 'sparse' (top-k) : 0.10 = 10 %.
+    ea_topk_ratio: 0.10
+
+    # --- options avancées (NOUVEAU ; OFF sur RPi4, voir note) -------------------
+    # NOTE RPi4 : ici 'quant' gagne TOUJOURS (compute cher, e_byte/e_flop≈200), donc
+    # ces deux options n'apportent ~rien sur RPi4 et le refresh AUGMENTE même les
+    # octets (il force des uploads SVD coûteux). Elles sont utiles sur appareils à
+    # compute bon marché (ex. jetson_nano, e_byte/e_flop≈1573) où svd/subspace gagnent.
+    #
+    # Rafraîchissement périodique de base : tous les K rounds, force un upload SVD
+    # par couche (base transmise + cachée serveur) pour que 'subspace' soit décodable
+    # sur les K-1 rounds intermédiaires. 0 = off (subspace indisponible en énergie-aware).
+    ea_basis_refresh_period: 0
+    # Candidats composés : quantifie les charges utiles flottantes de svd/sparse/
+    # subspace (ajoute svd_q/subspace_q/sparse_q). Codec 2e étage, ~÷4 octets à 8-bit.
+    ea_quantize_payloads: false
+    # Nombre de bits du quantiseur de charge utile (svd_q/subspace_q/sparse_q).
+    ea_payload_bits: 8
 
 clients:
-  num_clients: 30
+  num_clients: 40
   sample_fraction: 1.0
   sampling_strategy: random
   min_clients: 1
@@ -81,10 +123,10 @@ clients:
   # Capable device → the fleet survives long enough to converge.
   fleet:
     - type: raspberry_pi_4
-      count: 30
+      count: 40
 
   battery_init:
     distribution: uniform_soc
     params:
       min_soc: 0.05
-      max_soc: 0.95
+      max_soc: 0.55

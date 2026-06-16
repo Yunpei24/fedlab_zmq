@@ -82,7 +82,7 @@ import algorithms.fedpart_be  # noqa
 import algorithms.server_mask_fl  # noqa
 from algorithms.base import ClientState, get_algorithm, list_algorithms
 from core.seeding import seed_everything
-from datasets.registry import get_dataloader
+from datasets.registry import get_dataloader, INPUT_SHAPE
 from diagnostics.layer_mismatch import LayerMismatchDiagnostic
 from hardware.profiles import make_fleet
 from models.registry import get_model
@@ -202,6 +202,11 @@ def run_single_experiment(
     algo = get_algorithm(algo_name)
     default_cfg = algo.get_default_config()
     merged_config = {**default_cfg, **algo_config, "device": device}
+    # Dummy-input shape for the measured-cost FLOP estimator (hardware/flop_cost.py).
+    # Without this it defaults to CIFAR (1,3,32,32) and crashes on grayscale/odd-size
+    # datasets (e.g. femnist 1×28×28, tiny_imagenet 3×64×64).
+    if dataset in INPUT_SHAPE:
+        merged_config["input_shape"] = (1,) + tuple(INPUT_SHAPE[dataset])
 
     # ── Global model ─────────────────────────────────────────────────────────
     global_model = get_model(model_name, dataset)

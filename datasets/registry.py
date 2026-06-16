@@ -126,6 +126,7 @@ NUM_CLASSES = {
     "cifar10": 10,
     "cifar100": 100,
     "femnist": 62,
+    "emnist": 62,          # EMNIST/ByClass (also the FEMNIST fallback source)
     "tiny_imagenet": 200,
 }
 
@@ -136,6 +137,7 @@ INPUT_SHAPE = {
     "cifar10":      (3, 32, 32),
     "cifar100":     (3, 32, 32),
     "femnist":      (1, 28, 28),
+    "emnist":       (1, 28, 28),
     "tiny_imagenet":(3, 64, 64),
 }
 
@@ -163,6 +165,10 @@ def _load_raw_dataset(name: str, split: str, data_root: str):
         return _load_tiny_imagenet(root, split, tf)
     elif name == "femnist":
         return _load_femnist(root, split, tf)
+    elif name == "emnist":
+        # EMNIST/ByClass is the fallback for FEMNIST if LEAF data not available.
+        return datasets.EMNIST(root, split="byclass",
+                               train=train, transform=tf, download=True)
     else:
         raise ValueError(f"Unknown dataset: {name}. "
                          f"Available: {list(NUM_CLASSES.keys())}")
@@ -213,13 +219,40 @@ def _load_femnist(root: Path, split: str, tf):
     """
     femnist_dir = root / "femnist"
     if femnist_dir.exists():
-        from datasets.femnist_loader import FEMNISTDataset
-        return FEMNISTDataset(femnist_dir, split=split, transform=tf)
+        try:
+            from datasets.femnist_loader import FEMNISTDataset
+            # LEAF FEMNIST already returns normalised [0,1] tensors of shape
+            # (1,28,28), so NO transform (ToTensor would reject a tensor).
+            ds = FEMNISTDataset(femnist_dir, split=split, transform=None)
+            ds.natural_partition = True   # genuine per-writer LEAF split
+            return ds
+        except (ImportError, FileNotFoundError):
+            print("[datasets] femnist_loader/LEAF JSON missing; "
+                  "falling back to EMNIST/ByClass")
     else:
         print("[datasets] FEMNIST (LEAF) not found, falling back to EMNIST/ByClass")
-        return datasets.EMNIST(root, split="byclass",
-                               train=(split == "train"),
-                               transform=tf, download=True)
+    # Fallback: torchvision EMNIST/ByClass (62 classes). This is a single pooled
+    # dataset (no natural_partition tag) and MUST be partitioned synthetically.
+    return datasets.EMNIST(root, split="byclass",
+                           train=(split == "train"),
+                           transform=tf, download=True)
+
+
+def _femnist_natural_subset(raw, client_id: int, num_clients: int):
+    """Natural per-writer FEMNIST partition: map each writer to a client in
+    contiguous blocks (balanced when num_clients <= num_writers), then return
+    this client's samples as a torch Subset."""
+    from torch.utils.data import Subset
+    n_writers = raw.num_writers
+    if num_clients > n_writers:
+        raise ValueError(
+            f"num_clients={num_clients} > FEMNIST writers={n_writers}; reduce "
+            f"num_clients or regenerate LEAF data with a larger --sf fraction."
+        )
+    writer_to_client = (torch.arange(n_writers) * num_clients) // n_writers
+    sample_client = writer_to_client[raw.writer_ids]
+    idx = torch.nonzero(sample_client == client_id, as_tuple=False).flatten().tolist()
+    return Subset(raw, idx)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -268,16 +301,23 @@ def get_dataloader(
             pin_memory=_PIN_MEMORY,
         )
 
-    # Client training: partition the training set
-    if partition == "natural" or dataset_name == "femnist":
-        # FEMNIST natural split: each client = one writer
-        # The dataset itself handles this if loaded from LEAF
-        subset = raw  # already client-specific if using FEMNISTDataset
+    # Client training: partition the training set.
+    # Only short-circuit when the data is GENUINELY pre-partitioned per writer
+    # (real LEAF FEMNIST, tagged natural_partition). The EMNIST/ByClass fallback
+    # is a single pooled dataset and MUST be partitioned synthetically, otherwise
+    # every client would receive the entire dataset (the old bug).
+    if partition == "natural" and getattr(raw, "natural_partition", False):
+        subset = _femnist_natural_subset(raw, client_id, num_clients)
     else:
+        eff_partition = partition
+        if partition == "natural":
+            print("[datasets] 'natural' partition needs LEAF FEMNIST data; "
+                  "using 'dirichlet' on EMNIST/ByClass instead")
+            eff_partition = "dirichlet"
         subsets = partition_dataset(
             dataset=raw,
             num_clients=num_clients,
-            partition=partition,
+            partition=eff_partition,
             alpha=alpha,
             num_shards=num_shards,
             seed=seed,

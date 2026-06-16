@@ -961,7 +961,8 @@ class FedPartBE(FLAlgorithm):
                 # Drift accumulates as δ(e) ∝ e²; epoch E-1 captures ~35% of total signal
                 # at the same 6.25% overhead as the old epoch=0 approach.
                 repr_prox_loss = 0.0
-                if _do_repr and (epoch == local_epochs - 1 or epoch == 1):
+                # or epoch == 1
+                if _do_repr and (epoch == local_epochs - 1):
                     with torch.no_grad():
                         for k, p in active_param_refs.items():
                             saved_active_buffers[k].copy_(p.data)

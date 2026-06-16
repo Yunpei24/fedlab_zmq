@@ -1,0 +1,82 @@
+# =====================================================================
+# E6 cross-dataset — TRUE FEMNIST (LEAF, natural per-writer non-IID split)
+# =====================================================================
+# Requires the LEAF JSON first:
+#   bash scripts/prepare_femnist.sh           # SF=0.05 (~175 writers, fast)
+#   SF=1.0 bash scripts/prepare_femnist.sh    # full ~3500 writers
+# Then data/femnist/{train,test}/*.json exist and dataset "femnist" uses the
+# NATURAL per-writer partition (1 writer -> 1 client, or a writer-block per client
+# when num_clients < num_writers). Natural FEMNIST writers have only ~100-300
+# samples each, so this is BOTH realistic non-IID AND light enough for RPi-4 at the
+# iso E=8 setup (unlike the EMNIST/ByClass Dirichlet fallback).
+# =====================================================================
+
+seed: 42
+output_dir: "./results/E6/femnist_natural"
+device: mps
+cost_model: measured
+
+layer_mismatch: false
+
+data:
+  dataset: femnist
+  model: resnet8
+  partition: natural          # per-writer LEAF split (genuine FEMNIST non-IID)
+  alpha: 1.0                  # ignored for natural partition (writer-defined skew)
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be
+  algo_config:
+    optimizer: adam
+    lr: 0.001
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 8           # iso-setup with E1 (natural partition is light enough)
+    batch_size: 32
+    warmup_rounds: 5
+    num_tiers: 4
+    server_lr: null
+    assignment_strategy: quantile
+    mu_repr: 0.01
+    mu_weight: 0.0
+    ema_model_alpha: 0.0
+    rotation_period: 3
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    energy_scale_factor: 3.0
+    alpha_applies_to: compute
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+    persist_optimizer: false
+    enforce_staleness_cap: false
+    rank_min: 4
+    rank_max: 16
+    spectral_energy_thresh: 0.75
+    use_rsvd: true
+    use_error_feedback: true
+    svd_fast: true
+    subspace_drift_thresh: 0.1
+    rank_coherence_thresh: 0.7
+    rsvd_oversample: 10
+    rsvd_power_iter: 2
+
+clients:
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+
+  fleet:
+    - type: raspberry_pi_4
+      count: 40
+
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.55

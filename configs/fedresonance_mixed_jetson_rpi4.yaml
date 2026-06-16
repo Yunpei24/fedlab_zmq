@@ -1,0 +1,90 @@
+# =====================================================================
+# FedResonance — flotte HÉTÉROGÈNE Jetson Nano + Raspberry Pi 4
+# =====================================================================
+# But : démontrer LE résultat central du papier — sous comptabilité honnête du
+# compute de compression, le mode optimal PAR COUCHE dépend du MATÉRIEL :
+#   • clients Jetson Nano (472 GFLOPS, e_byte/e_flop≈1573) -> svd_q / subspace_q
+#   • clients Raspberry Pi 4 (24 GFLOPS, e_byte/e_flop≈200) -> quant
+# Le MÊME algorithme, au même round, choisit des modes différents selon le client.
+# Le harness fixe automatiquement device_profile par client depuis le fleet
+# (run_experiment.py: client_config = {..., "device_profile": fleet[cid]}).
+#
+# Étudie aussi la SURVIE hétérogène : RPi4 (183 kJ) tombe avant Jetson (360 kJ).
+# Ablation : energy_aware_selection false (sans) vs true (avec cost-accounting).
+# =====================================================================
+
+seed: 42
+output_dir: "./results/fedresonance/mixed_jetson_rpi4"
+device: mps
+cost_model: measured
+layer_mismatch: false
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.5
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fed_resonance
+  algo_config:
+    optimizer: adam
+    lr: 0.003
+    weight_decay: 1.0e-4
+    local_epochs: 1
+    batch_size: 32
+    warmup_rounds: 5
+    # alpha physique : compromis (Jetson~1.5, RPi4~3.0). Le device_profile par
+    # client donne déjà peak_gflops/compute_w réels au sélecteur ; ce scalaire ne
+    # sert qu'au modèle d'énergie/survie global.
+    energy_scale_factor: 3.0
+    alpha_applies_to: compute
+    max_grad_norm: 10.0
+
+    # --- compression spectrale (régime structurel) ---
+    rank_min: 4
+    rank_max: 8
+    spectral_energy_thresh: 0.45
+    use_rsvd: true
+    use_error_feedback: true
+    svd_fast: true
+    rsvd_oversample: 20
+    rsvd_power_iter: 1
+    subspace_drift_thresh: 0.1
+    rank_coherence_thresh: 0.7
+
+    # --- sélection énergie-aware (avec cost-accounting) ---
+    energy_aware_selection: true   # ← ABLATION : false = sans cost-accounting
+    error_budget: 0.50
+    quant_bits: 8
+    quant_stochastic: false
+    ea_topk_ratio: 0.10
+
+    # --- options avancées (utiles pour les clients Jetson de la flotte) ---
+    ea_basis_refresh_period: 5
+    ea_quantize_payloads: true
+    ea_payload_bits: 8
+
+clients:
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+
+  # Flotte mixte 50/50 ; make_fleet cycle la base pour préserver l'hétérogénéité.
+  fleet:
+    - type: jetson_nano
+      count: 20
+    - type: raspberry_pi_4
+      count: 20
+
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.55

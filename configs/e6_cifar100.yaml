@@ -1,0 +1,88 @@
+# =====================================================================
+# E6 cross-dataset (cifar100 / resnet8) — cloned from fedstep_e1_alpha1.yaml (iso-setup, α=1, E=8)
+# =====================================================================
+# FROZEN config for the paper's E1 main comparison. DO NOT edit for ad-hoc
+# experiments — clone it instead. (fedpartbe_converge_rpi4.yaml is the user's
+# scratch config and changes; this one must stay fixed for reproducibility.)
+#
+# Difference vs fedpartbe_converge_rpi4.yaml:
+#   - data.alpha: 0.1 -> 1.0   (E1 headline = mild heterogeneity; α=0.1 is kept
+#                               separately as the E5 "severe non-IID" point)
+#   - local_epochs: 1 -> 8     (E1 protocol uses E=8)
+#   - output_dir -> ./results/E1_a1
+# Everything else (40×RPi-4 fleet, SoC[0.05,0.55], measured cost, α_energy=3,
+# warmup=5, rotation_period=3, mu_repr=0.01, seed 42) is identical so E1
+# isolates the algorithm effect.
+# =====================================================================
+
+seed: 42
+output_dir: "./results/E6/cifar100"
+device: mps
+cost_model: measured          # honest accounting (FlopCounterMode)
+
+layer_mismatch: false
+
+data:
+  dataset: cifar100
+  model: resnet8
+  partition: dirichlet
+  alpha: 1.0                  # E1 headline heterogeneity (Dirichlet, NOT energy alpha)
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be
+  algo_config:
+    optimizer: adam
+    lr: 0.001
+    momentum: 0.9            # ignored if optimizer=adam
+    weight_decay: 1.0e-4
+    local_epochs: 8          # E1 protocol
+    batch_size: 32
+    warmup_rounds: 5         # minimal full-model warmup (warmup is the costly phase)
+    num_tiers: 4            # <= #layer-groups of resnet8
+    server_lr: null
+    assignment_strategy: quantile
+    mu_repr: 0.01
+    mu_weight: 0.0
+    ema_model_alpha: 0.0
+    rotation_period: 3
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    energy_scale_factor: 3.0  # raspberry_pi_4 physical alpha (~33% sustained util)
+    alpha_applies_to: compute # "compute" | "total"
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+    persist_optimizer: false
+    enforce_staleness_cap: false
+
+    # --- fed_resonance only (optional; else get_default_config defaults) ---
+    rank_min: 4
+    rank_max: 16
+    spectral_energy_thresh: 0.75
+    use_rsvd: true
+    use_error_feedback: true
+    svd_fast: true
+    subspace_drift_thresh: 0.1
+    rank_coherence_thresh: 0.7
+    rsvd_oversample: 10
+    rsvd_power_iter: 2
+
+clients:
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+
+  fleet:
+    - type: raspberry_pi_4
+      count: 40
+
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.55

@@ -161,11 +161,12 @@ class ResNet8(nn.Module):
     is too heavy but LeNet-5 accuracy on RGB images is insufficient.
     """
 
-    def __init__(self, num_classes: int = 10):
+    def __init__(self, num_classes: int = 10, in_channels: int = 3):
         super().__init__()
-        # Stem: single conv, no maxpool (CIFAR input is already 32×32)
+        # Stem: single conv, no maxpool. in_channels=3 for CIFAR, 1 for
+        # MNIST/EMNIST/FEMNIST. AdaptiveAvgPool handles any spatial size (28 or 32).
         self.stem = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(in_channels, 16, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
         )
@@ -341,6 +342,7 @@ _DEFAULTS: dict[str, dict] = {
     "cifar10":       {"model": "resnet18", "in_channels": 3},
     "cifar100":      {"model": "resnet18", "in_channels": 3},
     "femnist":       {"model": "lenet5",   "in_channels": 1},
+    "emnist":        {"model": "lenet5",   "in_channels": 1},
     "tiny_imagenet": {"model": "resnet18", "in_channels": 3},
 }
 
@@ -378,7 +380,7 @@ def get_model(model_name: str, dataset_name: str) -> nn.Module:
     elif model_name == "lenet5":
         return LeNet5(in_channels=in_c, num_classes=nc, img_size=img_size)
     elif model_name == "resnet8":
-        return ResNet8(num_classes=nc)
+        return ResNet8(num_classes=nc, in_channels=in_c)
     elif model_name == "resnet18":
         if img_size >= 64:
             return ResNet18TinyImageNet(num_classes=nc)
