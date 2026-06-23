@@ -141,6 +141,7 @@ def _assign_tiers_to_groups_v2(
     grad_norms: list[float],
     bucket_shift: int = 0,
     enforce_staleness_cap: bool = True,
+    shared_head_candidate: bool = False,
 ) -> dict[int, int]:
     """
     Cost-bucketed, staleness-driven group selection.
@@ -208,9 +209,19 @@ def _assign_tiers_to_groups_v2(
     # high-battery clients the cheapest group to train — acceptable because their
     # energy budget is not the binding constraint.
     head_group = num_groups - 1  # fc head is always last in architectural order
-    if head_group in cost_sorted and cost_sorted.index(head_group) < num_groups - 1:
-        cost_sorted.remove(head_group)
-        cost_sorted.append(head_group)
+    # Default: the head (fc) is FORCED into the highest-battery tier's bucket
+    # (semantic: protect the classification head from low-battery data bias).
+    # With shared_head_candidate=True we instead make the head a selection
+    # CANDIDATE in EVERY tier's bucket (and do NOT pin it to a singleton), so any
+    # tier can train it when it is the stalest group in its bucket. This spreads
+    # the head across battery strata each round (federated-head-style refresh) at
+    # no extra per-client cost — still one group per tier per round. When the head
+    # is overdue it may win in several buckets at once → trained by >1 tier that
+    # round (broader head averaging), self-limiting because its staleness resets.
+    if not shared_head_candidate:
+        if head_group in cost_sorted and cost_sorted.index(head_group) < num_groups - 1:
+            cost_sorted.remove(head_group)
+            cost_sorted.append(head_group)
 
     # 2. Partition into num_tiers cost-buckets
     bucket_size = max(1, math.ceil(num_groups / num_tiers))
@@ -222,6 +233,13 @@ def _assign_tiers_to_groups_v2(
     for t in range(num_tiers):
         if not buckets[t]:
             buckets[t] = [cost_sorted[t % num_groups]]
+
+    # shared_head_candidate: add the head as a candidate to every bucket so it
+    # competes by staleness in all tiers (not just its own).
+    if shared_head_candidate:
+        for t in range(num_tiers):
+            if head_group not in buckets[t]:
+                buckets[t] = buckets[t] + [head_group]
 
     # 3. Within each bucket, pick the group with highest staleness.
     #    Tiebreak: higher grad_norm / corrected_cost (importance per joule).
@@ -358,6 +376,7 @@ def _battery_proportional_client_assignment(
     num_tiers: int,
     bucket_shift: int = 0,
     enforce_staleness_cap: bool = True,
+    shared_head_candidate: bool = False,
 ) -> tuple[dict[int, int], dict[int, int]]:
     """
     Battery-proportional group assignment for maximum fleet lifetime.
@@ -403,9 +422,12 @@ def _battery_proportional_client_assignment(
     cost_sorted = sorted(range(num_groups), key=lambda g: group_costs[g])
     # Force head (fc / classifier) into most-expensive bucket so it is always
     # trained by the highest-battery clients (best data coverage, non-IID safe).
-    if head_group in cost_sorted and cost_sorted.index(head_group) < num_groups - 1:
-        cost_sorted.remove(head_group)
-        cost_sorted.append(head_group)
+    # shared_head_candidate relaxes this (see _assign_tiers_to_groups_v2): the head
+    # becomes a candidate in every bucket instead of being pinned to one tier.
+    if not shared_head_candidate:
+        if head_group in cost_sorted and cost_sorted.index(head_group) < num_groups - 1:
+            cost_sorted.remove(head_group)
+            cost_sorted.append(head_group)
 
     bucket_size = max(1, math.ceil(num_groups / num_tiers))
     buckets: list[list[int]] = [
@@ -415,6 +437,11 @@ def _battery_proportional_client_assignment(
     for t in range(num_tiers):
         if not buckets[t]:
             buckets[t] = [cost_sorted[t % num_groups]]
+
+    if shared_head_candidate:
+        for t in range(num_tiers):
+            if head_group not in buckets[t]:
+                buckets[t] = buckets[t] + [head_group]
 
     tier_to_group: dict[int, int] = {}
     for t in range(num_tiers):
@@ -1547,6 +1574,7 @@ class FedPartBE(FLAlgorithm):
                         _n_tiers,
                         bucket_shift=_phase,
                         enforce_staleness_cap=config.get("enforce_staleness_cap", True),
+                        shared_head_candidate=config.get("shared_head_candidate", False),
                     )
                 )
             else:
@@ -1561,6 +1589,7 @@ class FedPartBE(FLAlgorithm):
                     self._server_state["ema_grad_norms"],
                     bucket_shift=_phase,
                     enforce_staleness_cap=config.get("enforce_staleness_cap", True),
+                    shared_head_candidate=config.get("shared_head_candidate", False),
                 )
                 _client_assignment = {
                     cid: _tier_to_group[tier] for cid, tier in _client_tier_map.items()
