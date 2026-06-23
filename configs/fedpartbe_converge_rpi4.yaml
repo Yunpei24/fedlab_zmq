@@ -29,7 +29,7 @@ data:
   dataset: cifar10
   model: resnet8
   partition: dirichlet
-  alpha: 0.5                  # Dirichlet heterogeneity (NOT the energy alpha)
+  alpha: 1.0                  # Dirichlet heterogeneity (NOT the energy alpha)
   data_root: ./data
 
 model:
@@ -46,13 +46,13 @@ training:
     local_epochs: 1           # affordable per-round workload (raise if battery allows)
     batch_size: 32
     warmup_rounds: 5          # minimal full-model warmup (warmup is the costly phase)
-    num_tiers: 4
+    num_tiers: 8
     server_lr: null
     assignment_strategy: quantile
-    mu_repr: 0.07
+    mu_repr: 0.01
     mu_weight: 0.0
     ema_model_alpha: 0.0
-    rotation_period: 4
+    rotation_period: 2
     adaptive_rotation: false
     inter_cycle_rounds: 0
     energy_scale_factor: 3.0  # raspberry_pi_4 physical alpha (~33% sustained util)

@@ -80,13 +80,13 @@ training:
     # ── Paramètres fed_resonance (ignorés par eceffl, fedpart, fedpart_be) ─
     rank_min: 4              # rang SVD minimum
     rank_max: 8             # rang SVD maximum
-    spectral_energy_thresh: 0.75   # fraction d'énergie spectrale à capturer
+    spectral_energy_thresh: 0.95   # fraction d'énergie spectrale à capturer
     subspace_drift_thresh: 0.1     # seuil de dérive pour basculer SVD→subspace
     rank_coherence_thresh: 0.7     # alignement minimum pour mode subspace
     use_error_feedback: true       # error feedback (EF) activé
     use_rsvd: true                 # SVD randomisé (plus rapide pour grandes matrices)
-    rsvd_oversample: 10         # dimensions supplémentaires pour améliorer la précision de la SVD randomisée. Recommandé : 5-20 (0 = désactivé, équivalent à SVD classique, mais plus lent)
-    rsvd_power_iter: 2        # itérations de puissance pour améliorer la précision de la SVD randomisée. Recommandé : 1-3 (0 = désactivé, équivalent à SVD classique, mais plus lent)
+    rsvd_oversample: 15         # dimensions supplémentaires pour améliorer la précision de la SVD randomisée. Recommandé : 5-20 (0 = désactivé, équivalent à SVD classique, mais plus lent) Quand rsvd_oversample = 10, c'est un bon compromis : améliore la précision de la SVD randomisée pour les petits rangs (4-8) sans ajouter beaucoup de coût de calcul.
+    rsvd_power_iter: 3        # itérations de puissance pour améliorer la précision de la SVD randomisée. Recommandé : 1-3 (0 = désactivé, équivalent à SVD classique, mais plus lent) Quand rsvd_power_iter = 3, c'est plus lent que la SVD classique pour les petites matrices, mais plus rapide pour les grandes (ex. >100k éléments) tout en restant précis. C'est plus rapide pour les rangs plus élevés (8) que pour les rangs plus bas (4), car la SVD randomisée est plus rapide que la SVD classique à mesure que la taille de la matrice augmente, et l'oversampling améliore la précision pour les petits rangs.
 
     # ── Paramètres fedpart / fedpart_be (ignorés par eceffl, fed_resonance) ─
     warmup_rounds: 5               # rounds FedAvg complet avant PNU

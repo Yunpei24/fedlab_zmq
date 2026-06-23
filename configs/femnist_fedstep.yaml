@@ -1,0 +1,70 @@
+# =====================================================================
+# FEMNIST training config (handwritten characters, 62 classes).
+# =====================================================================
+# NOTE on data: real LEAF FEMNIST (natural per-writer split) requires the
+# preprocessed LEAF data in ./data/femnist/ AND datasets/femnist_loader.py.
+# Neither is present, so the loader falls back to torchvision EMNIST/ByClass
+# (62 classes) which is then partitioned SYNTHETICALLY with the partition/alpha
+# below (Dirichlet). This is a valid 62-class federated task; it is NOT the
+# natural per-writer split. Set partition: natural only once LEAF data is added.
+#
+# Model: LeNet5 (1x28x28 -> 62), auto-selected for femnist by models/registry.py.
+# =====================================================================
+
+seed: 42
+output_dir: "./results/femnist"
+device: mps                   # use cpu for a quick smoke test
+cost_model: measured
+
+layer_mismatch: false
+
+data:
+  dataset: femnist
+  model: lenet5
+  partition: dirichlet        # synthetic non-IID (natural split needs LEAF data)
+  alpha: 0.5                  # Dirichlet heterogeneity
+  data_root: ./data
+
+model:
+  architecture: lenet5
+
+training:
+  num_rounds: 100
+  algorithm: fedavg           # override with --algo {fedpart,fedpart_be,...}
+  algo_config:
+    optimizer: adam
+    lr: 0.001
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 1
+    batch_size: 32
+    warmup_rounds: 3
+    num_tiers: 3              # LeNet5 has ~5 param groups; keep tiers <= groups
+    server_lr: null
+    assignment_strategy: quantile
+    mu_repr: 0.01
+    mu_weight: 0.0
+    ema_model_alpha: 0.0
+    rotation_period: 2
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    energy_scale_factor: 3.0
+    alpha_applies_to: compute
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+    persist_optimizer: false
+    enforce_staleness_cap: false
+
+clients:
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+  fleet:
+    - type: raspberry_pi_4
+      count: 40
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.10
+      max_soc: 0.90

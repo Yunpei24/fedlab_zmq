@@ -12,7 +12,7 @@
 # =====================================================================
 
 seed: 42
-output_dir: "./results/E6/emnist"
+output_dir: "./results/E5/emnist"
 device: mps
 cost_model: measured
 
@@ -33,7 +33,7 @@ training:
   algorithm: fedpart_be
   algo_config:
     optimizer: adam
-    lr: 0.001
+    lr: 0.003
     momentum: 0.9
     weight_decay: 1.0e-4
     local_epochs: 1           # LIGHTER than iso E=8 (EMNIST-ByClass is data-heavy)

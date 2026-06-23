@@ -11,7 +11,7 @@
 #            energy_aware_selection true  = sélection énergie-aware (avec cost-accounting)
 # =====================================================================
 
-seed: 121
+seed: 44
 output_dir: "./results/fedresonance/jetson"
 device: mps                   # device de calcul de la SIM (pas l'appareil modélisé)
 cost_model: measured          # comptabilité honnête (FlopCounterMode)

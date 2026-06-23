@@ -12,7 +12,7 @@
 # =====================================================================
 
 seed: 42
-output_dir: "./results/E6/femnist_natural"
+output_dir: "./results/E5/femnist_natural"
 device: mps
 cost_model: measured
 
@@ -33,7 +33,7 @@ training:
   algorithm: fedpart_be
   algo_config:
     optimizer: adam
-    lr: 0.001
+    lr: 0.003
     momentum: 0.9
     weight_decay: 1.0e-4
     local_epochs: 8           # iso-setup with E1 (natural partition is light enough)

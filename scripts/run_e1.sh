@@ -27,4 +27,4 @@ for S in $SEEDS; do
 done
 
 echo "===== E1 AGGREGATE (mean +/- std over seeds) ====="
-$PY scripts/aggregate_seeds.py results/E1 --latex || true
+$PY scripts/aggregate_seeds.py results/E1 --seeds-only --latex || true

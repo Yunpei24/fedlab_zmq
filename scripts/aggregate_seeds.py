@@ -8,7 +8,7 @@ metrics, so a table cell becomes e.g. "69.8 +/- 0.4".
 Usage
 -----
   # all algos under a directory tree (recurses, finds every metrics.json)
-  python scripts/aggregate_seeds.py results/E6/femnist_natural
+  python scripts/aggregate_seeds.py results/E5/femnist_natural
 
   # several roots; only these metrics; LaTeX rows too
   python scripts/aggregate_seeds.py results/E1_a1 results/E1_a1_s43 --latex
@@ -30,6 +30,7 @@ import glob
 import json
 import math
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -53,7 +54,9 @@ def _summary(path):
     s = d.get("summary", d)
     # uplink_mb may live only in survival/rounds; derive from total_bytes_gb if absent
     if "uplink_mb" not in s and "total_bytes_gb" in s:
-        s = {**s, "uplink_mb": s["total_bytes_gb"] * 1024.0}
+        # decimal MB (bytes/1e6); total_bytes_gb is bytes/1e9, so x1000 (NOT x1024).
+        # Matches the dashboard's MB convention.
+        s = {**s, "uplink_mb": s["total_bytes_gb"] * 1000.0}
     return s
 
 
@@ -71,12 +74,19 @@ def main():
                     help="comma-sep summary keys to pool over (default: algorithm,dataset)")
     ap.add_argument("--latex", action="store_true", help="also print paste-ready LaTeX rows")
     ap.add_argument("--out", default=None, help="write the CSV here (default: stdout only)")
+    ap.add_argument("--seeds-only", action="store_true",
+                    help="only count runs whose path has a /seed<N>/ component "
+                         "(ignores sibling experiments like IID1_lr003 living under "
+                         "the same root)")
     args = ap.parse_args()
 
     gkeys = [k.strip() for k in args.group_by.split(",")]
     files = []
     for r in args.roots:
         files += glob.glob(os.path.join(r, "**", "metrics.json"), recursive=True)
+    if args.seeds_only:
+        _seed_dir = re.compile(r"(?:^|/)seed\d+(?:/|$)")
+        files = [f for f in files if _seed_dir.search(os.path.dirname(f))]
     if not files:
         print("No metrics.json found under: " + ", ".join(args.roots), file=sys.stderr)
         sys.exit(1)

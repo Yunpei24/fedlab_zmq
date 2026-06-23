@@ -15,7 +15,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 PY=venv/bin/python
 BASE=configs/e2_base.yaml
 SEEDS="${SEEDS:-42 43 44}"
-DEVICES="${DEVICES:-esp32_s3 raspberry_pi_4 raspberry_pi_zero2w smartphone_midrange smartphone_highend}"
+DEVICES="${DEVICES:-esp32_s3 raspberry_pi_zero2w raspberry_pi_4 smartphone_midrange jetson_nano smartphone_highend}"
 ALGOS="${ALGOS:-fedavg fedpart fedpart_be fed_resonance}"
 
 for S in $SEEDS; do

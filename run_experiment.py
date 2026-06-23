@@ -1085,7 +1085,11 @@ Examples:
         help="Compute device. If omitted, reads from YAML 'device' key, "
         "then auto-detects (MPS > CUDA > CPU).",
     )
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument(
+        "--seed", type=int, default=None,
+        help="Random seed. When given, OVERRIDES the YAML 'seed' field "
+             "(falls back to YAML seed, then 42, if omitted).",
+    )
     p.add_argument(
         "--output",
         type=str,
@@ -1221,7 +1225,9 @@ Examples:
         alpha = cfg["data"].get("alpha", 0.5)
         partition = cfg["data"].get("partition", "dirichlet")
         batch_size = algo_config.get("batch_size", 32)
-        seed = cfg.get("seed", 42)
+        # CLI --seed (when provided) overrides the YAML seed, so a multi-seed
+        # harness (--config X.yaml --seed 43) actually varies the seed.
+        seed = args.seed if args.seed is not None else cfg.get("seed", 42)
         output_dir = args.output or cfg.get("output_dir", "./results")
         fleet_raw = cfg["clients"].get("fleet", [])
         fleet_spec = [(e["type"], e["count"]) for e in fleet_raw]
@@ -1259,7 +1265,7 @@ Examples:
         alpha = args.alpha
         partition = args.partition
         batch_size = args.batch_size
-        seed = args.seed
+        seed = args.seed if args.seed is not None else 42
         output_dir = args.output or "./results"
         fleet_spec = DEFAULT_FLEET
         sample_fraction = args.sample_fraction

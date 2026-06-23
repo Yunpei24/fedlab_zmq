@@ -16,7 +16,7 @@
 # =====================================================================
 
 seed: 42
-output_dir: "./results/E6/tinyimagenet"
+output_dir: "./results/E5/tinyimagenet"
 device: mps
 cost_model: measured          # honest accounting (FlopCounterMode)
 
@@ -37,7 +37,7 @@ training:
   algorithm: fedpart_be
   algo_config:
     optimizer: adam
-    lr: 0.001
+    lr: 0.003
     momentum: 0.9            # ignored if optimizer=adam
     weight_decay: 1.0e-4
     local_epochs: 8          # E1 protocol

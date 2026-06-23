@@ -1,0 +1,67 @@
+# =====================================================================
+# FedSTEP — mu_repr SWEEP base (FROZEN). alpha=0.1 (severe non-IID), E=8.
+# =====================================================================
+# Purpose: test whether the representation-proximal coefficient mu_repr (currently
+# 10x below the code default 0.1) recovers any of the accuracy gap vs FedPart at
+# alpha=0.1. fedpart_be ONLY (mu_repr is FedSTEP-specific). Everything identical
+# to the alpha=0.1 E1 baseline (best=0.438 @ mu_repr~0.01) except mu_repr, which
+# the sweep driver rewrites per run. DO NOT edit for ad-hoc work.
+# =====================================================================
+
+seed: 42
+output_dir: "./results/sweep_mu_repr"
+device: mps
+cost_model: measured
+
+layer_mismatch: false
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.1                  # severe non-IID (the regime where the gap appears)
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 200
+  algorithm: fedpart_be
+  algo_config:
+    optimizer: adam
+    lr: 0.001
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 8
+    batch_size: 32
+    warmup_rounds: 5
+    num_tiers: 4
+    server_lr: null
+    assignment_strategy: quantile
+    mu_repr: 0.01             # <-- SWEEP DRIVER REWRITES THIS LINE
+    mu_weight: 0.0
+    ema_model_alpha: 0.0
+    rotation_period: 3
+    adaptive_rotation: false
+    inter_cycle_rounds: 0
+    energy_scale_factor: 3.0
+    alpha_applies_to: compute
+    max_grad_norm: 10.0
+    ema_alpha: 0.3
+    persist_optimizer: false
+    enforce_staleness_cap: false
+
+clients:
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+  fleet:
+    - type: raspberry_pi_4
+      count: 40
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.55
