@@ -644,6 +644,8 @@ def _energy_aware_select(
     peak_gflops: float, compute_w: float, alpha: float, e_per_byte: float,
     svd_kwargs: dict, force_svd: bool = False,
     quantize_payloads: bool = False, payload_bits: int = 8,
+    decision_cache: Optional[dict] = None, decision_period: int = 1,
+    current_round: int = 0,
 ) -> tuple:
     """Choose the per-layer mode minimising (compression-compute + uplink-comm)
     energy subject to relative reconstruction error <= error_budget. DENSE is
@@ -651,130 +653,303 @@ def _energy_aware_select(
     selected only when the comm it saves outweighs its compute cost — the
     cost/comm threshold falls out automatically.
 
-    If force_svd is True, the SVD candidate is returned regardless of energy
-    (used on periodic basis-refresh rounds to transmit + server-cache the basis).
+    LAZY EVALUATION (Patch A)
+    -------------------------
+    Only the *cheap* candidates (dense, quant, sparse, and subspace when a synced
+    basis exists — all O(mn) or O(mnr)) are materialised. The SVD candidate is NOT
+    factorised up front: we probe the spectrum only (exact ``svdvals`` on small
+    matrices, an rSVD top-k probe on large ones), pick the rank from that spectrum,
+    and derive its reconstruction error ANALYTICALLY from the spectral tail
+    ``rel_err = sqrt((||G||_F^2 - sum sigma[:r]^2) / ||G||_F^2)``. U,S,Vt are formed
+    ONLY if the SVD family wins the argmin (or ``force_svd``). This avoids paying for
+    a factorisation that the argmin then throws away.
+
+    CORRECT FLOP CHARGING
+    ---------------------
+    The SVD candidate is charged for the path it will actually take: full-SVD FLOPs
+    (``_compression_flops("svd", ...)``) when ``min(m,n) <= size_threshold``, else
+    rSVD FLOPs (``_compression_flops("rsvd", ..., r)``). ``size_threshold`` is the
+    single source of truth that routes BOTH the charge here and the branch taken by
+    ``compress_low_rank`` at materialisation time, so charge and factorisation stay
+    consistent (no full-SVD surcharge on a matrix that is actually compressed by rSVD).
+
+    DECISION CACHE (amortised over K = ``decision_period`` rounds)
+    -------------------------------------------------------------
+    Probing the spectrum costs ~a full SVD on small matrices, so re-deciding every
+    round is expensive. When ``decision_cache`` is supplied and K>1, the chosen mode
+    is cached per layer for K rounds; on the K-1 cached rounds we re-apply the cached
+    mode CHEAPLY (subspace→projection, quant/sparse→scan, dense→copy, svd→one forced
+    factorisation) WITHOUT re-probing. The amortised probe cost ``probe_flops / K`` is
+    added to every non-dense candidate's compute ledger so "compress only if comm
+    saved > compute cost" includes the cost of deciding (dense = no-selector escape
+    hatch, charged 0). K=1 (default) ⇒ no cache ⇒ a decision every round.
+
+    If ``force_svd`` is True, the SVD candidate is materialised and returned regardless
+    of energy (periodic basis-refresh rounds: transmit + server-cache the basis); the
+    cache is bypassed so the refresh always fires.
 
     Returns (mode, packed_update, residual, n_bytes, basis_U_or_None, rank, log,
-    svd_candidate_U). svd_candidate_U is the SVD candidate's left factor (always
-    computed).
+    svd_candidate_U).
+
+    BEHAVIOUR CHANGE vs the eager version: ``svd_candidate_U`` (8th element) is the
+    plain-SVD left factor ONLY when the SVD is actually formed (SVD family wins OR
+    force_svd); otherwise it is None — we no longer factorise on every call just to
+    expose it. The caller (client_update) drives its basis refresh off element 5
+    (basis_U_or_None, non-None only on an SVD upload), not off element 8, so this is
+    safe.
     """
     G = _matrix_form(u)
     m_dim, n_dim = G.shape
+    mn = min(m_dim, n_dim)
     g_norm = float(u.norm()) + 1e-12
     numel = u.numel()
+
+    size_threshold    = int(svd_kwargs.get("size_threshold", 256))
+    rsvd_oversample   = int(svd_kwargs.get("rsvd_oversample", 10))
+    rsvd_power_iter   = int(svd_kwargs.get("rsvd_power_iter", 1))
+    rank_budget_bytes = int(svd_kwargs.get("rank_budget_bytes", 0))
+    small = mn <= size_threshold          # routes BOTH the charge and the factorise
+    K = max(1, int(decision_period))
+
+    log: list = []
+    best = None                           # (e_total, mode, packed, recon, nbytes, bU, rank)
 
     def _energy(flops, nbytes):
         e_comp = (flops / (peak_gflops * 1e9)) * compute_w * alpha
         e_comm = nbytes * e_per_byte
         return e_comp + e_comm, e_comp, e_comm
 
-    # candidate = (mode, packed, recon, nbytes, flops, basis_U, rank)
-    cands = []
-    cands.append(("dense", {"mode": "dense", "data": u.clone()}, u, numel * 4, 0.0, None, 0))
+    # ── Amortised SVD-spectrum probe cost ────────────────────────────────────
+    # The dominant extra compute of running the selector is the SVD spectrum probe
+    # (svdvals ~ a full SVD on small matrices; an rSVD top-k probe on large ones).
+    # With a K-round cache we probe once per K rounds → per-round charge probe/K.
+    # It is DETERMINISTIC from the layer shape (independent of the chosen rank),
+    # hence well-defined even on cached rounds where we do not actually probe.
+    if small:
+        probe_flops = _compression_flops("svd", m_dim, n_dim)
+    else:
+        probe_flops = _compression_flops(
+            "rsvd", m_dim, n_dim, min(rank_max + rsvd_oversample, mn))
+    amortized_probe = probe_flops / K
 
-    pq = quantize_compress(u, quant_bits, quant_stochastic)
-    bits_eff = 1 if pq["qmode"] == "sign" else quant_bits
-    cands.append(("quant",
-                  {"mode": "quant", "packed": pq, "shape": list(u.shape)},
-                  quantize_decompress(pq), _count_quant_bytes(numel, bits_eff),
-                  _compression_flops("quant", m_dim, n_dim), None, 0))
+    has_basis = (name in bases and bases[name] is not None
+                 and bases[name].shape[0] == m_dim)
 
-    vals, idx = sparse_topk_compress(u, topk_ratio)
-    cands.append(("sparse",
-                  {"mode": "sparse", "values": vals, "indices": idx, "shape": list(u.shape)},
-                  sparse_topk_decompress(vals, idx, list(u.shape)),
-                  vals.numel() * 8, _compression_flops("sparse", m_dim, n_dim), None, 0))
-
-    U, S, Vt, r = compress_low_rank(G, eps, rank_min, rank_max,
-                                    rank_criterion=rank_criterion, **svd_kwargs)
-    cands.append(("svd",
-                  {"mode": "svd", "U": U, "S": S, "Vt": Vt, "shape": list(u.shape)},
-                  svd_decompress(U, S, Vt).reshape(u.shape),
-                  _count_svd_bytes(m_dim, n_dim, r),
-                  _compression_flops("svd", m_dim, n_dim), U, r))
-
-    if name in bases and bases[name] is not None and bases[name].shape[0] == m_dim:
-        B = bases[name].float()
-        rB = B.shape[1]
-        alpha_cols = B.t() @ G
-        cands.append(("subspace",
-                      {"mode": "subspace", "alpha_cols": alpha_cols,
-                       "shape": list(u.shape), "layer_name": name},
-                      (B @ alpha_cols).reshape(u.shape),
-                      rB * n_dim * 4, _compression_flops("subspace", m_dim, n_dim, rB),
-                      None, rB))
-
-    # ── Composed candidates: structural mode ⊕ b-bit quantisation of the FLOAT
-    # payloads (U/S/Vt, sparse values, alpha_cols). Quantisation is an orthogonal
-    # 2nd-stage codec: ~÷4 on float bytes at 8-bit for ~0.008 added rel-error, and
-    # it composes with every structural mode (dense⊕quant == the plain quant mode,
-    # so it is not duplicated). Error compounds (truncation ⊕ quant) and is
-    # re-checked against error_budget below; bytes/FLOPs include the extra scan.
-    if quantize_payloads:
-        pb = payload_bits
-        st = quant_stochastic
-        # svd ⊕ quant : quantise U,S,Vt. The basis the server caches is the
-        # DEQUANTISED U, so the client stores that same Uq to stay synced.
-        qU, qS, qVt = (quantize_compress(U, pb, st), quantize_compress(S, pb, st),
-                       quantize_compress(Vt, pb, st))
-        Uq, Sq, Vtq = (quantize_decompress(qU), quantize_decompress(qS),
-                       quantize_decompress(qVt))
-        cands.append(("svd_q",
-                      {"mode": "svd", "U": qU, "S": qS, "Vt": qVt,
-                       "shape": list(u.shape), "qfactors": True},
-                      svd_decompress(Uq, Sq, Vtq).reshape(u.shape),
-                      (_count_quant_bytes(U.numel(), pb) + _count_quant_bytes(S.numel(), pb)
-                       + _count_quant_bytes(Vt.numel(), pb)),
-                      _compression_flops("svd", m_dim, n_dim)
-                      + float(U.numel() + S.numel() + Vt.numel()),
-                      Uq, r))
-        # sparse ⊕ quant : quantise values; indices stay int (positional).
-        qv = quantize_compress(vals, pb, st)
-        cands.append(("sparse_q",
-                      {"mode": "sparse", "values": qv, "indices": idx,
-                       "shape": list(u.shape), "qfactors": True},
-                      sparse_topk_decompress(quantize_decompress(qv), idx, list(u.shape)),
-                      _count_quant_bytes(vals.numel(), pb) + vals.numel() * 4,
-                      _compression_flops("sparse", m_dim, n_dim) + float(vals.numel()),
-                      None, 0))
-        # subspace ⊕ quant : quantise alpha_cols (basis is server-side already).
-        if name in bases and bases[name] is not None and bases[name].shape[0] == m_dim:
-            Bq = bases[name].float(); rBq = Bq.shape[1]
-            a = Bq.t() @ G
-            qa = quantize_compress(a, pb, st)
-            cands.append(("subspace_q",
-                          {"mode": "subspace", "alpha_cols": qa,
-                           "shape": list(u.shape), "layer_name": name, "qfactors": True},
-                          (Bq @ quantize_decompress(qa)).reshape(u.shape),
-                          _count_quant_bytes(a.numel(), pb),
-                          _compression_flops("subspace", m_dim, n_dim, rBq) + float(a.numel()),
-                          None, rBq))
-
-    best = None
-    log = []
-    for mode, packed, recon, nbytes, flops, bU, rk in cands:
-        rel_err = 0.0 if mode == "dense" else float((u - recon).norm()) / g_norm
-        etot, ecomp, ecomm = _energy(flops, nbytes)
+    def _consider(mode, packed, recon, nbytes, flops, bU, rk, *, rel_err=None):
+        """Log a candidate and keep it as best if feasible. Non-dense candidates
+        carry the amortised decision cost so the compress-vs-dense threshold
+        includes the cost of deciding."""
+        nonlocal best
+        if rel_err is None:
+            rel_err = 0.0 if mode == "dense" else float((u - recon).norm()) / g_norm
+        eff_flops = flops + (0.0 if mode == "dense" else amortized_probe)
+        etot, ecomp, ecomm = _energy(eff_flops, nbytes)
         log.append({"mode": mode, "rel_err": rel_err, "bytes": nbytes,
                     "e_compute": ecomp, "e_comm": ecomm, "e_total": etot})
         if rel_err <= error_budget and (best is None or etot < best[0]):
             best = (etot, mode, packed, recon, nbytes, bU, rk)
 
-    # U of the SVD candidate (computed every call), exposed so the caller can
-    # maintain a server-synced subspace basis on periodic refresh rounds.
-    svd_cand_U = next((c[5] for c in cands if c[0] == "svd"), None)
+    # ── Cheap-candidate builder (NEVER forms U,S,Vt) ─────────────────────────
+    def _build_cheap(mode_filter=None):
+        """Materialise the cheap (O(mn)/O(mnr)) candidates. With mode_filter set,
+        build only that one mode (used to cheaply re-apply a cached decision)."""
+        out = []
+        def keep(m):
+            return mode_filter is None or m == mode_filter
+        if keep("dense"):
+            out.append(("dense", {"mode": "dense", "data": u.clone()}, u,
+                        numel * 4, 0.0, None, 0))
+        if keep("quant"):
+            pq = quantize_compress(u, quant_bits, quant_stochastic)
+            bits_eff = 1 if pq["qmode"] == "sign" else quant_bits
+            out.append(("quant",
+                        {"mode": "quant", "packed": pq, "shape": list(u.shape)},
+                        quantize_decompress(pq), _count_quant_bytes(numel, bits_eff),
+                        _compression_flops("quant", m_dim, n_dim), None, 0))
+        if keep("sparse") or keep("sparse_q"):
+            vals, idx = sparse_topk_compress(u, topk_ratio)
+            if keep("sparse"):
+                out.append(("sparse",
+                            {"mode": "sparse", "values": vals, "indices": idx,
+                             "shape": list(u.shape)},
+                            sparse_topk_decompress(vals, idx, list(u.shape)),
+                            vals.numel() * 8, _compression_flops("sparse", m_dim, n_dim),
+                            None, 0))
+            if quantize_payloads and keep("sparse_q"):
+                # sparse ⊕ quant : quantise values; indices stay int (positional).
+                qv = quantize_compress(vals, payload_bits, quant_stochastic)
+                out.append(("sparse_q",
+                            {"mode": "sparse", "values": qv, "indices": idx,
+                             "shape": list(u.shape), "qfactors": True},
+                            sparse_topk_decompress(quantize_decompress(qv), idx,
+                                                   list(u.shape)),
+                            _count_quant_bytes(vals.numel(), payload_bits)
+                            + vals.numel() * 4,
+                            _compression_flops("sparse", m_dim, n_dim) + float(vals.numel()),
+                            None, 0))
+        if has_basis and (keep("subspace") or keep("subspace_q")):
+            B = bases[name].float(); rB = B.shape[1]
+            alpha_cols = B.t() @ G
+            if keep("subspace"):
+                out.append(("subspace",
+                            {"mode": "subspace", "alpha_cols": alpha_cols,
+                             "shape": list(u.shape), "layer_name": name},
+                            (B @ alpha_cols).reshape(u.shape),
+                            rB * n_dim * 4, _compression_flops("subspace", m_dim, n_dim, rB),
+                            None, rB))
+            if quantize_payloads and keep("subspace_q"):
+                # subspace ⊕ quant : quantise alpha_cols (basis is server-side already).
+                qa = quantize_compress(alpha_cols, payload_bits, quant_stochastic)
+                out.append(("subspace_q",
+                            {"mode": "subspace", "alpha_cols": qa,
+                             "shape": list(u.shape), "layer_name": name, "qfactors": True},
+                            (B @ quantize_decompress(qa)).reshape(u.shape),
+                            _count_quant_bytes(alpha_cols.numel(), payload_bits),
+                            _compression_flops("subspace", m_dim, n_dim, rB)
+                            + float(alpha_cols.numel()),
+                            None, rB))
+        return out
+
+    # ── SVD spectrum probe (spectrum ONLY — no U,S,Vt) ───────────────────────
+    def _probe_spectrum():
+        """Return (sv_desc, total_energy=||G||_F^2 exact, r). Small matrices use
+        exact svdvals; large ones an rSVD top-k probe of the leading singular
+        values. The Frobenius energy is the exact denominator for the tail error."""
+        total_energy = float(G.pow(2).sum().item())
+        try:
+            if small:
+                sv = torch.linalg.svdvals(G)
+            else:
+                _U, sv, _Vt = randomized_svd(
+                    G, min(rank_max + rsvd_oversample, mn),
+                    rsvd_oversample, rsvd_power_iter)
+        except Exception:
+            sv = torch.zeros(1, dtype=G.dtype, device=G.device)
+        if rank_criterion == "budget":
+            bpr = 4 * (m_dim + 1 + n_dim)
+            r = (max(1, rank_min) if (bpr <= 0 or rank_budget_bytes <= 0)
+                 else int(rank_budget_bytes // bpr))
+        else:
+            r = _rank_from_singvals(sv, eps, rank_criterion, rank_min,
+                                    total=max(total_energy, 1e-12))
+        r = max(rank_min, min(rank_max, r, int(sv.numel())))
+        return sv, max(total_energy, 1e-12), r
+
+    # ── Lazy SVD materialisation + packing (called only when SVD wins) ───────
+    def _materialize_svd(forced_rank=None):
+        # ONE decomposition; compress_low_rank takes the small/large branch via the
+        # SAME size_threshold that drove the charge above (charge ↔ factorise match).
+        return compress_low_rank(G, eps, rank_min, rank_max,
+                                 rank_criterion=rank_criterion,
+                                 forced_rank=forced_rank, **svd_kwargs)
+
+    def _pack_svd(U, S, Vt, r):
+        recon = svd_decompress(U, S, Vt).reshape(u.shape)
+        nbytes = _count_svd_bytes(m_dim, n_dim, r)
+        flops = (_compression_flops("svd", m_dim, n_dim) if small
+                 else _compression_flops("rsvd", m_dim, n_dim, r))
+        packed = {"mode": "svd", "U": U, "S": S, "Vt": Vt, "shape": list(u.shape)}
+        return packed, recon, nbytes, flops, U, r
+
+    def _pack_svd_q(U, S, Vt, r):
+        pb = payload_bits; st = quant_stochastic
+        # The basis the server caches is the DEQUANTISED U, so the client stores Uq.
+        qU, qS, qVt = (quantize_compress(U, pb, st), quantize_compress(S, pb, st),
+                       quantize_compress(Vt, pb, st))
+        Uq, Sq, Vtq = (quantize_decompress(qU), quantize_decompress(qS),
+                       quantize_decompress(qVt))
+        recon = svd_decompress(Uq, Sq, Vtq).reshape(u.shape)
+        nbytes = (_count_quant_bytes(U.numel(), pb) + _count_quant_bytes(S.numel(), pb)
+                  + _count_quant_bytes(Vt.numel(), pb))
+        flops = ((_compression_flops("svd", m_dim, n_dim) if small
+                  else _compression_flops("rsvd", m_dim, n_dim, r))
+                 + float(U.numel() + S.numel() + Vt.numel()))
+        packed = {"mode": "svd", "U": qU, "S": qS, "Vt": qVt,
+                  "shape": list(u.shape), "qfactors": True}
+        return packed, recon, nbytes, flops, Uq, r
+
+    # ── CACHED ROUND: re-apply a recent decision without re-probing ──────────
+    if decision_cache is not None and K > 1 and not force_svd:
+        ent = decision_cache.get(name)
+        if ent is not None and (current_round - int(ent["round"])) < K:
+            cmode = ent["mode"]; crank = int(ent.get("rank", 0))
+            applicable = not (cmode in ("subspace", "subspace_q") and not has_basis)
+            if applicable:
+                if cmode in ("svd", "svd_q"):
+                    U, S, Vt, r = _materialize_svd(forced_rank=(crank or None))
+                    packed, recon, nbytes, flops, bU, rk = (
+                        _pack_svd_q(U, S, Vt, r) if cmode == "svd_q"
+                        else _pack_svd(U, S, Vt, r))
+                    _consider(cmode, packed, recon, nbytes, flops, bU, rk)
+                else:
+                    cc = _build_cheap(mode_filter=cmode)
+                    if cc:
+                        m_, packed, recon, nbytes, flops, bU, rk = cc[0]
+                        _consider(m_, packed, recon, nbytes, flops, bU, rk)
+                if best is not None:                 # cached mode still feasible
+                    _, mode, packed, recon, nbytes, bU, rk = best
+                    svd_cU = bU if mode in ("svd", "svd_q") else None
+                    return mode, packed, (u - recon), nbytes, bU, rk, log, svd_cU
+            # cache stale / inapplicable → fall through to a full decision round
+
+    # ── DECISION ROUND ───────────────────────────────────────────────────────
+    for cand in _build_cheap():
+        _consider(*cand)
 
     if force_svd:
-        # Periodic basis-refresh round: TRANSMIT the SVD (U,S,Vt) so the server
-        # caches the same basis, regardless of energy. This is what makes a
-        # subsequent 'subspace' upload decodable server-side.
-        svd_cand = next((c for c in cands if c[0] == "svd"), None)
-        if svd_cand is not None:
-            mode, packed, recon, nbytes, _flops, bU, rk = svd_cand
-            return mode, packed, (u - recon), nbytes, bU, rk, log, svd_cand_U
+        # Periodic basis refresh: materialise + TRANSMIT the SVD regardless of
+        # energy so the server caches the same basis (decodable 'subspace' later).
+        U, S, Vt, r = _materialize_svd()
+        packed, recon, nbytes, flops, bU, rk = _pack_svd(U, S, Vt, r)
+        _consider("svd", packed, recon, nbytes, flops, bU, rk)   # log the real line
+        if decision_cache is not None:
+            decision_cache[name] = {"round": current_round, "mode": "svd", "rank": int(rk)}
+        return "svd", packed, (u - recon), nbytes, bU, rk, log, U
 
-    _, mode, packed, recon, nbytes, bU, rk = best   # dense always feasible
-    return mode, packed, (u - recon), nbytes, bU, rk, log, svd_cand_U
+    # SVD family — ESTIMATED from the spectrum only (factors NOT formed yet).
+    sv, total_energy, r_svd = _probe_spectrum()
+    captured = float(sv[:r_svd].pow(2).sum().item())
+    rel_err_svd = math.sqrt(max(0.0, total_energy - captured) / total_energy)
+    svd_bytes = _count_svd_bytes(m_dim, n_dim, r_svd)
+    svd_flops = (_compression_flops("svd", m_dim, n_dim) if small
+                 else _compression_flops("rsvd", m_dim, n_dim, r_svd))
+    _consider("svd", None, None, svd_bytes, svd_flops, None, r_svd, rel_err=rel_err_svd)
+    if quantize_payloads:
+        # svd ⊕ quant : bytes are exact from the factor shapes; the error is
+        # estimated as the truncation tail (optimistic floor — the added 8-bit
+        # quant noise is ~0.008). If it wins it is materialised + re-checked below.
+        rq = r_svd
+        svdq_bytes = (_count_quant_bytes(m_dim * rq, payload_bits)
+                      + _count_quant_bytes(rq, payload_bits)
+                      + _count_quant_bytes(rq * n_dim, payload_bits))
+        svdq_flops = svd_flops + float(m_dim * rq + rq + rq * n_dim)
+        _consider("svd_q", None, None, svdq_bytes, svdq_flops, None, rq,
+                  rel_err=rel_err_svd)
+
+    # dense is always feasible ⇒ best is set. Materialise lazily iff SVD won.
+    _, wmode, wpacked, wrecon, wbytes, wbU, wrk = best
+    if wmode in ("svd", "svd_q"):
+        U, S, Vt, r = _materialize_svd()
+        if wmode == "svd_q":
+            packed, recon, nbytes, flops, bU, rk = _pack_svd_q(U, S, Vt, r)
+            # Compounded (truncation ⊕ quant) error re-check; if quant pushed us
+            # over budget, fall back to plain SVD (feasible by construction, same r).
+            if (float((u - recon).norm()) / g_norm) > error_budget:
+                packed, recon, nbytes, flops, bU, rk = _pack_svd(U, S, Vt, r)
+                wmode = "svd"
+        else:
+            packed, recon, nbytes, flops, bU, rk = _pack_svd(U, S, Vt, r)
+        out_mode, out_packed, out_recon = wmode, packed, recon
+        out_bytes, out_bU, out_rk, svd_cU = nbytes, bU, rk, U
+    else:
+        out_mode, out_packed, out_recon = wmode, wpacked, wrecon
+        out_bytes, out_bU, out_rk, svd_cU = wbytes, wbU, wrk, None
+
+    if decision_cache is not None:
+        decision_cache[name] = {"round": current_round, "mode": out_mode,
+                                "rank": int(out_rk)}
+    return (out_mode, out_packed, (u - out_recon), out_bytes,
+            out_bU, out_rk, log, svd_cU)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1062,6 +1237,10 @@ class FedResonance(FLAlgorithm):
         # (2nd-stage codec). Adds svd_q/sparse_q/subspace_q to the energy-aware set.
         ea_quant_payloads = bool(config.get("ea_quantize_payloads", False))
         ea_payload_bits   = int(config.get("ea_payload_bits", quant_bits))
+        # Decision cache horizon K (Patch A, point 6): re-use a layer's mode
+        # decision for K rounds without re-probing the SVD spectrum. 1 => decide
+        # every round (no cache, bit-identical to the un-cached behaviour).
+        ea_decision_period = int(config.get("decision_cache_period", 1))
         if profile is not None:
             try:
                 _ea_pg  = float(profile.compute.peak_gflops)
@@ -1195,9 +1374,15 @@ class FedResonance(FLAlgorithm):
             state.custom["subspace_bases"] = {}   # layer_name -> Tensor(d_l, r)
         if "basis_round" not in state.custom:
             state.custom["basis_round"] = {}      # layer_name -> int
+        if "ea_decision_cache" not in state.custom:
+            # Per-layer energy-aware decision cache (Patch A, point 6). Kept in its
+            # OWN dict — never inside `bases`, which BasisMemoryManager iterates as
+            # pure tensors. Entry: {"round": int, "mode": str, "rank": int}.
+            state.custom["ea_decision_cache"] = {}
 
         bases    = state.custom["subspace_bases"]
         b_rounds = state.custom["basis_round"]
+        ea_cache = state.custom["ea_decision_cache"]
         current_round = state.round_num
 
         # ── Step 6: Per-layer hybrid compression (or warmup dense pass) ───────
@@ -1290,6 +1475,9 @@ class FedResonance(FLAlgorithm):
                         force_svd=ea_force_svd,
                         quantize_payloads=ea_quant_payloads,
                         payload_bits=ea_payload_bits,
+                        decision_cache=ea_cache,
+                        decision_period=ea_decision_period,
+                        current_round=current_round,
                     )
                 update[name] = ea_packed
                 mode_per_layer[name] = ea_mode
@@ -1503,6 +1691,7 @@ class FedResonance(FLAlgorithm):
 
         state.custom["subspace_bases"] = bases
         state.custom["basis_round"] = b_rounds
+        state.custom["ea_decision_cache"] = ea_cache
 
         # ── Step 7: Energy accounting ──────────────────────────────────────
         num_params    = sum(p.numel() for p in model.parameters())
@@ -1820,6 +2009,11 @@ class FedResonance(FLAlgorithm):
             # (adds svd_q/sparse_q/subspace_q). 2nd-stage codec, ~÷4 bytes at 8-bit.
             "ea_quantize_payloads":       False,
             "ea_payload_bits":            8,       # bits for the payload quantiser
+            # Decision cache horizon K for energy-aware selection: re-use a layer's
+            # mode decision for K rounds without re-probing the SVD spectrum (the
+            # amortised probe cost probe_flops/K is still charged each round). 1 =>
+            # decide every round (no cache; bit-identical to the un-cached path).
+            "decision_cache_period":      1,
             # Fallback energy params used only when no device_profile is set:
             "ea_peak_gflops":             3.0,
             "ea_compute_w":               5.0,
