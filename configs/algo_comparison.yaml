@@ -51,10 +51,10 @@ training:
   algo_config:
 
     # ── Hyperparamètres communs ──────────────────────────────────────────
-    optimizer: "sgd"         # "sgd" | "adam"  — optimiseur local côté client
+    optimizer: "adam"         # "sgd" | "adam"  — optimiseur local côté client
                              # Adam(lr=0.001) reproduit le setup du paper FedPart
                              # SGD(lr=0.01, momentum=0.9) donne une meilleure accuracy absolue
-    lr: 0.01
+    lr: 0.003
     momentum: 0.9            # ignoré si optimizer=adam
     weight_decay: 1.0e-4
     local_epochs: 8
@@ -72,7 +72,7 @@ training:
     # ECEFFL raw ≈ 6.6 J/client/round → ×12.6 = 83 J → client min (1191J) meurt ~rd 14
     # Fed-Resonance raw ≈ 0.5 J/client/round → ×12.6 = 6.3 J → client min meurt ~rd 189
     # Différence normale : Fed-Resonance compresse mieux → moins de bytes → moins d'énergie TX
-    energy_scale_factor: 10.0
+    energy_scale_factor: 3.0
 
     # ── Paramètres fed_resonance (ignorés par eceffl, fedpart, fedpart_be) ─
     rank_min: 4              # rang SVD minimum
@@ -132,7 +132,7 @@ training:
     server_momentum: 0.9
     use_fp16_uplink: true     # valeurs sparse en float16 : 6 bytes/nz vs 8 (-25% uplink)
     partial_downlink: false
-    num_partitions: 4
+    num_partitions: 2
 
     # ccsEF full  → full backward sur g1+g2 ; EF accumulé sur le groupe secondaire
     # ccsEF frozen → backward uniquement sur groupe primaire (requires_grad=False sur secondaire)
@@ -168,14 +168,14 @@ training:
     ef_clip_norm: 15
 
 clients:
-  num_clients: 30
+  num_clients: 40
   sample_fraction: 1.0
   sampling_strategy: random
-  min_clients: 3
+  min_clients: 1
 
   fleet:
-    - type: esp32_s3
-      count: 30
+    - type: raspberry_pi_4
+      count: 40
 
   # SOC uniforme [5%, 95%] — flotte IoT hétérogène
   # Spread = 19× → condition optimale pour comparaison survival
@@ -183,4 +183,4 @@ clients:
     distribution: uniform_soc
     params:
       min_soc: 0.05
-      max_soc: 0.95
+      max_soc: 0.55
