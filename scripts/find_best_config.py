@@ -85,7 +85,7 @@ def main():
     ]
     # ── Proposés ─────────────────────────────────────────────
     groups_proposed = [
-        ("fedpartbe_",      "FedPartBE    [proposé]"),
+        ("fedpartbe_",      "FedStep    [proposé]"),
         ("ccsEF_full_",     "ccsEF full   [proposé]"),
         ("ccsEF_frozen_",   "ccsEF frozen [proposé]"),
     ]

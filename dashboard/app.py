@@ -794,6 +794,14 @@ def _get_exp_label(d: pathlib.Path, results_dir: pathlib.Path) -> str:
         label = f"[{algo}] {folder_name}"
         if params_str:
             label += f" | {params_str}"
+        # Seed disambiguation: multi-seed runs share the same named folder and
+        # hyperparams — without the seed, their labels are identical and the
+        # sidebar becomes a guessing game. Extracted from the run dir name
+        # (…_s43) or the config as fallback.
+        _seed_m = re.search(r"_s(\d+)$", d.name)
+        _seed = _seed_m.group(1) if _seed_m else cfg.get("seed")
+        if _seed is not None and f"s{_seed}" not in label:
+            label += f" | seed {_seed}"
         return label
 
     except Exception:
@@ -806,8 +814,8 @@ _GLABEL_RE_M    = re.compile(r'\bM=(\S+?)(?:[,\s\(|]|$)')
 def _short_graph_label(full_label: str, max_len: int = 36) -> str:
     """
     Concise legend/axis label for graph traces.
-    '[FedPartBE], M=3, μr=0.1 | rotation_30/run_001'
-    → 'FedPartBE · M=3 · rotation_30'
+    '[FedStep], M=3, μr=0.1 | rotation_30/run_001'
+    → 'FedStep · M=3 · rotation_30'
 
     Components:
       - Algorithm name from [AlgoName]
@@ -906,6 +914,61 @@ def _fmt_seconds(seconds) -> str:
     return f"{minutes}min {rem:.0f}s"
 
 
+def _has_round_metric(experiments: dict, key: str) -> bool:
+    """Return True when at least one selected run contains usable values."""
+
+    return any(
+        key in exp["df"].columns and exp["df"][key].notna().any()
+        for exp in experiments.values()
+    )
+
+
+def _round_metric_figure(
+    experiments: dict,
+    metric_specs: list[tuple[str, str, float]],
+    *,
+    title: str,
+    yaxis_title: str,
+    height: int = 390,
+) -> go.Figure:
+    """Build a comparable round curve for one or more scalar diagnostics."""
+
+    fig = go.Figure()
+    dash_styles = ["solid", "dash", "dot", "dashdot"]
+    for exp_idx, (label, exp) in enumerate(experiments.items()):
+        df = exp["df"]
+        rounds = _round_col(df)
+        color = COLOR_MAP[exp_idx % len(COLOR_MAP)]
+        for metric_idx, (key, metric_label, scale) in enumerate(metric_specs):
+            if key not in df.columns or not df[key].notna().any():
+                continue
+            values = pd.to_numeric(df[key], errors="coerce") * scale
+            fig.add_trace(
+                go.Scatter(
+                    x=rounds,
+                    y=values,
+                    mode="lines+markers",
+                    marker=dict(size=4),
+                    name=f"{_short_graph_label(label)} · {metric_label}",
+                    line=dict(
+                        color=color,
+                        width=2.3,
+                        dash=dash_styles[metric_idx % len(dash_styles)],
+                    ),
+                )
+            )
+    fig.update_layout(
+        title=title,
+        xaxis_title="Round",
+        yaxis_title=yaxis_title,
+        template="plotly_white",
+        height=height,
+        font=dict(family="Inter"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return fig
+
+
 def _get_result_dirs():
     root = RESULTS_DIR
     if not root.exists():
@@ -986,7 +1049,7 @@ with st.sidebar:
         Run your first experiment:<br>
         <code style="background:#1e293b; color:#7dd3fc; padding:2px 6px;
                border-radius:4px; font-size:0.75rem;">
-        python run_experiment.py --algo fedpart_be --rounds 10 --clients 4
+        python run_experiment.py --algo fedstep --rounds 10 --clients 4
         </code>
         </div>
         """, unsafe_allow_html=True)
@@ -1050,7 +1113,7 @@ if page == "Home":
         <span class="hero-badge">msgpack Serialization</span>
         <span class="hero-badge">Shannon Energy Model</span>
         <span class="hero-badge-green">CCS-EF — Paper 1</span>
-        <span class="hero-badge-green">FedPartBE — Paper 2</span>
+        <span class="hero-badge-green">FedStep — Paper 2</span>
         <span class="hero-badge">Jain Fairness Index</span>
       </div>
     </div>
@@ -1063,7 +1126,7 @@ if page == "Home":
         <div class="metric-callout">
           <div class="metric-callout-value">2</div>
           <div class="metric-callout-label">Papers in preparation</div>
-          <div class="metric-callout-delta-pos">CCS-EF · FedPartBE</div>
+          <div class="metric-callout-delta-pos">CCS-EF · FedStep</div>
         </div>
         """, unsafe_allow_html=True)
     with col_b:
@@ -1123,7 +1186,7 @@ if page == "Home":
         st.markdown("""
         <div class="algo-card-proposed" style="min-height:220px;">
           <div><span class="algo-badge-proposed">⭐ Paper 2 — In preparation</span></div>
-          <div class="algo-name">FedPartBE</div>
+          <div class="algo-name">FedStep</div>
           <div class="algo-ref">Federated Partial Training with Battery-Aware Energy Tiering</div>
           <div class="algo-desc">
             Assigns clients to energy tiers (M=3) based on remaining battery. Low-battery
@@ -1201,12 +1264,12 @@ if page == "Home":
           --output results/Algorithms_fare/fedavg_e3 \\
           --device mps
         ```
-        **FedPartBE**
+        **FedStep**
         ```bash
         python run_experiment.py \\
           --config configs/algo_comparison.yaml \\
-          --algo fedpart_be \\
-          --output results/Algorithms_fare/fedpart_be \\
+          --algo fedstep \\
+          --output results/Algorithms_fare/fedstep \\
           --device mps
         ```
         """)
@@ -1232,7 +1295,7 @@ elif page == "Results":
           <div class="no-results-title">No experiments found</div>
           <div class="no-results-text">
             Run <code style="background:rgba(59,130,246,0.1); padding:2px 6px;
-            border-radius:4px;">python run_experiment.py --algo fedpart_be --rounds 10 --clients 4</code>
+            border-radius:4px;">python run_experiment.py --algo fedstep --rounds 10 --clients 4</code>
             to generate your first results. The dashboard will auto-detect them here.
           </div>
         </div>
@@ -1262,16 +1325,98 @@ elif page == "Results":
 
     st.divider()
 
-    tab_acc, tab_energy, tab_battery, tab_fair, tab_table, tab_convspeed, tab_lm, tab_sigma2 = st.tabs([
+    (
+        tab_acc,
+        tab_energy,
+        tab_battery,
+        tab_fair,
+        tab_robust,
+        tab_privacy,
+        tab_table,
+        tab_convspeed,
+        tab_lm,
+        tab_sigma2,
+        tab_ee,
+    ) = st.tabs([
         "Accuracy & Loss",
         "Energy per Round",
         "Battery & Survival",
-        "Bytes & Fairness",
+        "Client Fairness",
+        "Robustness & FAR",
+        "Privacy",
         "Summary Table",
         "Convergence Speed",
         "Layer Mismatch",
         "σ² Evolution",
+        "Early-Exit & CCVR",
     ])
+
+    # ── Early-Exit & CCVR ────────────────────────────────────────────────────
+    # (a) Per-exit accuracy curves for runs that log exit_acc_1/2/3 (all runs
+    #     after the per-exit eval landed). (b) CCVR post-hoc calibration
+    #     before/after, read from results/ccvr_perexit_*.json emitted by
+    #     scripts/ccvr_per_exit.py.
+    with tab_ee:
+        st.subheader("Accuracy par exit (entraînement)")
+        _ee_exps = {lbl: e for lbl, e in experiments.items()
+                    if "exit_acc_1" in e["df"].columns}
+        if not _ee_exps:
+            st.info("Aucune expérience sélectionnée ne logge exit_acc_1/2/3 "
+                    "(runs antérieurs à l'éval par exit).")
+        else:
+            _sel = st.selectbox("Expérience", list(_ee_exps.keys()), key="ee_sel")
+            _df = _ee_exps[_sel]["df"]
+            _rounds = _round_col(_df)
+            fig_ee = go.Figure()
+            for d, name, color in ((1, "exit 1 (41% FLOPs)", "#8ecae6"),
+                                   (2, "exit 2 (71% FLOPs)", "#219ebc"),
+                                   (3, "tête finale (100%)", "#023047")):
+                col = f"exit_acc_{d}"
+                if col in _df.columns:
+                    fig_ee.add_trace(go.Scatter(
+                        x=_rounds, y=_df[col] * 100, name=name,
+                        mode="lines", line=dict(color=color, width=2)))
+            fig_ee.update_layout(xaxis_title="Round",
+                                 yaxis_title="Test accuracy (%)",
+                                 height=380, legend=dict(orientation="h"))
+            st.plotly_chart(fig_ee, width="stretch")
+
+        st.divider()
+        st.subheader("Calibration CCVR par exit (post-hoc)")
+        _ccvr_files = sorted(RESULTS_DIR.glob("ccvr_perexit_*.json"))
+        if not _ccvr_files:
+            st.info("Aucun résultat CCVR (results/ccvr_perexit_*.json). "
+                    "Générer avec scripts/ccvr_per_exit.py.")
+        else:
+            _rows = []
+            for p in _ccvr_files:
+                try:
+                    _c = json.loads(p.read_text())
+                    _seed = _c.get("seed", p.stem.split("_")[-1])
+                    for d in ("1", "2", "3"):
+                        _rows.append({"seed": f"s{_seed}",
+                                      "exit": f"exit {d}",
+                                      "avant": _c["before"][d] * 100,
+                                      "après": _c["after"][d] * 100})
+                except Exception as exc:
+                    st.warning(f"{p.name}: {exc}")
+            if _rows:
+                _cdf = pd.DataFrame(_rows)
+                _cdf["Δ"] = _cdf["après"] - _cdf["avant"]
+                fig_c = go.Figure()
+                _x = [f"{r['seed']} · {r['exit']}" for _, r in _cdf.iterrows()]
+                fig_c.add_trace(go.Bar(name="avant CCVR", x=_x,
+                                       y=_cdf["avant"], marker_color="#adb5bd"))
+                fig_c.add_trace(go.Bar(name="après CCVR", x=_x,
+                                       y=_cdf["après"], marker_color="#2a9d8f",
+                                       text=[f"{v:+.1f}" for v in _cdf["Δ"]],
+                                       textposition="outside"))
+                fig_c.update_layout(barmode="group", height=420,
+                                    yaxis_title="Test accuracy (%)",
+                                    legend=dict(orientation="h"))
+                st.plotly_chart(fig_c, width="stretch")
+                st.dataframe(
+                    _cdf.round(1), width="stretch", hide_index=True)
 
     # ── Accuracy & Loss ──────────────────────────────────────────────────────
     with tab_acc:
@@ -1885,6 +2030,330 @@ elif page == "Results":
 
     # ── Fairness ─────────────────────────────────────────────────────────────
     with tab_fair:
+        st.markdown(
+            "Client-level fairness is evaluated on the distribution of the global "
+            "model's performance across honest clients. These are **oracle research "
+            "metrics**: Byzantine client identities are excluded only for evaluation, "
+            "never supplied to the training algorithm."
+        )
+
+        _has_tail = any(
+            _has_round_metric(experiments, key)
+            for key in (
+                "worst20_accuracy_pct",
+                "best20_accuracy_pct",
+                "worst20_balanced_accuracy_pct",
+            )
+        )
+        _has_dispersion = any(
+            _has_round_metric(experiments, key)
+            for key in (
+                "best20_worst20_gap_pct",
+                "client_accuracy_variance_pct2",
+                "balanced_performance_fairness",
+                "client_balanced_accuracy_variance_pct2",
+                "best_worst_balanced_accuracy_gap_pct",
+            )
+        )
+        if _has_tail or _has_dispersion:
+            _fair_col1, _fair_col2 = st.columns(2)
+            with _fair_col1:
+                if _has_tail:
+                    st.plotly_chart(
+                        _round_metric_figure(
+                            experiments,
+                            [
+                                ("worst20_accuracy_pct", "Worst-20", 1.0),
+                                ("best20_accuracy_pct", "Best-20", 1.0),
+                            ],
+                            title="Best-20 and Worst-20 client accuracy",
+                            yaxis_title="Accuracy (%)",
+                        ),
+                        width="stretch",
+                    )
+                    st.caption(
+                        "Worst-20 is the mean accuracy of the lowest-performing 20% "
+                        "of evaluated honest clients. A higher Worst-20 and a smaller "
+                        "Best-20/Worst-20 gap indicate better client-level inclusion."
+                    )
+                else:
+                    st.info("No Best-20/Worst-20 metrics in the selected runs.")
+            with _fair_col2:
+                if _has_dispersion:
+                    st.plotly_chart(
+                        _round_metric_figure(
+                            experiments,
+                            [
+                                ("best20_worst20_gap_pct", "Tail gap", 1.0),
+                                ("client_accuracy_variance_pct2", "Accuracy variance", 1.0),
+                            ],
+                            title="Across-client performance dispersion",
+                            yaxis_title="Percentage-point scale",
+                        ),
+                        width="stretch",
+                    )
+                    st.caption(
+                        "Tail gap is measured in percentage points. Accuracy variance is "
+                        "reported in percentage-points squared; both should decrease when "
+                        "performance becomes more uniform across clients."
+                    )
+                else:
+                    st.info("No across-client dispersion metrics in the selected runs.")
+
+            if _has_round_metric(experiments, "balanced_performance_fairness"):
+                st.plotly_chart(
+                    _round_metric_figure(
+                        experiments,
+                        [
+                            ("balanced_performance_fairness", "Weighted loss variance", 1.0),
+                            ("client_loss_variance", "Unweighted loss variance", 1.0),
+                        ],
+                        title="FedFDP-style balanced performance fairness",
+                        yaxis_title="Loss variance (lower is fairer)",
+                    ),
+                    width="stretch",
+                )
+                st.caption(
+                    "Balanced performance fairness is the client-data-size-weighted "
+                    "variance of local test losses. It complements FAR's tail metrics: "
+                    "variance measures uniformity, while Worst-20 exposes the disadvantaged tail."
+                )
+
+            _distribution_rows = []
+            for label, exp in experiments.items():
+                df = exp["df"]
+                key = "client_accuracy_values_oracle"
+                if key not in df.columns:
+                    continue
+                usable = df[df[key].apply(lambda value: isinstance(value, list) and len(value) > 0)]
+                if usable.empty:
+                    continue
+                for value in usable.iloc[-1][key]:
+                    if value is None:
+                        continue
+                    _distribution_rows.append(
+                        {"Experiment": _short_graph_label(label), "Client accuracy (%)": 100.0 * float(value)}
+                    )
+            if _distribution_rows:
+                _distribution_df = pd.DataFrame(_distribution_rows)
+                fig_distribution = px.box(
+                    _distribution_df,
+                    x="Experiment",
+                    y="Client accuracy (%)",
+                    points="all",
+                    title="Per-client accuracy distribution at the last evaluated round",
+                )
+                fig_distribution.update_layout(template="plotly_white", height=410)
+                st.plotly_chart(fig_distribution, width="stretch")
+                st.caption(
+                    "Each point is one honest client's local test accuracy. This detailed "
+                    "distribution is stored only as an oracle experiment diagnostic."
+                )
+
+            _dmd_metric_keys = (
+                "worst20_balanced_accuracy_pct",
+                "client_balanced_accuracy_variance_pct2",
+                "best_worst_balanced_accuracy_gap_pct",
+                "canonical_cb_deficit_mean",
+                "canonical_cb_deficit_cvar20",
+                "fixed_zero_deficit_upper_semivariance",
+                "pre_fixed_zero_deficit_upper_semivariance",
+                "stale_usv_value",
+            )
+            if any(_has_round_metric(experiments, key) for key in _dmd_metric_keys):
+                st.divider()
+                st.markdown("#### Decision-Margin Deficit (DMD)")
+                st.caption(
+                    "DMD evaluates client fairness in decision space. Balanced accuracy "
+                    "gives each observed class equal importance; deficit statistics measure "
+                    "negative decision margins. These prototype exports are oracle research "
+                    "diagnostics and are not privacy-preserving telemetry."
+                )
+                _dmd_col1, _dmd_col2 = st.columns(2)
+                with _dmd_col1:
+                    st.plotly_chart(
+                        _round_metric_figure(
+                            experiments,
+                            [
+                                ("worst20_balanced_accuracy_pct", "Worst-20 BA", 1.0),
+                                ("mean_client_balanced_accuracy_pct", "Mean BA", 1.0),
+                            ],
+                            title="DMD client tail performance",
+                            yaxis_title="Balanced accuracy (%)",
+                        ),
+                        width="stretch",
+                    )
+                    st.caption(
+                        "Worst-20 BA is the mean balanced accuracy of the bottom 20% "
+                        "of clients. Higher values indicate a better-served client tail."
+                    )
+                with _dmd_col2:
+                    st.plotly_chart(
+                        _round_metric_figure(
+                            experiments,
+                            [
+                                (
+                                    "client_balanced_accuracy_variance_pct2",
+                                    "BA variance",
+                                    1.0,
+                                ),
+                                (
+                                    "best_worst_balanced_accuracy_gap_pct",
+                                    "Best-Worst BA gap",
+                                    1.0,
+                                ),
+                            ],
+                            title="DMD inter-client dispersion",
+                            yaxis_title="Percentage-point scale",
+                        ),
+                        width="stretch",
+                    )
+                    st.caption(
+                        "The Best-Worst curve is the best-client minus worst-client gap, "
+                        "not a Best-20 minus Worst-20 gap. Lower variance and gap mean "
+                        "more homogeneous client performance."
+                    )
+
+                _dmd_deficit_specs = [
+                    ("canonical_cb_deficit_mean", "Mean DMD-CB", 1.0),
+                    ("canonical_cb_deficit_cvar20", "DMD-CB CVaR-20", 1.0),
+                    (
+                        "fixed_zero_deficit_upper_semivariance",
+                        "Deficit upper-semivariance",
+                        1.0,
+                    ),
+                    (
+                        "pre_fixed_zero_deficit_upper_semivariance",
+                        "Pre-training deficit upper-semivariance",
+                        1.0,
+                    ),
+                    ("stale_usv_value", "Training stale-USV", 1.0),
+                ]
+                if any(
+                    _has_round_metric(experiments, key)
+                    for key, _, _ in _dmd_deficit_specs
+                ):
+                    st.plotly_chart(
+                        _round_metric_figure(
+                            experiments,
+                            _dmd_deficit_specs,
+                            title="Decision-deficit risk over rounds",
+                            yaxis_title="Quadratic deficit",
+                            height=430,
+                        ),
+                        width="stretch",
+                    )
+                    st.caption(
+                        "Mean DMD-CB controls the average class-balanced decision deficit; "
+                        "CVaR-20 targets its upper tail. Upper-semivariance penalizes only "
+                        "clients above the delayed cohort reference. Lower is better."
+                    )
+
+                _dmd_distribution_rows = []
+                for label, exp in experiments.items():
+                    df = exp["df"]
+                    key = "client_balanced_accuracy_values_oracle"
+                    if key not in df.columns:
+                        continue
+                    usable = df[
+                        df[key].apply(
+                            lambda value: isinstance(value, list) and len(value) > 0
+                        )
+                    ]
+                    if usable.empty:
+                        continue
+                    for value in usable.iloc[-1][key]:
+                        if value is None:
+                            continue
+                        _dmd_distribution_rows.append(
+                            {
+                                "Experiment": _short_graph_label(label),
+                                "Client balanced accuracy (%)": 100.0 * float(value),
+                            }
+                        )
+                if _dmd_distribution_rows:
+                    _dmd_distribution_df = pd.DataFrame(_dmd_distribution_rows)
+                    _dmd_distribution_fig = px.box(
+                        _dmd_distribution_df,
+                        x="Experiment",
+                        y="Client balanced accuracy (%)",
+                        points="all",
+                        title="Per-client balanced accuracy at the last evaluated round",
+                    )
+                    _dmd_distribution_fig.update_layout(
+                        template="plotly_white", height=410
+                    )
+                    st.plotly_chart(_dmd_distribution_fig, width="stretch")
+
+                _dmd_joint_rows = []
+                for label, exp in experiments.items():
+                    df = exp["df"]
+                    required = (
+                        "client_balanced_accuracy_values_oracle",
+                        "client_dmd_cb_values_oracle",
+                    )
+                    if not all(key in df.columns for key in required):
+                        continue
+                    usable = df[
+                        df.apply(
+                            lambda row: all(
+                                isinstance(row[key], list) and len(row[key]) > 0
+                                for key in required
+                            ),
+                            axis=1,
+                        )
+                    ]
+                    if usable.empty:
+                        continue
+                    row = usable.iloc[-1]
+                    for balanced_accuracy, deficit in zip(
+                        row["client_balanced_accuracy_values_oracle"],
+                        row["client_dmd_cb_values_oracle"],
+                    ):
+                        if balanced_accuracy is None or deficit is None:
+                            continue
+                        _dmd_joint_rows.append(
+                            {
+                                "Experiment": _short_graph_label(label),
+                                "Client balanced accuracy (%)": 100.0
+                                * float(balanced_accuracy),
+                                "DMD-CB deficit": float(deficit),
+                            }
+                        )
+                if _dmd_joint_rows:
+                    _dmd_joint_df = pd.DataFrame(_dmd_joint_rows)
+                    _dmd_dist_col, _dmd_scatter_col = st.columns(2)
+                    with _dmd_dist_col:
+                        _dmd_deficit_box = px.box(
+                            _dmd_joint_df,
+                            x="Experiment",
+                            y="DMD-CB deficit",
+                            points="all",
+                            title="Per-client DMD-CB deficit at final evaluation",
+                        )
+                        _dmd_deficit_box.update_layout(
+                            template="plotly_white", height=410
+                        )
+                        st.plotly_chart(_dmd_deficit_box, width="stretch")
+                    with _dmd_scatter_col:
+                        _dmd_scatter = px.scatter(
+                            _dmd_joint_df,
+                            x="DMD-CB deficit",
+                            y="Client balanced accuracy (%)",
+                            color="Experiment",
+                            title="Decision deficit versus client performance",
+                        )
+                        _dmd_scatter.update_layout(template="plotly_white", height=410)
+                        st.plotly_chart(_dmd_scatter, width="stretch")
+                    st.caption(
+                        "The scatter diagnoses whether the decision-space signal is aligned "
+                        "with the disadvantaged performance tail. It is an oracle analysis, "
+                        "not a statistic exposed by a privacy-preserving deployment."
+                    )
+
+            st.divider()
+            st.markdown("#### Resource and participation fairness")
+
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             fig = go.Figure()
@@ -1934,10 +2403,280 @@ elif page == "Results":
             )
             st.plotly_chart(fig, width="stretch")
             st.caption(
-                "**Participation rate** = alive clients / total clients at each round. "
-                "A client is considered dead when its battery reaches 0 J. "
-                "100% → full fleet active. A falling curve = clients dying over time. "
-                "Algorithms that preserve participation longer are more robust for long FL campaigns."
+                "**Participation rate** = fraction of the fleet that performed a **real "
+                "training update** this round (not merely alive). For full-participation "
+                "methods it equals the alive fraction; for selection methods (FedLE) it is "
+                "the selected fraction. See the survival-vs-contribution panel below."
+            )
+
+        # ── Survie vs Contribution (l'« empty survival ») ────────────────────
+        st.markdown("#### Survie (batterie > 0) vs Contribution (entraînement réel)")
+        fig_sc = go.Figure()
+        contrib_rows = []
+        for i, (label, exp) in enumerate(experiments.items()):
+            df = exp["df"]
+            rounds = _round_col(df)
+            col = COLOR_MAP[i % len(COLOR_MAP)]
+            surv = df["survival_ratio"] * 100 if "survival_ratio" in df.columns else None
+            contrib = df["participation_rate"] * 100 if "participation_rate" in df.columns else None
+            if surv is not None:
+                fig_sc.add_trace(go.Scatter(
+                    x=rounds, y=surv, name=f"{_short_graph_label(label)} · survie",
+                    line=dict(color=col, width=2.5)))
+            if contrib is not None:
+                fig_sc.add_trace(go.Scatter(
+                    x=rounds, y=contrib, name=f"{_short_graph_label(label)} · contribution",
+                    line=dict(color=col, width=2, dash="dash")))
+            if surv is not None and contrib is not None:
+                gap = float((surv - contrib).clip(lower=0).mean())
+                contrib_rows.append({
+                    "Algorithme": _short_graph_label(label),
+                    "Survie finale (%)": round(float(surv.iloc[-1]), 1),
+                    "Contribution moy. (%)": round(float(contrib.mean()), 1),
+                    "Écart survie−contribution (pts)": round(gap, 1),
+                })
+        fig_sc.update_layout(
+            title="Trait plein = survie (batterie>0) · pointillé = contribution (a vraiment entraîné)",
+            xaxis_title="Round", yaxis_title="%", template="plotly_white", height=420,
+            font=dict(family="Inter"), yaxis_range=[0, 105])
+        st.plotly_chart(fig_sc, width="stretch")
+        if contrib_rows:
+            st.dataframe(pd.DataFrame(contrib_rows), width="stretch", hide_index=True)
+        st.caption(
+            "**Survie vs contribution.** Un client peut être *vivant* (batterie > 0) sans "
+            "jamais *contribuer* (s'entraîner). Les méthodes de sélection (FedLE) préservent "
+            "la batterie des clients faibles en ne les sélectionnant pas : ils survivent mais "
+            "leur donnée n'entre jamais dans le modèle — une **survie « vide »**, écart "
+            "survie−contribution élevé. FedSTEP-EE garde les clients faibles *en train de "
+            "contribuer* (à profondeur réduite) : survie et contribution coïncident (écart ≈ 0). "
+            "C'est la comparaison équitable entre survie-par-sélection et survie-par-façonnage-du-calcul."
+        )
+
+    # ── Robustness, attacks and FAR diagnostics ──────────────────────────────
+    with tab_robust:
+        st.markdown(
+            "This view separates the **threat configured for the round** from "
+            "the **response of the aggregation rule**. Byzantine labels and "
+            "Byzantine weight mass are oracle diagnostics used only after training."
+        )
+
+        _attack_rows = []
+        for label, exp in experiments.items():
+            df = exp["df"]
+            if df.empty:
+                continue
+            last = df.iloc[-1]
+            _attack_rows.append(
+                {
+                    "Experiment": _short_graph_label(label),
+                    "Attack": last.get("attack_name", "not logged"),
+                    "Byzantine clients": last.get(
+                        "num_byzantine_oracle", last.get("far_num_byzantine_oracle", "—")
+                    ),
+                    "Byzantine fraction": (
+                        f"{100.0 * float(last['byzantine_fraction_oracle']):.1f}%"
+                        if pd.notna(last.get("byzantine_fraction_oracle"))
+                        else "—"
+                    ),
+                    "Robust reference": last.get(
+                        "robust_reference", last.get("robust_aggregator", "—")
+                    ),
+                }
+            )
+        if _attack_rows:
+            st.dataframe(pd.DataFrame(_attack_rows), width="stretch", hide_index=True)
+
+        _has_weights = any(
+            _has_round_metric(experiments, key)
+            for key in (
+                "max_client_weight",
+                "byzantine_weight_mass_oracle",
+                "effective_num_clients",
+                "weight_entropy",
+            )
+        )
+        _has_far_geometry = any(
+            _has_round_metric(experiments, key)
+            for key in ("far_mean_distance", "far_max_distance", "far_logit_range")
+        )
+        if _has_weights:
+            _rob_col1, _rob_col2 = st.columns(2)
+            with _rob_col1:
+                st.plotly_chart(
+                    _round_metric_figure(
+                        experiments,
+                        [
+                            ("max_client_weight", "Maximum client weight", 1.0),
+                            ("byzantine_weight_mass_oracle", "Byzantine weight mass", 1.0),
+                        ],
+                        title="Influence assigned by the aggregator",
+                        yaxis_title="Weight mass",
+                    ),
+                    width="stretch",
+                )
+                st.caption(
+                    "Maximum weight exposes concentration on one client. Byzantine weight "
+                    "mass is the total weight assigned to oracle-labelled attackers. It is "
+                    "an evaluation metric, not information available to FAR."
+                )
+            with _rob_col2:
+                st.plotly_chart(
+                    _round_metric_figure(
+                        experiments,
+                        [
+                            ("effective_num_clients", "Effective clients", 1.0),
+                            ("weight_entropy", "Weight entropy", 1.0),
+                        ],
+                        title="Weight diversity",
+                        yaxis_title="Diagnostic value",
+                    ),
+                    width="stretch",
+                )
+                st.caption(
+                    "Effective clients is exp(weight entropy). It equals n for uniform "
+                    "weights and approaches 1 when one client dominates. Entropy is shown "
+                    "alongside it as the underlying concentration statistic."
+                )
+
+        if _has_far_geometry:
+            _far_col1, _far_col2 = st.columns(2)
+            with _far_col1:
+                st.plotly_chart(
+                    _round_metric_figure(
+                        experiments,
+                        [
+                            ("far_mean_distance", "Mean distance", 1.0),
+                            ("far_max_distance", "Maximum distance", 1.0),
+                        ],
+                        title="Deviation from FAR's robust reference",
+                        yaxis_title="L2 distance",
+                    ),
+                    width="stretch",
+                )
+                st.caption(
+                    "Distances are computed between each client update and g_F, the output "
+                    "of the selected Byzantine-robust aggregation rule."
+                )
+            with _far_col2:
+                st.plotly_chart(
+                    _round_metric_figure(
+                        experiments,
+                        [
+                            ("far_logit_range", "FAR logit range", 1.0),
+                            ("far_weight_ratio", "Max/min weight ratio", 1.0),
+                        ],
+                        title="Exponential-tilting amplification",
+                        yaxis_title="Amplification diagnostic",
+                    ),
+                    width="stretch",
+                )
+                st.caption(
+                    "The logit range is alpha times the distance range. The max/min "
+                    "weight ratio is exp(logit range). Large values indicate concentrated "
+                    "tilting and motivate sensitivity-controlled FAR."
+                )
+
+        if not _has_weights and not _has_far_geometry:
+            st.info(
+                "No FAR/robustness diagnostics were recorded in the selected runs. "
+                "Run FAR or a Byzantine-robust reference with the updated logger."
+            )
+
+    # ── Differential privacy diagnostics ─────────────────────────────────────
+    with tab_privacy:
+        st.markdown(
+            "Privacy metrics are shown only when the algorithm logs a privacy "
+            "accountant. For FedFDP, epsilon is cumulative per client and includes "
+            "both the model-update channel and the private-loss channel."
+        )
+        _has_epsilon = any(
+            _has_round_metric(experiments, key)
+            for key in ("privacy_epsilon_max", "privacy_epsilon_mean")
+        )
+        if _has_epsilon:
+            _privacy_col1, _privacy_col2 = st.columns(2)
+            with _privacy_col1:
+                st.plotly_chart(
+                    _round_metric_figure(
+                        experiments,
+                        [
+                            ("privacy_epsilon_max", "Maximum epsilon", 1.0),
+                            ("privacy_epsilon_mean", "Mean epsilon", 1.0),
+                        ],
+                        title="Cumulative privacy loss",
+                        yaxis_title="Epsilon (lower is more private)",
+                    ),
+                    width="stretch",
+                )
+                st.caption(
+                    "Maximum epsilon is the conservative fleet-level report: it is the "
+                    "largest cumulative epsilon among participating clients at the chosen delta."
+                )
+            with _privacy_col2:
+                st.plotly_chart(
+                    _round_metric_figure(
+                        experiments,
+                        [
+                            ("fedfdp_clip_rate", "Gradient clip rate", 100.0),
+                            ("privacy_sampling_rate_mean", "Sampling rate", 100.0),
+                        ],
+                        title="Clipping and local sampling",
+                        yaxis_title="Rate (%)",
+                    ),
+                    width="stretch",
+                )
+                st.caption(
+                    "Clip rate is the fraction of sample gradients limited by the norm "
+                    "bound. Sampling rate is minibatch size divided by local dataset size."
+                )
+
+            _privacy_rows = []
+            for label, exp in experiments.items():
+                df = exp["df"]
+                valid = df[df["privacy_epsilon_max"].notna()] if "privacy_epsilon_max" in df.columns else df.iloc[0:0]
+                if valid.empty:
+                    continue
+                last = valid.iloc[-1]
+                _privacy_rows.append(
+                    {
+                        "Experiment": _short_graph_label(label),
+                        "epsilon max": f"{float(last['privacy_epsilon_max']):.4f}",
+                        "delta": (
+                            f"{float(last['privacy_delta']):.2e}"
+                            if pd.notna(last.get("privacy_delta"))
+                            else "—"
+                        ),
+                        "RDP order": (
+                            f"{float(last['privacy_best_order_mean']):.1f}"
+                            if pd.notna(last.get("privacy_best_order_mean"))
+                            else "—"
+                        ),
+                        "model sigma": last.get("privacy_model_noise_multiplier", "—"),
+                        "loss sigma": last.get("privacy_loss_noise_multiplier", "—"),
+                        "model steps (mean)": last.get("privacy_model_steps_mean", "—"),
+                        "loss clip": last.get("fedfdp_loss_clip_mean", "—"),
+                        "accounting assumption": last.get(
+                            "privacy_accounting_assumption", "—"
+                        ),
+                    }
+                )
+            if _privacy_rows:
+                st.dataframe(pd.DataFrame(_privacy_rows), width="stretch", hide_index=True)
+
+            if _has_round_metric(experiments, "fedfdp_global_private_loss"):
+                st.plotly_chart(
+                    _round_metric_figure(
+                        experiments,
+                        [("fedfdp_global_private_loss", "Private global loss", 1.0)],
+                        title="FedFDP private loss signal",
+                        yaxis_title="Noisy clipped loss",
+                    ),
+                    width="stretch",
+                )
+        else:
+            st.info(
+                "No formal privacy-accounting columns were found. A run without a "
+                "logged accountant must not be interpreted as having an epsilon guarantee."
             )
 
     # ── Summary Table ────────────────────────────────────────────────────────
@@ -2040,6 +2779,61 @@ elif page == "Results":
         )
         csv = summary_df.to_csv(index=False)
         st.download_button("Download CSV", csv, "fedlab_comparison.csv", "text/csv")
+
+        st.divider()
+        st.markdown("#### Round metric explorer")
+        st.caption(
+            "Plot any scalar stored in metrics.json. This keeps newly added algorithm "
+            "diagnostics visible without requiring another dashboard redesign."
+        )
+        _excluded_explorer = {
+            "round",
+            "round_num",
+            "t",
+            "evaluated_client_ids_oracle",
+            "client_accuracy_values_oracle",
+            "client_loss_values_oracle",
+        }
+        _numeric_metric_names = sorted(
+            {
+                column
+                for exp in experiments.values()
+                for column in exp["df"].columns
+                if column not in _excluded_explorer
+                and pd.api.types.is_numeric_dtype(exp["df"][column])
+            }
+        )
+        _default_explorer = [
+            key
+            for key in (
+                "test_accuracy",
+                "worst20_accuracy",
+                "max_client_weight",
+                "privacy_epsilon_max",
+            )
+            if key in _numeric_metric_names
+        ][:3]
+        _chosen_metrics = st.multiselect(
+            "Metrics to plot",
+            options=_numeric_metric_names,
+            default=_default_explorer,
+            key="round_metric_explorer",
+        )
+        if _chosen_metrics:
+            st.plotly_chart(
+                _round_metric_figure(
+                    experiments,
+                    [(key, key, 1.0) for key in _chosen_metrics],
+                    title="Selected round diagnostics",
+                    yaxis_title="Recorded value",
+                    height=460,
+                ),
+                width="stretch",
+            )
+        elif _numeric_metric_names:
+            st.info("Select one or more round metrics to plot.")
+        else:
+            st.info("No numeric round metrics were found in the selected runs.")
 
         # ── Fleet Lifetime Metrics ────────────────────────────────────────────
         st.divider()
@@ -2967,7 +3761,7 @@ elif page == "Compare Algorithms":
                 st.dataframe(pd.DataFrame(cs_cmp_rows), width="stretch", hide_index=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Page: SURVIVAL & FAIRNESS  (FedPartBE evaluation)
+# Page: SURVIVAL & FAIRNESS  (FedStep evaluation)
 # ─────────────────────────────────────────────────────────────────────────────
 
 elif page == "Survival & Fairness":
@@ -2977,7 +3771,7 @@ elif page == "Survival & Fairness":
       <div class="results-header-title">Survival &amp; Fairness Analysis</div>
       <div class="results-header-sub">
         System lifetime, client survival curves, energy fairness (Jain index),
-        and layer staleness — key metrics for FedPartBE evaluation.
+        and layer staleness — key metrics for FedStep evaluation.
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2986,7 +3780,7 @@ elif page == "Survival & Fairness":
         st.info("Run experiments with heterogeneous clients to use this page.")
         st.code(
             "python run_experiment.py --benchmark \\\n"
-            "    --algos fedavg,fedprox,fedpart,heterofl,fjord,fedpart_be \\\n"
+            "    --algos fedavg,fedprox,fedpart,heterofl,fjord,fedstep \\\n"
             "    --rounds 200 --clients 30 --alpha 0.5 \\\n"
             "    --output results/fedpartbe_comparison",
             language="bash"
@@ -3045,7 +3839,7 @@ elif page == "Survival & Fairness":
             # ── Per-algorithm color assignment (by label keyword matching) ─────
             _ALGO_COLORS = {
                 "fedavg":    "#ef4444",   # red
-                "fedpart_be": "#f97316",  # orange
+                "fedstep": "#f97316",  # orange
                 "fedpart":   "#06b6d4",   # cyan
                 "fedprox":   "#22c55e",   # green
                 "heterofl":  "#8b5cf6",   # purple
@@ -3154,9 +3948,9 @@ elif page == "Survival & Fairness":
                 "`survival_ratio` = clients with battery > 0 / total clients. "
                 "`num_alive_clients` is normalised by the max value when `survival_ratio` is absent. "
                 "Stars mark the round with the best test accuracy. "
-                "FedPartBE should maintain a flatter curve than FedPart by assigning "
+                "FedStep should maintain a flatter curve than FedPart by assigning "
                 "cheapest layer groups to low-battery clients. "
-                "Colors: red=FedAvg, cyan=FedPart, orange=FedPartBE, green=FedProx, purple=HeteroFL, brown=FjORD."
+                "Colors: red=FedAvg, cyan=FedPart, orange=FedStep, green=FedProx, purple=HeteroFL, brown=FjORD."
             )
 
             # ── Summary table ──────────────────────────────────────────────
@@ -3252,7 +4046,7 @@ elif page == "Survival & Fairness":
             "**Energy fairness (Jain index)** — measures how evenly energy is "
             "consumed across clients. Jain index = 1 → perfect fairness (all clients "
             "consume equally). Jain → 0 → extreme unfairness (few clients do all the work). "
-            "FedPartBE targets a higher Jain index than FedPart."
+            "FedStep targets a higher Jain index than FedPart."
         )
 
         has_jain = any("jain_index" in exp["df"].columns for exp in experiments_sf.values())
@@ -3340,7 +4134,7 @@ elif page == "Survival & Fairness":
                 margin=dict(r=200),
             )
             st.plotly_chart(fig_batt, width="stretch")
-            st.caption("A slower drain = more energy-efficient algorithm. FedPartBE should drain more slowly than FedPart on expensive groups.")
+            st.caption("A slower drain = more energy-efficient algorithm. FedStep should drain more slowly than FedPart on expensive groups.")
 
     # ── System Lifetime Table ─────────────────────────────────────────────────
     with tab_lifetime:
@@ -3735,7 +4529,7 @@ elif page == "σ² Estimator":
                 interp_msg = f"σ²={result.sigma2:.0f} est élevé → peu de tiers optimal. M*=1 signifie que FedPart standard (1 groupe/round) est optimal. La variance inter-client domine le staleness."
             elif m_star_int <= 3:
                 interp_color = "#d1fae5"
-                interp_msg = f"σ²={result.sigma2:.0f} → M*={m_star_int} tiers. Configuration favorable pour FedPartBE : les {m_star_int} tiers simultanés réduisent le staleness sans exploser la variance."
+                interp_msg = f"σ²={result.sigma2:.0f} → M*={m_star_int} tiers. Configuration favorable pour FedStep : les {m_star_int} tiers simultanés réduisent le staleness sans exploser la variance."
             else:
                 interp_color = "#fee2e2"
                 interp_msg = f"σ²={result.sigma2:.0f} est faible (données peu hétérogènes) → M*={m_star_int} tiers. Risque : K/M={result.num_clients}/{m_star_int}={result.num_clients//m_star_int} clients/tier, gradient bruité."

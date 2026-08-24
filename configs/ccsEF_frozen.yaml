@@ -8,12 +8,12 @@
 #   → comportement proche FedPart + EF sur groupe actif uniquement
 #
 # Objectif : améliorer la survie en réduisant E_comp
-#   local_epochs=3 + freeze_secondary → E_round ≈ FedPartBE
+#   local_epochs=3 + freeze_secondary → E_round ≈ FedStep
 #
 # Comparaison :
 #   ccsEF_soc_wide.yaml    : full backward, local_epochs=3, EF g1+g2
 #   ccsEF_frozen.yaml      : partial backward (primary only), local_epochs=3
-#   algo_comparison.yaml   : référence pour FedPartBE, E-CEFFL, FedPart
+#   algo_comparison.yaml   : référence pour FedStep, E-CEFFL, FedPart
 #
 # Usage
 # ─────

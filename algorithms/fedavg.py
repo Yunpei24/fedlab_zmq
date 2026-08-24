@@ -51,8 +51,11 @@ class FedAvg(FLAlgorithm):
         criterion = nn.CrossEntropyLoss()
 
         total_loss, num_batches = 0.0, 0
+        max_local_batches = config.get("max_local_batches")
         for _ in range(local_epochs):
-            for x, y in dataloader:
+            for batch_idx, (x, y) in enumerate(dataloader):
+                if max_local_batches is not None and batch_idx >= int(max_local_batches):
+                    break
                 x, y = x.to(device), y.to(device)
                 optimizer.zero_grad()
                 loss = criterion(model(x), y)
@@ -116,6 +119,7 @@ class FedAvg(FLAlgorithm):
             "bytes_received": downlink_bytes,
             "local_loss": total_loss / max(num_batches, 1),
             "compression_ratio": 1.0,
+            "dataset_size": len(dataloader.dataset),
         }
         return dict(delta), metadata
 
@@ -123,37 +127,27 @@ class FedAvg(FLAlgorithm):
         K = len(client_updates)
         global_sd = global_model.state_dict()
 
-        # Dataset-size weights for BN aggregation (FedAvg proper weighting)
+        # Dataset-size weights for FedAvg proper weighting.  Earlier versions
+        # computed these weights but accidentally averaged model deltas
+        # uniformly; keeping one weighted accumulator avoids that discrepancy.
         sizes = [m.get("dataset_size", 1) for _, m, _ in client_updates]
         total_n = max(sum(sizes), 1)
 
         agg = None
-        agg_bn: dict = {}
         for (update, meta, _), n_k in zip(client_updates, sizes):
             w_k = n_k / total_n
             if agg is None:
-                agg = {k: v.clone().float() for k, v in update.items()}
+                agg = {k: v.clone().float() * w_k for k, v in update.items()}
             else:
                 for k in agg:
-                    agg[k] += update[k].float()
-            # Weighted BN accumulation (separate pass)
-            for k, v in update.items():
-                if k.endswith((".running_mean", ".running_var")):
-                    if k not in agg_bn:
-                        agg_bn[k] = v.clone().float() * w_k
-                    else:
-                        agg_bn[k] += v.float() * w_k
+                    agg[k] += update[k].float() * w_k
 
         new_weights = OrderedDict(
             {
-                k: global_sd[k].float() - (agg[k] / K).to(global_sd[k].device)
+                k: global_sd[k].float() - agg[k].to(global_sd[k].device)
                 for k in global_sd
             }
         )
-        # Override BN running stats with dataset-size-weighted average
-        for k, v in agg_bn.items():
-            if k in new_weights:
-                new_weights[k] = global_sd[k].float() - v.to(global_sd[k].device)
         del agg
         gc.collect()
         total_bytes = sum(m["bytes_sent"] for _, m, _ in client_updates)
@@ -190,4 +184,6 @@ class FedAvg(FLAlgorithm):
             "batch_size": 32,
             "device": "cpu",
             "device_profile": None,
+            # Diagnostic/smoke-test limit. Leave None for real experiments.
+            "max_local_batches": None,
         }

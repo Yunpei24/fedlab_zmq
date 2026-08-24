@@ -43,7 +43,7 @@
 #   So we keep the realistic ESP32-S3 device and set E=1. The collapse on a
 #   weak device under measured is physical truth; we expose a readable survival
 #   curve by lightening the per-round workload, not by un-physically lowering
-#   alpha. The FedPart-vs-FedPartBE diagnostic confirms tens-of-rounds survival
+#   alpha. The FedPart-vs-FedStep diagnostic confirms tens-of-rounds survival
 #   in this scenario BEFORE the full grid.
 # =====================================================================
 
@@ -66,7 +66,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be     # overridden per run by the grid
+  algorithm: fedstep     # overridden per run by the grid
   algo_config:
     lr: 0.01
     momentum: 0.9

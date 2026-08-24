@@ -63,8 +63,7 @@ sys.path.insert(0, str(ROOT))
 # import algorithms.fedpart_universal     # noqa
 # import algorithms.heterofl              # noqa
 # import algorithms.fjord                 # noqa
-import algorithms.fed_resonance  # noqa
-import algorithms.fedavg  # noqa — trigger @register_algorithm
+import algorithms  # noqa: F401 — load every registered algorithm once
 
 # import algorithms.eceffl           # noqa
 # import algorithms.leanfed          # noqa
@@ -73,19 +72,18 @@ import algorithms.fedavg  # noqa — trigger @register_algorithm
 # import algorithms.fedsparq         # noqa
 # import algorithms.fedprox          # noqa
 # import algorithms.scaffold         # noqa
-import algorithms.fedpart  # noqa
-import algorithms.fedpart_be  # noqa
 
 # import algorithms.fed_grad_align        # noqa
 # import algorithms.fed_resonance_osmosis # noqa
 # import algorithms.fed_resonance_plus    # noqa
-import algorithms.server_mask_fl  # noqa
+from attacks import apply_configured_attack
 from algorithms.base import ClientState, get_algorithm, list_algorithms
 from core.seeding import seed_everything
 from datasets.registry import get_dataloader, INPUT_SHAPE
 from diagnostics.layer_mismatch import LayerMismatchDiagnostic
 from hardware.profiles import make_fleet
 from models.registry import get_model
+from metrics.client_fairness import evaluate_client_loaders
 
 # import algorithms.fedmask               # noqa
 # import algorithms.hermes                # noqa
@@ -107,22 +105,46 @@ DEFAULT_FLEET = [
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def evaluate_global_model(model, test_loader, device: str) -> tuple[float, float]:
-    """Evaluate accuracy and loss on test set."""
+def evaluate_global_model(
+    model, test_loader, device: str
+) -> tuple[float, float, dict[int, float] | None]:
+    """Evaluate accuracy and loss on test set.
+
+    Returns (final_accuracy, final_loss, per_exit_accuracy). For multi-exit
+    models (forward_all_exits) a single full forward scores every exit head;
+    accuracy/loss keep their usual meaning (final head), and per_exit_accuracy
+    maps exit_k -> top-1 accuracy of the model truncated at that exit — the
+    accuracy a device deploying only the depth-k prefix would get at inference.
+    None for single-exit models.
+    """
     model.eval()
     criterion = torch.nn.CrossEntropyLoss()
+    multi_exit = hasattr(model, "forward_all_exits")
     correct, total, tloss = 0, 0, 0.0
+    exit_correct: dict[int, int] = {}
 
     with torch.no_grad():
         for x, y in test_loader:
             x, y = x.to(device), y.to(device)
-            out = model(x)
+            if multi_exit:
+                outs = model.forward_all_exits(x)
+                final_k = max(outs)
+                out = outs[final_k]
+                for k, logits in outs.items():
+                    exit_correct[k] = (
+                        exit_correct.get(k, 0) + (logits.argmax(1) == y).sum().item()
+                    )
+            else:
+                out = model(x)
             tloss += criterion(out, y).item() * y.size(0)
             correct += (out.argmax(1) == y).sum().item()
             total += y.size(0)
 
     model.train()
-    return correct / total, tloss / total
+    per_exit = (
+        {k: c / total for k, c in sorted(exit_correct.items())} if multi_exit else None
+    )
+    return correct / total, tloss / total, per_exit
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -185,6 +207,7 @@ def run_single_experiment(
     min_clients: int = 1,
     battery_dist: str = "gaussian",
     battery_params: Optional[dict] = None,
+    class_arrival: Optional[dict] = None,
 ) -> dict:
     """
     Run a single FL experiment in-process (no ZMQ).
@@ -202,6 +225,17 @@ def run_single_experiment(
     algo = get_algorithm(algo_name)
     default_cfg = algo.get_default_config()
     merged_config = {**default_cfg, **algo_config, "device": device}
+    # Make an implicit Byzantine set persistent across sampled rounds.  FAR
+    # evaluates fairness over honest clients, so the same IDs are also used as
+    # an oracle exclusion mask during evaluation (never during training).
+    attack_cfg = merged_config.get("attack")
+    if attack_cfg and attack_cfg.get("enabled", True):
+        attack_cfg = dict(attack_cfg)
+        if attack_cfg.get("client_ids") is None:
+            attack_cfg["client_ids"] = list(
+                range(min(int(attack_cfg.get("num_byzantine", 0)), num_clients))
+            )
+        merged_config["attack"] = attack_cfg
     # Dummy-input shape for the measured-cost FLOP estimator (hardware/flop_cost.py).
     # Without this it defaults to CIFAR (1,3,32,32) and crashes on grayscale/odd-size
     # datasets (e.g. femnist 1×28×28, tiny_imagenet 3×64×64).
@@ -276,6 +310,12 @@ def run_single_experiment(
     fleet = fleet[:num_clients]
 
     # ── Client dataloaders ───────────────────────────────────────────────────
+    client_metrics_every = int(merged_config.get("client_metrics_every", 0))
+    # Reproduction protocols sometimes keep one fixed non-IID partition while
+    # varying only optimiser/model randomness across seeds.  Separating the two
+    # seeds makes that choice explicit instead of relying on hidden notebook
+    # state.  Paper-grade studies should also run a partition-resampled lane.
+    partition_seed = int(merged_config.get("partition_seed", seed))
     client_loaders = []
     for cid in range(num_clients):
         loader = get_dataloader(
@@ -286,10 +326,101 @@ def run_single_experiment(
             num_clients=num_clients,
             alpha=alpha,
             batch_size=batch_size,
-            seed=seed,
+            seed=partition_seed,
             data_root=data_root,
+            matched_dirichlet=client_metrics_every > 0,
         )
         client_loaders.append(loader)
+
+    # Fairness is a distribution across clients, not the accuracy on one pooled
+    # IID test set.  Build matching held-out shards only when requested by the
+    # algorithm/config because evaluating all clients can be expensive.
+    client_test_loaders = []
+    if client_metrics_every > 0:
+        for cid in range(num_clients):
+            client_test_loaders.append(
+                get_dataloader(
+                    dataset_name=dataset,
+                    split="test",
+                    partition=partition,
+                    client_id=cid,
+                    num_clients=num_clients,
+                    alpha=alpha,
+                    batch_size=int(merged_config.get("client_eval_batch_size", 256)),
+                    seed=partition_seed,
+                    data_root=data_root,
+                    partition_test=True,
+                    matched_dirichlet=True,
+                )
+            )
+
+    # ── E7: class-arrival protocol (federated class-incremental) ─────────────
+    # class_arrival = {enabled, warm_classes, onset_gap, delay_max}: class c
+    # exists in the WORLD from round tau_c on (staggered global onsets, shuffled
+    # per seed); client i discovers it at t[i][c] = tau_c + delta_ic (individual
+    # uniform delay). Data is CUMULATIVE: the visible train set at round t is
+    # everything discovered so far. The arrival matrix is drawn from the seed so
+    # every algorithm faces the IDENTICAL discovery calendar. On top of a
+    # Dirichlet partition, a class is only ever discoverable by its partition
+    # holders — deaths can then permanently extinguish a class.
+    _arr = None
+    if class_arrival and class_arrival.get("enabled", False):
+        _arr_rng = np.random.RandomState(seed + 777)
+        _n_classes = {"cifar10": 10, "cifar100": 100}.get(dataset, 10)
+        _warm = int(class_arrival.get("warm_classes", 2))
+        _gap = int(class_arrival.get("onset_gap", 20))
+        _dmax = int(class_arrival.get("delay_max", 30))
+        _order = _arr_rng.permutation(_n_classes)
+        _tau = np.zeros(_n_classes, dtype=int)
+        for _rank, _c in enumerate(_order):
+            _tau[_c] = 0 if _rank < _warm else (_rank - _warm + 1) * _gap
+        _delay = _arr_rng.randint(0, _dmax + 1, size=(num_clients, _n_classes))
+        _t_arr = _tau[None, :] + _delay
+        _class_idx = []
+        for _cid in range(num_clients):
+            _ds = client_loaders[_cid].dataset
+            _base = _ds.dataset if hasattr(_ds, "dataset") else _ds
+            _tgt = np.asarray(
+                getattr(_base, "targets", getattr(_base, "labels", None))
+            ).reshape(-1)
+            _idxs = (
+                np.asarray(_ds.indices)
+                if hasattr(_ds, "indices")
+                else np.arange(len(_ds))
+            )
+            _labels = _tgt[_idxs]
+            _class_idx.append({c: _idxs[_labels == c] for c in range(_n_classes)})
+        _arr = {"tau": _tau, "t": _t_arr, "groups": _class_idx}
+        if verbose:
+            print(
+                f"  Class arrival: warm={_warm}, gap={_gap}, delay_max={_dmax}"
+                f" | onsets={sorted(_tau.tolist())}"
+            )
+
+    from torch.utils.data import DataLoader as _ArrDL, Subset as _ArrSubset
+
+    def _visible_loader(cid: int, rnd: int):
+        """Round-dependent loader under class arrival; the static loader
+        otherwise. None = client has not discovered any data yet (skips the
+        round without spending energy)."""
+        if _arr is None:
+            return client_loaders[cid]
+        vis = [
+            g
+            for c, g in _arr["groups"][cid].items()
+            if len(g) and _arr["t"][cid][c] <= rnd
+        ]
+        if not vis:
+            return None
+        idx = np.concatenate(vis).tolist()
+        base = client_loaders[cid].dataset
+        base = base.dataset if hasattr(base, "dataset") else base
+        return _ArrDL(
+            _ArrSubset(base, idx),
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=0,
+        )
 
     # ── Client states ─────────────────────────────────────────────────────────
     client_states = [
@@ -382,7 +513,15 @@ def run_single_experiment(
             model_before_agg.to(device)
 
         # Build per-round algo config (include server state for SCAFFOLD etc.)
-        round_config = {**merged_config, **server_algo_state}
+        # _server_round/_total_rounds: additive keys for round-indexed client
+        # schedules (e.g. lr_schedule="cosine" in fedstep). Algos that don't
+        # read them are unaffected.
+        round_config = {
+            **merged_config,
+            **server_algo_state,
+            "_server_round": t,
+            "_total_rounds": num_rounds,
+        }
 
         # ── Client selection ───────────────────────────────────────────────
         if _do_sampling:
@@ -405,16 +544,19 @@ def run_single_experiment(
         agg_result = None
 
         # ── run_round() hook: algorithms with 2-phase / custom round logic ───
-        # Algorithms implementing run_round() (e.g. FedPartBE-LoRA-GS with ASSC)
+        # Algorithms implementing run_round() (e.g. FedStep-LoRA-GS with ASSC)
         # handle client training + aggregation internally.  The hook provides
         # alive_clients as a list of (cid, loader, state, profile) tuples and
         # receives back (AggregateResult, client_tuples, train_times).
         if hasattr(algo, "run_round"):
-            alive_clients_info = [
-                (cid, client_loaders[cid], client_states[cid], fleet[cid])
-                for cid in selected_ids
-                if client_states[cid].battery_j > 0.0
-            ]
+            alive_clients_info = []
+            for cid in selected_ids:
+                if client_states[cid].battery_j <= 0.0:
+                    continue
+                _ldr = _visible_loader(cid, t)
+                if _ldr is None:
+                    continue
+                alive_clients_info.append((cid, _ldr, client_states[cid], fleet[cid]))
             if alive_clients_info:
                 _client_model.load_state_dict(global_sd_snapshot)
                 _rr_agg, client_tuples, client_train_times = algo.run_round(
@@ -440,6 +582,11 @@ def run_single_experiment(
                 if client_states[cid].battery_j <= 0.0:
                     continue
 
+                # Class arrival: no discovered data yet → skip, no energy spent
+                _cid_loader = _visible_loader(cid, t)
+                if _cid_loader is None:
+                    continue
+
                 # Reset reusable client model to current global weights.
                 _client_model.load_state_dict(global_sd_snapshot)
 
@@ -449,7 +596,7 @@ def run_single_experiment(
                 _t_client = time.time()
                 update, metadata = algo.client_update(
                     model=_client_model,
-                    dataloader=client_loaders[cid],
+                    dataloader=_cid_loader,
                     state=client_states[cid],
                     config=client_config,
                 )
@@ -473,7 +620,7 @@ def run_single_experiment(
                         {k: v.clone() for k, v in _client_model.state_dict().items()}
                     )
                     client_models_before_agg.append(client_model_copy)
-                    participated_loaders.append(client_loaders[cid])
+                    participated_loaders.append(_cid_loader)
 
                 del client_config
 
@@ -529,6 +676,12 @@ def run_single_experiment(
 
         # ── Server aggregation (skipped when run_round() already did it) ───
         if agg_result is None:
+            # Experimental attacker controller. Oracle Byzantine identities are
+            # visible only here and in evaluation metadata, never to an honest
+            # aggregation rule unless that rule explicitly consumes them.
+            client_tuples = apply_configured_attack(
+                client_tuples, round_config.get("attack")
+            )
             agg_result = algo.server_aggregate(
                 global_model=global_model,
                 client_updates=client_tuples,
@@ -540,15 +693,17 @@ def run_single_experiment(
             )
             del agg_result.new_weights
 
-        # Save participant count before freeing client_tuples (used in metrics).
+        # Save participant count and oracle attack telemetry before freeing
+        # client_tuples.  The attack labels are evaluation-only: algorithms
+        # must not consume them to choose an aggregate.
         _num_participated = len(client_tuples)
+        from metrics.robustness import attack_diagnostics
+        _attack_metrics = attack_diagnostics(client_tuples)
         # Energy breakdown summed across participants (before client_tuples freed).
         round_compute_e = sum(
             m.get("energy_compute_j", 0.0) for _, m, _ in client_tuples
         )
-        round_uplink_e = sum(
-            m.get("energy_uplink_j", 0.0) for _, m, _ in client_tuples
-        )
+        round_uplink_e = sum(m.get("energy_uplink_j", 0.0) for _, m, _ in client_tuples)
         round_downlink_e = sum(
             m.get("energy_downlink_j", 0.0) for _, m, _ in client_tuples
         )
@@ -614,8 +769,30 @@ def run_single_experiment(
         if c_global_update:
             server_algo_state["scaffold_c_global"] = c_global_update
 
+        state_updates = agg_result.metrics.pop("_server_state_updates", None)
+        if state_updates:
+            server_algo_state.update(state_updates)
+
         # ── Evaluate ───────────────────────────────────────────────────────
-        acc, loss = evaluate_global_model(global_model, test_loader, device)
+        acc, loss, per_exit_acc = evaluate_global_model(
+            global_model, test_loader, device
+        )
+        fairness_metrics = {}
+        if client_metrics_every > 0 and (
+            t % client_metrics_every == 0 or t == num_rounds - 1
+        ):
+            fairness_metrics = evaluate_client_loaders(
+                global_model,
+                client_test_loaders,
+                device,
+                max_batches=merged_config.get("client_eval_max_batches"),
+                tail_fraction=float(merged_config.get("fairness_tail_fraction", 0.2)),
+                client_ids=list(range(num_clients)),
+                exclude_client_ids=set(
+                    merged_config.get("attack", {}).get("client_ids", [])
+                ),
+                client_sample_counts=[len(loader.dataset) for loader in client_loaders],
+            )
 
         # ── Metrics ────────────────────────────────────────────────────────
         agg_m = agg_result.metrics
@@ -674,7 +851,7 @@ def run_single_experiment(
             # needed to complete one full model update cycle.
             "sim_round_time_s": sim_round_time,
             "cumulative_sim_time_s": cumulative_sim_time_s,
-            # ── Survival tracking (for FedPartBE paper) ───────────────────
+            # ── Survival tracking (for FedStep paper) ───────────────────
             "num_alive_clients": sum(1 for cs in client_states if cs.battery_j > 0),
             "survival_ratio": sum(1 for cs in client_states if cs.battery_j > 0)
             / num_clients,
@@ -682,9 +859,45 @@ def run_single_experiment(
                 "num_partitions", algo_config.get("num_partitions", 1)
             ),
         }
+        round_metrics.update(fairness_metrics)
+        round_metrics.update(_attack_metrics)
+        # ── Class-arrival telemetry: coverage + living holders per class ────
+        # arrival_extinct_classes counts world-visible classes whose living
+        # discovered holders dropped to ZERO — the permanent-loss event the
+        # E7 protocol is designed to expose.
+        if _arr is not None:
+            _holders = []
+            for c in range(len(_arr["tau"])):
+                if _arr["tau"][c] <= t:
+                    _holders.append(
+                        sum(
+                            1
+                            for cid in range(num_clients)
+                            if client_states[cid].battery_j > 0
+                            and _arr["t"][cid][c] <= t
+                            and len(_arr["groups"][cid][c]) > 0
+                        )
+                    )
+            round_metrics["arrival_visible_classes"] = int((_arr["tau"] <= t).sum())
+            round_metrics["arrival_min_holders"] = min(_holders) if _holders else 0
+            round_metrics["arrival_extinct_classes"] = sum(
+                1 for h in _holders if h == 0
+            )
+        if per_exit_acc is not None:
+            # Flat keys (exit_acc_1, ...) keep the CSV/aggregation pipeline
+            # schema-free: absent for single-exit models.
+            for k, a in per_exit_acc.items():
+                round_metrics[f"exit_acc_{k}"] = a
         if diagnostic is not None:
             # None when freq > 1 and this round was skipped.
             round_metrics["layer_mismatch"] = mismatch_score
+        # Algorithm-specific extras worth persisting (additive; absent keys
+        # cost nothing). exit_histogram/exit_mode: FedStep-EE telemetry.
+        for _extra, _value in agg_m.items():
+            if _extra.startswith("_") or _extra in round_metrics:
+                continue
+            if isinstance(_value, (str, int, float, bool)) or _value is None:
+                round_metrics[_extra] = _value
         rounds_log.append(round_metrics)
 
         # Periodic GC: Python's allocator does not return freed memory to the OS
@@ -700,6 +913,9 @@ def run_single_experiment(
                 f"Bytes={total_bytes/1e6:5.1f}MB | E={total_energy:6.1f}J | "
                 f"J={_jain_all:.3f}"
             )
+            if per_exit_acc is not None:
+                exits_str = "/".join(f"{a*100:.1f}" for a in per_exit_acc.values())
+                output_str += f" | Ex={exits_str}%"
             if diagnostic is not None:
                 lm_str = f"{mismatch_score:.3f}" if mismatch_score is not None else "—"
                 output_str += f" | LM={lm_str}"
@@ -766,6 +982,22 @@ def run_single_experiment(
             f"SimTime={summary['total_sim_time_s']:.0f}s"
         )
 
+    # Class-arrival calendar (E7): persisted for post-hoc analysis (per-class
+    # recall vs onset, extinction accounting). Small: C ints + N×C ints.
+    if _arr is not None:
+        summary["class_arrival"] = {
+            "tau": _arr["tau"].tolist(),
+            "t_matrix": _arr["t"].tolist(),
+        }
+
+    # Final global model checkpoint (~300 KB for ResNet-8) — enables post-hoc
+    # analyses that need weights (CCVR-style head recalibration, per-exit
+    # probing) without re-running training. Stored next to metrics.json by
+    # the caller via summary["_final_state_dict"] (stripped before JSON).
+    summary["_final_state_dict"] = {
+        k: v.cpu() for k, v in global_model.state_dict().items()
+    }
+
     # Compact, JSON-safe snapshot of final client states — consumed by the
     # survival metrics module post-run. Keeps the tensor-bearing ClientState
     # objects out of the returned (and serialized) result.
@@ -778,6 +1010,11 @@ def run_single_experiment(
                 if isinstance(cs.custom, dict) and "death_round" in cs.custom
                 else None
             ),
+            # n_contributions: number of rounds this client actually trained
+            # (state.round_num is incremented on every local update). Enables
+            # the per-client contribution / starvation distribution — the fair
+            # "survival = still contributing" metric vs mere "battery > 0".
+            "n_contributions": int(getattr(cs, "round_num", 0)),
         }
         for cs in client_states
     ]
@@ -817,7 +1054,7 @@ def run_benchmark(args):
         ("heterofl", {}),
         ("fjord", {}),
         ("fedpart", {"rounds_per_layer": 2, "training_cycles": 5, "warmup_rounds": 5}),
-        ("fedpart_be", {"num_tiers": 3, "mu_repr": 0.1, "warmup_rounds": 5}),
+        ("fedstep", {"num_tiers": 3, "mu_repr": 0.1, "warmup_rounds": 5}),
         ("fedmask", {"beta_min": 0.1, "beta_max": 0.5, "warmup_rounds": 5}),
         ("hermes", {"beta_min": 0.1, "beta_max": 0.5, "warmup_rounds": 5}),
     ]
@@ -906,6 +1143,9 @@ def run_benchmark(args):
     for algo_name, result in all_results.items():
         algo_dir = out_dir / algo_name
         algo_dir.mkdir(exist_ok=True)
+        _sd = result.get("summary", {}).pop("_final_state_dict", None)
+        if _sd is not None:
+            torch.save(_sd, algo_dir / "final_model.pt")
         with open(algo_dir / "metrics.json", "w") as f:
             json.dump(result, f, indent=2)
         print(f"Saved: {algo_dir}/metrics.json")
@@ -1086,9 +1326,11 @@ Examples:
         "then auto-detects (MPS > CUDA > CPU).",
     )
     p.add_argument(
-        "--seed", type=int, default=None,
+        "--seed",
+        type=int,
+        default=None,
         help="Random seed. When given, OVERRIDES the YAML 'seed' field "
-             "(falls back to YAML seed, then 42, if omitted).",
+        "(falls back to YAML seed, then 42, if omitted).",
     )
     p.add_argument(
         "--output",
@@ -1224,6 +1466,7 @@ Examples:
         num_clients = cfg["clients"]["num_clients"]
         alpha = cfg["data"].get("alpha", 0.5)
         partition = cfg["data"].get("partition", "dirichlet")
+        class_arrival = cfg["data"].get("class_arrival")
         batch_size = algo_config.get("batch_size", 32)
         # CLI --seed (when provided) overrides the YAML seed, so a multi-seed
         # harness (--config X.yaml --seed 43) actually varies the seed.
@@ -1248,6 +1491,7 @@ Examples:
         layer_mismatch_max_clients_cka = int(_lm_cfg.get("max_clients_cka", 8))
     else:
         algo_name = args.algo or "fedavg"
+        class_arrival = None
         algo_config = {
             "lr": args.lr,
             "local_epochs": args.epochs if args.epochs is not None else 1,
@@ -1320,11 +1564,7 @@ Examples:
 
     # ── alpha_applies_to (compute-only vs total) ─────────────────────────────
     # Precedence: CLI > YAML algo_config.alpha_applies_to > "compute".
-    _applies = (
-        args.alpha_applies_to
-        or algo_config.get("alpha_applies_to")
-        or "compute"
-    )
+    _applies = args.alpha_applies_to or algo_config.get("alpha_applies_to") or "compute"
     algo_config["alpha_applies_to"] = _applies
     if _applies != "compute":
         print(f"  alpha_applies_to: {_applies!r} (legacy — alpha scales total energy)")
@@ -1365,6 +1605,7 @@ Examples:
         min_clients=min_clients,
         battery_dist=battery_dist,
         battery_params=battery_params,
+        class_arrival=class_arrival,
     )
 
     # Save results
@@ -1427,6 +1668,13 @@ Examples:
         print(f"  Survival CSV: {out_dir}/survival.csv")
     except Exception as exc:
         print(f"  [warn] survival metrics skipped: {exc}")
+
+    # Final model checkpoint (torch format, stripped from the JSON) — see
+    # summary["_final_state_dict"] producer in run_algorithm.
+    _sd = result.get("summary", {}).pop("_final_state_dict", None)
+    if _sd is not None:
+        torch.save(_sd, out_dir / "final_model.pt")
+        print(f"  Model checkpoint: {out_dir}/final_model.pt")
 
     with open(out_dir / "metrics.json", "w") as f:
         json.dump(result, f, indent=2, default=str)

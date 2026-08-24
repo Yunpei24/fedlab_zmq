@@ -1,7 +1,7 @@
 # ============================================================
 # COMPARISON — FedPart  (Partial Training, No Battery Awareness)
 # Layer-group rotation without battery adaptation.
-# Ablation: shows battery-adaptive assignment (FedPartBE/Server-Mask)
+# Ablation: shows battery-adaptive assignment (FedStep/Server-Mask)
 # is necessary — raw layer rotation doesn't help survival.
 # ============================================================
 seed: 42

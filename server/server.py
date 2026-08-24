@@ -45,19 +45,12 @@ from core.protocol import (
     msg_registered, msg_train_req, msg_eval_result, msg_shutdown,
     tensors_to_bytes, bytes_to_tensors,
 )
-from server.aggregators import fedavg_aggregate
+from attacks import apply_configured_attack
 from models.registry import get_model
 from datasets.registry import get_dataloader
 from algorithms.base import get_algorithm, ClientState
 
-import algorithms.fedavg    # noqa — trigger @register_algorithm
-import algorithms.eceffl    # noqa
-import algorithms.leanfed   # noqa
-import algorithms.fedbacys  # noqa
-import algorithms.vaishnav  # noqa
-import algorithms.fedsparq  # noqa
-import algorithms.fedprox   # noqa
-import algorithms.scaffold  # noqa
+import algorithms  # noqa: F401 — load the central registry
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -218,6 +211,12 @@ class FedLabServer:
             # ── b. Broadcast TRAIN_REQ to all workers via PUB ──────────────
             # Small delay to ensure SUB sockets receive (PUB is fire-and-forget)
             time.sleep(0.05)
+            round_algo_config = {
+                **algo_config,
+                **self.algo_state,
+                "_server_round": t,
+                "_total_rounds": CFG["num_rounds"],
+            }
             train_msg = msg_train_req(
                 round_num=t,
                 weights_bytes=weights_bytes,
@@ -226,7 +225,7 @@ class FedLabServer:
                     for cid, state in self.client_states.items()
                 },
                 algo_name=CFG["algorithm"],
-                algo_config=algo_config,
+                algo_config=round_algo_config,
                 hyperparams={
                     "lr": CFG["lr"],
                     "local_epochs": CFG["local_epochs"],
@@ -274,7 +273,12 @@ class FedLabServer:
                 algo_client_tuples.append((update_tensors, upd["metadata"], c_state))
 
             # Build algo config including server-level state (e.g. SCAFFOLD c_global)
-            agg_config = {**algo_config, **self.algo_state}
+            agg_config = round_algo_config
+            algo_client_tuples = apply_configured_attack(
+                algo_client_tuples, agg_config.get("attack")
+            )
+            from metrics.robustness import attack_diagnostics
+            attack_metrics = attack_diagnostics(algo_client_tuples)
 
             # Use algorithm's server_aggregate() — fixes the critical bug
             # where fedavg_aggregate() was always used regardless of algorithm
@@ -292,6 +296,9 @@ class FedLabServer:
             c_global_update = agg_result.metrics.pop("_scaffold_c_global_update", None)
             if c_global_update:
                 self.algo_state["scaffold_c_global"] = c_global_update
+            state_updates = agg_result.metrics.pop("_server_state_updates", None)
+            if state_updates:
+                self.algo_state.update(state_updates)
 
             # ── e. Evaluate ───────────────────────────────────────────────
             acc, loss = self._evaluate()
@@ -317,6 +324,12 @@ class FedLabServer:
                 "num_clients":        K,
                 "elapsed_s":          elapsed,
             }
+            metrics.update(attack_metrics)
+            for key, value in agg_m.items():
+                if key.startswith("_") or key in metrics:
+                    continue
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    metrics[key] = value
             self.metrics_log.append(metrics)
 
             print(f"[Server]   Acc={acc*100:.2f}% | Loss={loss:.4f} | "

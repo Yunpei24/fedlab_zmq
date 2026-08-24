@@ -50,14 +50,7 @@ from models.registry import get_model
 from datasets.registry import get_dataloader
 from hardware.profiles import DEVICE_PROFILES
 
-import algorithms.fedavg    # noqa
-import algorithms.eceffl    # noqa
-import algorithms.leanfed   # noqa
-import algorithms.fedbacys  # noqa
-import algorithms.vaishnav  # noqa
-import algorithms.fedsparq  # noqa
-import algorithms.fedprox   # noqa
-import algorithms.scaffold  # noqa
+import algorithms  # noqa: F401 — load the central registry
 
 
 # ─────────────────────────────────────────────────────────────────────────────

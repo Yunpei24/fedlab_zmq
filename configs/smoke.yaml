@@ -10,7 +10,7 @@
 #   python run_experiment.py --config configs/smoke.yaml
 #
 # Expected: completes in well under a minute on a laptop CPU and creates
-#   results/smoke/fedpart_be_cifar10_resnet8_dirichlet_ncl3_r3_s42/
+#   results/smoke/fedstep_cifar10_resnet8_dirichlet_ncl3_r3_s42/
 #     ├── metrics.json
 #     ├── manifest.json
 #     └── survival.csv
@@ -35,7 +35,7 @@ model:
 
 training:
   num_rounds: 3
-  algorithm: fedpart_be
+  algorithm: fedstep
   algo_config:
     lr: 0.01
     momentum: 0.9

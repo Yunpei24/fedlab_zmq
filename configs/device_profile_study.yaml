@@ -47,7 +47,7 @@ profiles:
 algos:
   - fedavg
   - fedpart
-  - fedpart_be
+  - fedstep
   - fed_resonance
   - server_mask
 
@@ -81,7 +81,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be     # overridden per run by the driver
+  algorithm: fedstep     # overridden per run by the driver
   algo_config:
     lr: 0.01
     momentum: 0.9

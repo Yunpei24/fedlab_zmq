@@ -1,7 +1,7 @@
 """
 scripts/validate_flop_model.py
 ==============================
-Compare the analytic FLOP model used by FedPart/FedPartBE against measured
+Compare the analytic FLOP model used by FedPart/FedStep against measured
 FLOPs obtained from torch.utils.flop_counter.FlopCounterMode.
 
 For ResNet-8 on 3x32x32 inputs with batch=32, for each layer group g:
@@ -171,7 +171,7 @@ def main() -> None:
         "  When ranking by 'analytic', the same shallow groups appear cheap — this is the"
     )
     print(
-        "  flaw that the 1/3 + 2/3*phi formula introduces, and the reason FedPartBE adds a"
+        "  flaw that the 1/3 + 2/3*phi formula introduces, and the reason FedStep adds a"
     )
     print("  corrected-cost formula on top of it for tier assignment.")
     print()

@@ -249,7 +249,7 @@ def _build_m_star_table(r: GradVarianceResult) -> list[dict]:
 
 def _cli():
     parser = argparse.ArgumentParser(
-        description="Measure gradient variance σ² (intra + inter client) for FedPartBE M* formula."
+        description="Measure gradient variance σ² (intra + inter client) for FedStep M* formula."
     )
     parser.add_argument("--dataset", default="cifar10", choices=list(NUM_CLASSES.keys()))
     parser.add_argument("--model", default="resnet8")

@@ -6,14 +6,14 @@
 # Aggregate with scripts/aggregate_seeds.py (mean +/- std).
 #
 # Usage:   bash scripts/run_e1.sh
-#   SEEDS="42 43 44"  ALGOS="fedavg fedpart fedpart_be"   (env overridable)
+#   SEEDS="42 43 44"  ALGOS="fedavg fedpart fedstep"   (env overridable)
 # =====================================================================
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 PY=venv/bin/python
 CFG=configs/e1_main.yaml
 SEEDS="${SEEDS:-42 43 44}"
-ALGOS="${ALGOS:-fedavg fedpart fedpart_be}"
+ALGOS="${ALGOS:-fedavg fedpart fedstep}"
 
 for S in $SEEDS; do
   for A in $ALGOS; do

@@ -1,0 +1,68 @@
+# =====================================================================
+# V3.1-E4 + dl300 + int8 — les DEUX leviers comm sur le point précision.
+# = point précision (V3.1-E4+EMA léger, η_s=1.0) + deadline 200→300
+# (budget resserré → S plus étroit, ~−25% de deltas) + quantification int8
+# des deltas avec error feedback (÷4 comm, résidu réinjecté, non-biaisé).
+# Réf E4-dl200-dense s42 : 76.9±0.3 / 92% / 216J / 0.223 MB.
+# Cible : comm SOUS FedPart-E4 (0.038) ou proche, précision ≥ ~74.
+# dl300 (pas dl400) = compromis : moins de perte de précision que dl400.
+# =====================================================================
+
+clients:
+  battery_init:
+    distribution: uniform_soc
+    params:
+      max_soc: 0.55
+      min_soc: 0.05
+  fleet:
+  - count: 40
+    type: raspberry_pi_4
+  min_clients: 1
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+cost_model: measured
+data:
+  alpha: 1.0
+  data_root: ./data
+  dataset: cifar10
+  model: resnet8_ee
+  partition: dirichlet
+device: mps
+layer_mismatch: false
+model:
+  architecture: resnet8_ee
+output_dir: ./results/E1_ee_v31_e4_dl300_q8
+seed: 42
+training:
+  algo_config:
+    alpha_applies_to: compute
+    aux_loss_weight: 0.3
+    batch_size: 32
+    beta_budget: 0.05
+    beta_mode: deadline
+    deadline_rounds: 300
+    ee_exempt_deep: 2
+    ee_server_lr: 1.0
+    ee_width_mode: adaptive
+    ema_model_alpha: 0.3
+    energy_scale_factor: 3.0
+    exit_mode: early_exit
+    local_epochs: 4
+    lr: 0.003
+    max_grad_norm: 10.0
+    momentum: 0.9
+    mu_adapt_scale: 1.0
+    mu_adaptive: true
+    mu_repr: 0.01
+    mu_weight: 0.0
+    optimizer: adam
+    persist_optimizer: false
+    repr_anchor: boundary
+    var_agg_tau: 4.0
+    var_aware_agg: true
+    warmup_rounds: 5
+    weight_decay: 0.0001
+    uplink_quant_bits: 8
+  algorithm: fedstep
+  num_rounds: 200

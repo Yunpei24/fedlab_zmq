@@ -23,7 +23,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be
+  algorithm: fedstep
   algo_config:
     optimizer: adam
     lr: 0.003

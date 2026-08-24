@@ -2,7 +2,7 @@
 # =====================================================================
 # E4 / Table III — Heterogeneity stress test across non-IID severity AND datasets.
 # Sweeps Dirichlet alpha in {0.1, 0.5} x dataset in {cifar10, cifar100, femnist}
-# x algo in {fedavg, fedpart, fedpart_be} x seeds. lr=0.003, measured cost.
+# x algo in {fedavg, fedpart, fedstep} x seeds. lr=0.003, measured cost.
 # Per-dataset base config (alpha sed-overridden):
 #   cifar10  -> configs/e1_main.yaml          (RPi-4, E=8, Dirichlet)
 #   cifar100 -> configs/e5_cifar100.yaml      (RPi-4, E=8, Dirichlet)
@@ -18,7 +18,7 @@ PY=venv/bin/python
 SEEDS="${SEEDS:-42 43 44}"
 ALPHAS="${ALPHAS:-0.1 0.5}"
 DATASETS="${DATASETS:-cifar10 cifar100 femnist}"
-ALGOS="${ALGOS:-fedavg fedpart fedpart_be}"
+ALGOS="${ALGOS:-fedavg fedpart fedstep}"
 
 base_for() { case "$1" in
   cifar10)  echo configs/e1_main.yaml ;;

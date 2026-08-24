@@ -37,7 +37,13 @@ os.makedirs(OUT, exist_ok=True)
 
 # Consistent algo identity (order = legend/z-order). fedpart_be == FedSTEP.
 # fed_resonance is intentionally excluded from this paper (parallel work).
+# NOTE (2026-07): the algorithm was renamed fedpart_be -> fedstep (registry
+# alias kept). Internal keys stay "fedpart_be" so HISTORICAL result dirs load;
+# DIR_ALIASES lets the loaders pick up NEW runs written under "fedstep".
 ALGOS = ["fedavg", "fedpart", "fedpart_be"]
+DIR_ALIASES = {"fedpart_be": ["fedpart_be", "fedstep"]}
+def _norm_algo(name: str) -> str:
+    return "fedpart_be" if name == "fedstep" else name
 LABEL = {"fedavg": "FedAvg", "fedpart": "FedPart",
          "fed_resonance": "FedResonance", "fedpart_be": "FedSTEP"}
 COLOR = {"fedavg": "#d62728", "fedpart": "#1f77b4",
@@ -71,7 +77,11 @@ def load_e1():
     """algo -> list of per-round dicts (sorted by round_num)."""
     out = {}
     for a in ALGOS:
-        fs = glob.glob(os.path.join(E1_DIR, a, "*", "metrics.json"))
+        fs = []
+        for d_name in DIR_ALIASES.get(a, [a]):
+            fs = glob.glob(os.path.join(E1_DIR, d_name, "*", "metrics.json"))
+            if fs:
+                break
         if not fs:
             print(f"[E1] WARN: no metrics for {a}", file=sys.stderr)
             continue
@@ -208,7 +218,13 @@ def load_e2():
     if not os.path.exists(E2_CSV):
         return []
     with open(E2_CSV) as f:
-        return list(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
+    for r in rows:  # normalize new-name runs onto the historical key
+        if "algo" in r:
+            r["algo"] = _norm_algo(r["algo"])
+        if "algorithm" in r:
+            r["algorithm"] = _norm_algo(r["algorithm"])
+    return rows
 
 
 def main():

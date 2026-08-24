@@ -1,5 +1,8 @@
 # FedLab ZMQ
 
+For the DMD scientific workflow, dashboard export and Toubkal/SLURM campaign,
+see [docs/dmd_toubkal.md](docs/dmd_toubkal.md).
+
 **Federated Learning Research Framework — ZeroMQ transport**
 
 > Mohammed VI Polytechnic University (UM6P) — College of Computing  
@@ -13,9 +16,9 @@
 
 ## Overview
 
-FedLab ZMQ is a research framework for federated learning on energy-constrained IoT devices. It implements a realistic battery simulation, heterogeneous device profiles, and a suite of FL algorithms including the proposed **FedPartBE** — a battery-aware partial network update algorithm that adapts which layers each client trains based on its remaining battery.
+FedLab ZMQ is a research framework for federated learning on energy-constrained IoT devices. It implements a realistic battery simulation, heterogeneous device profiles, and a suite of FL algorithms including the proposed **FedStep** — a battery-aware partial network update algorithm that adapts which layers each client trains based on its remaining battery.
 
-**Key results (FedPartBE vs FedPart, 30 ESP32-S3, CIFAR-10):**
+**Key results (FedStep vs FedPart, 30 ESP32-S3, CIFAR-10):**
 - +1.1% accuracy on CIFAR-10, +3.9% on CIFAR-100
 - −60% FLOPs per round (partial backward pass)
 - Jain fairness index = 0.633 (energy drain equity)
@@ -96,7 +99,7 @@ This repository is set up for artifact evaluation:
 
 ### Reproducing the paper
 
-Paper: *"FedPartBE: Battery-Energy Aware Partial Network Training for Federated
+Paper: *"FedStep: Battery-Energy Aware Partial Network Training for Federated
 Learning"* (Nikiema & Amhoud, 2026). Two execution modes:
 **single-process** (`run_experiment.py`, laptop/dev) and **ZMQ distributed**
 (`hpc/launch_zmq_hpc.py --group <group>`, HPC/SLURM). The master config
@@ -106,14 +109,14 @@ the standalone configs below run one experiment each.
 | Paper artifact | Config / command | What it produces |
 |---|---|---|
 | **Smoke** (not a result) | `python run_experiment.py --config configs/smoke.yaml` | < 1 min sanity check |
-| **Table 1** — FedPartBE vs baselines | `configs/fedpartbe_benchmark.yaml` · or `--group benchmark` | accuracy / energy / Jain vs FedAvg, FedPart, … |
+| **Table 1** — FedStep vs baselines | `configs/fedpartbe_benchmark.yaml` · or `--group benchmark` | accuracy / energy / Jain vs FedAvg, FedPart, … |
 | **Table 3** — component ablation | `configs/fedpartbe_ablation_no_repr.yaml`, `…_no_staleness.yaml`, `…_m1.yaml` · or `--group ablation` | effect of repr-prox, staleness, single-tier |
 | **Figure 4** — #tiers M sweep | `configs/fedpartbe_sensitivity_tiers.yaml` · or `--group sensitivity` | accuracy vs number of energy tiers |
 | **Figure 5** — Dirichlet α sweep | `configs/fedpartbe_sensitivity_alpha.yaml` · or `--group sensitivity` | accuracy vs heterogeneity α |
 | **Table 4** — other datasets/models | `--group dataset` | CIFAR-100, TinyImageNet, MobileNetV2 |
 | **Experiment A** — survival curve | `configs/fedpartbe_survival.yaml` | % clients alive vs rounds |
 | **Experiment B** — wide battery spread | `configs/fedpartbe_survival_wide.yaml` (CIFAR-10: `…_cifar10.yaml`; 60-client: `…_fleet60.yaml`) | survival + accuracy under SoC ∈ [5%, 95%] |
-| **Cost-model methodology** — {algo}×{phi,corrected,measured} ablation | `python scripts/run_costmodel_ablation.py` | does the FedPartBE-vs-FedPart gap widen under the corrected/measured cost model? → `results/costmodel_ablation/comparison.csv` |
+| **Cost-model methodology** — {algo}×{phi,corrected,measured} ablation | `python scripts/run_costmodel_ablation.py` | does the FedStep-vs-FedPart gap widen under the corrected/measured cost model? → `results/costmodel_ablation/comparison.csv` |
 | **energy_scale_factor (α) sensitivity** | `python scripts/run_alpha_sensitivity.py --grid smoke` (sanity) · `--grid full` (real, `--device mps`) · `--cost-model phi` (appendix contrast) | robustness to the compute-energy multiplier α. Under `measured`, α is a physical utilization-gap multiplier (≥1, grid [1,2,3,5,10,20], marker α=5); under the more-capable device scenario in the base config the fleet survives tens of rounds. Outputs aggregated CSVs, relative-vs-absolute figures, and `robustness_summary.md` with a paper-ready verdict → `results/alpha_sensitivity/<grid>_<cost_model>/` |
 | **Device-profile energy study** | `python scripts/run_device_profile_study.py --smoke` (sanity) · `--device mps --jobs 4` (full) | profile-driven energy **projection** ({5 algos}×{esp32, rpi_zero2w, rpi4, smartphone mid/high}, `measured`, per-device physical α compute-only). Per-profile compute/uplink/downlink breakdown + survival, and a cross-profile view of how the compute↔comm balance shifts with device class. ESP32 flagged as projection (resnet8 > 8 MB RAM). → `results/device_profile_study/<grid>/` |
 
@@ -171,7 +174,7 @@ in `hardware/energy_model.py` (Shannon channel model).
 | `fedavg` | FedAvg (McMahan et al., 2017) — full-model baseline |
 | `fedprox` | FedProx (Li et al., 2020) — proximal regularization |
 | `fedpart` | FedPart (Wang et al., NeurIPS 2024) — partial network updates |
-| `fedpart_be` | **FedPartBE** (ours) — battery-aware multi-tier partial updates |
+| `fedstep` | **FedStep** (ours) — battery-aware multi-tier partial updates |
 | `heterofl` | HeteroFL (Diao et al., 2021) — model heterogeneity |
 | `fjord` | FjORD (Horvath et al., 2021) — ordered dropout |
 | `scaffold` | SCAFFOLD (Karimireddy et al., 2020) — variance reduction |
@@ -202,7 +205,7 @@ fedlab_zmq/
 ├── algorithms/             ← pluggable FL algorithm implementations
 │   ├── fedavg.py
 │   ├── fedpart.py
-│   ├── fedpart_be.py       ← FedPartBE (proposed)
+│   ├── fedpart_be.py       ← FedStep (proposed)
 │   └── ...
 ├── hardware/
 │   ├── profiles.py         ← device profiles (ESP32, RPi, Jetson, ...)
@@ -236,7 +239,7 @@ data:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be
+  algorithm: fedstep
   algo_config:
     lr: 0.01
     local_epochs: 8
@@ -303,7 +306,7 @@ Released under the [MIT License](LICENSE).
 
 ## Citation
 
-If you use this software or the FedPartBE algorithm, please cite it using the
+If you use this software or the FedStep algorithm, please cite it using the
 metadata in [`CITATION.cff`](CITATION.cff):
 
 ```bibtex

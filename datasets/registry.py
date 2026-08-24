@@ -44,6 +44,7 @@ _PIN_MEMORY: bool = torch.cuda.is_available()
 # inherits the full Python address space via copy-on-write).  Use 0 workers on macOS
 # to avoid 60+ forked processes with 30 clients.
 import platform as _platform
+
 _NUM_WORKERS: int = 0 if _platform.system() == "Darwin" else 2
 
 
@@ -53,69 +54,95 @@ _NUM_WORKERS: int = 0 if _platform.system() == "Darwin" else 2
 
 TRANSFORMS = {
     "mnist": {
-        "train": transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-        ]),
-        "test": transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-        ]),
+        "train": transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ]
+        ),
+        "test": transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ]
+        ),
     },
     "fashionmnist": {
-        "train": transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.2860,), (0.3530,)),
-        ]),
-        "test": transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.2860,), (0.3530,)),
-        ]),
+        "train": transforms.Compose(
+            [
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.2860,), (0.3530,)),
+            ]
+        ),
+        "test": transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.2860,), (0.3530,)),
+            ]
+        ),
     },
     "cifar10": {
-        "train": transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465),
-                                 (0.2470, 0.2435, 0.2616)),
-        ]),
-        "test": transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465),
-                                 (0.2470, 0.2435, 0.2616)),
-        ]),
+        "train": transforms.Compose(
+            [
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    (0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)
+                ),
+            ]
+        ),
+        "test": transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    (0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)
+                ),
+            ]
+        ),
     },
     "cifar100": {
-        "train": transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5071, 0.4867, 0.4408),
-                                 (0.2675, 0.2565, 0.2761)),
-        ]),
-        "test": transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.5071, 0.4867, 0.4408),
-                                 (0.2675, 0.2565, 0.2761)),
-        ]),
+        "train": transforms.Compose(
+            [
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    (0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)
+                ),
+            ]
+        ),
+        "test": transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    (0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)
+                ),
+            ]
+        ),
     },
     "tiny_imagenet": {
-        "train": transforms.Compose([
-            transforms.RandomCrop(64, padding=8),
-            transforms.RandomHorizontalFlip(),
-            transforms.ColorJitter(0.2, 0.2, 0.2),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4802, 0.4481, 0.3975),
-                                 (0.2302, 0.2265, 0.2262)),
-        ]),
-        "test": transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4802, 0.4481, 0.3975),
-                                 (0.2302, 0.2265, 0.2262)),
-        ]),
+        "train": transforms.Compose(
+            [
+                transforms.RandomCrop(64, padding=8),
+                transforms.RandomHorizontalFlip(),
+                transforms.ColorJitter(0.2, 0.2, 0.2),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    (0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262)
+                ),
+            ]
+        ),
+        "test": transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    (0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262)
+                ),
+            ]
+        ),
     },
 }
 
@@ -126,19 +153,19 @@ NUM_CLASSES = {
     "cifar10": 10,
     "cifar100": 100,
     "femnist": 62,
-    "emnist": 62,          # EMNIST/ByClass (also the FEMNIST fallback source)
+    "emnist": 62,  # EMNIST/ByClass (also the FEMNIST fallback source)
     "tiny_imagenet": 200,
 }
 
 # Input shape (C, H, W)
 INPUT_SHAPE = {
-    "mnist":        (1, 28, 28),
+    "mnist": (1, 28, 28),
     "fashionmnist": (1, 28, 28),
-    "cifar10":      (3, 32, 32),
-    "cifar100":     (3, 32, 32),
-    "femnist":      (1, 28, 28),
-    "emnist":       (1, 28, 28),
-    "tiny_imagenet":(3, 64, 64),
+    "cifar10": (3, 32, 32),
+    "cifar100": (3, 32, 32),
+    "femnist": (1, 28, 28),
+    "emnist": (1, 28, 28),
+    "tiny_imagenet": (3, 64, 64),
 }
 
 
@@ -146,11 +173,12 @@ INPUT_SHAPE = {
 # Raw dataset loaders
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _load_raw_dataset(name: str, split: str, data_root: str):
     """Load raw torchvision dataset (no partitioning)."""
     root = Path(data_root)
     root.mkdir(parents=True, exist_ok=True)
-    train = (split == "train")
+    train = split == "train"
     tf = TRANSFORMS.get(name, {}).get(split, transforms.ToTensor())
 
     if name == "mnist":
@@ -167,11 +195,13 @@ def _load_raw_dataset(name: str, split: str, data_root: str):
         return _load_femnist(root, split, tf)
     elif name == "emnist":
         # EMNIST/ByClass is the fallback for FEMNIST if LEAF data not available.
-        return datasets.EMNIST(root, split="byclass",
-                               train=train, transform=tf, download=True)
+        return datasets.EMNIST(
+            root, split="byclass", train=train, transform=tf, download=True
+        )
     else:
-        raise ValueError(f"Unknown dataset: {name}. "
-                         f"Available: {list(NUM_CLASSES.keys())}")
+        raise ValueError(
+            f"Unknown dataset: {name}. " f"Available: {list(NUM_CLASSES.keys())}"
+        )
 
 
 def _load_tiny_imagenet(root: Path, split: str, tf):
@@ -186,6 +216,7 @@ def _load_tiny_imagenet(root: Path, split: str, tf):
 def _download_tiny_imagenet(root: Path):
     """Download and extract TinyImageNet."""
     import urllib.request, zipfile, shutil
+
     url = "http://cs231n.stanford.edu/tiny-imagenet-200.zip"
     zip_path = root / "tiny-imagenet-200.zip"
     print(f"[datasets] Downloading TinyImageNet to {root} ...")
@@ -221,21 +252,24 @@ def _load_femnist(root: Path, split: str, tf):
     if femnist_dir.exists():
         try:
             from datasets.femnist_loader import FEMNISTDataset
+
             # LEAF FEMNIST already returns normalised [0,1] tensors of shape
             # (1,28,28), so NO transform (ToTensor would reject a tensor).
             ds = FEMNISTDataset(femnist_dir, split=split, transform=None)
-            ds.natural_partition = True   # genuine per-writer LEAF split
+            ds.natural_partition = True  # genuine per-writer LEAF split
             return ds
         except (ImportError, FileNotFoundError):
-            print("[datasets] femnist_loader/LEAF JSON missing; "
-                  "falling back to EMNIST/ByClass")
+            print(
+                "[datasets] femnist_loader/LEAF JSON missing; "
+                "falling back to EMNIST/ByClass"
+            )
     else:
         print("[datasets] FEMNIST (LEAF) not found, falling back to EMNIST/ByClass")
     # Fallback: torchvision EMNIST/ByClass (62 classes). This is a single pooled
     # dataset (no natural_partition tag) and MUST be partitioned synthetically.
-    return datasets.EMNIST(root, split="byclass",
-                           train=(split == "train"),
-                           transform=tf, download=True)
+    return datasets.EMNIST(
+        root, split="byclass", train=(split == "train"), transform=tf, download=True
+    )
 
 
 def _femnist_natural_subset(raw, client_id: int, num_clients: int):
@@ -243,6 +277,7 @@ def _femnist_natural_subset(raw, client_id: int, num_clients: int):
     contiguous blocks (balanced when num_clients <= num_writers), then return
     this client's samples as a torch Subset."""
     from torch.utils.data import Subset
+
     n_writers = raw.num_writers
     if num_clients > n_writers:
         raise ValueError(
@@ -259,6 +294,7 @@ def _femnist_natural_subset(raw, client_id: int, num_clients: int):
 # Main entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def get_dataloader(
     dataset_name: str,
     split: str,
@@ -271,6 +307,8 @@ def get_dataloader(
     num_workers: int = _NUM_WORKERS,
     seed: int = 42,
     data_root: str = "./data",
+    partition_test: bool = False,
+    matched_dirichlet: bool = False,
 ) -> DataLoader:
     """
     Get a DataLoader for a specific FL client.
@@ -285,14 +323,20 @@ def get_dataloader(
         alpha:        Dirichlet alpha (non-IID degree)
         batch_size:   Mini-batch size
         seed:         Random seed for reproducibility
+        partition_test: If true, partition the test set as well. This is used
+                        only for client-level fairness metrics; the default
+                        full server test set is unchanged.
+        matched_dirichlet: Use class-proportion RNG streams shared by train and
+                           test so each test shard represents the same client.
 
     Returns:
         DataLoader for the specified client's local dataset.
     """
     raw = _load_raw_dataset(dataset_name, split, data_root)
 
-    # Server evaluation: use full test set
-    if client_id is None or split == "test":
+    # Server evaluation: use full test set unless client-level evaluation was
+    # explicitly requested.
+    if client_id is None or (split == "test" and not partition_test):
         return DataLoader(
             raw,
             batch_size=batch_size,
@@ -301,7 +345,7 @@ def get_dataloader(
             pin_memory=_PIN_MEMORY,
         )
 
-    # Client training: partition the training set.
+    # Client data: partition train data, or test data when partition_test=True.
     # Only short-circuit when the data is GENUINELY pre-partitioned per writer
     # (real LEAF FEMNIST, tagged natural_partition). The EMNIST/ByClass fallback
     # is a single pooled dataset and MUST be partitioned synthetically, otherwise
@@ -311,8 +355,10 @@ def get_dataloader(
     else:
         eff_partition = partition
         if partition == "natural":
-            print("[datasets] 'natural' partition needs LEAF FEMNIST data; "
-                  "using 'dirichlet' on EMNIST/ByClass instead")
+            print(
+                "[datasets] 'natural' partition needs LEAF FEMNIST data; "
+                "using 'dirichlet' on EMNIST/ByClass instead"
+            )
             eff_partition = "dirichlet"
         subsets = partition_dataset(
             dataset=raw,
@@ -321,18 +367,20 @@ def get_dataloader(
             alpha=alpha,
             num_shards=num_shards,
             seed=seed,
+            matched_dirichlet=matched_dirichlet,
         )
         if client_id >= len(subsets):
             raise ValueError(f"client_id={client_id} >= num_clients={num_clients}")
         subset = subsets[client_id]
 
+    is_train = split == "train"
     return DataLoader(
         subset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=is_train,
         num_workers=num_workers,
         pin_memory=_PIN_MEMORY,
-        drop_last=True,  # avoid incomplete last batch
+        drop_last=is_train,  # evaluation must retain every held-out example
     )
 
 

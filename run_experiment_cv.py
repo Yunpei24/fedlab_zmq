@@ -8,7 +8,7 @@ Specifically designed for FedOD (WACV 2027).
 Supports:
   - Dataset    : PASCAL VOC 2012 (20 classes, torchvision download)
   - Model      : SSDLite320 MobileNetV3-Large (torchvision detection)
-  - Algorithms : fed_od  (ours)  |  fedavg  |  fedpart_be  (baselines)
+  - Algorithms : fed_od  (ours)  |  fedavg  |  fedstep  (baselines)
   - Metric     : mAP@0.5 (VOC-style 11-point interpolation)
   - Fleet      : Raspberry Pi 4B (default) — realistic for edge OD
 
@@ -24,7 +24,7 @@ Usage:
   python run_experiment_cv.py --config configs/fed_od_voc.yaml --algo fed_od
 
   # Run baselines comparison:
-  for ALGO in fedavg fedpart_be fed_od; do
+  for ALGO in fedavg fedstep fed_od; do
     python run_experiment_cv.py \\
         --config configs/fed_od_voc.yaml \\
         --algo $ALGO \\
@@ -163,7 +163,7 @@ def _round_energy_j(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Baseline training loop (FedAvg / FedPartBE adapted for detection)
+# Baseline training loop (FedAvg / FedStep adapted for detection)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _detection_client_update_fedavg(
@@ -235,17 +235,17 @@ def _detection_client_update_fedavg(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FedPartBE-OD: battery-aware HEAD / full-model cycling for detection
+# FedStep-OD: battery-aware HEAD / full-model cycling for detection
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _detection_client_update_fedpart_be(
+def _detection_client_update_fedstep(
     model: torch.nn.Module,
     dataloader,
     state: ClientState,
     config: dict,
 ) -> tuple[dict, dict]:
     """
-    FedPartBE adapted for detection (SSDLite).
+    FedStep adapted for detection (SSDLite).
 
     Tier assignment for detection (contrast to FedOD):
       Tier 0 (β < beta_split) → HEAD ONLY training.
@@ -258,7 +258,7 @@ def _detection_client_update_fedpart_be(
       head   ← all clients (Tier 0 + Tier 1)
       backbone ← Tier-1 only
 
-    This is the natural extension of FedPartBE's battery-tier strategy
+    This is the natural extension of FedStep's battery-tier strategy
     to SSDLite: assign the cheapest group (head) to low-battery clients.
     Contrast with FedOD which assigns the backbone (generalizable features)
     to low-battery clients — the key design choice under evaluation.
@@ -349,13 +349,13 @@ def _detection_client_update_fedpart_be(
     return delta, metadata
 
 
-def _fedpart_be_od_aggregate(
+def _fedstep_od_aggregate(
     global_model: torch.nn.Module,
     client_updates: list[tuple[dict, dict, ClientState]],
     server_lr: float = 1.0,
 ) -> dict:
     """
-    FedPartBE-OD server aggregation:
+    FedStep-OD server aggregation:
       head params    ← all clients (Tier 0 head-only + Tier 1 full)
       backbone params ← Tier-1 clients only
     """
@@ -594,7 +594,7 @@ def run_od_experiment(
     merged_config = {**default_cfg, **algo_config, "device": device}
 
     use_fed_od_algo      = (algo_name == "fed_od")
-    use_fedpart_be_od    = (algo_name in ("fedpart_be", "fedpart"))
+    use_fedstep_od    = (algo_name in ("fedstep", "fedpart_be", "fedpart"))
 
     # ── Detection model ───────────────────────────────────────────────────────
     global_model = get_detection_model(model_name, num_classes, pretrained_backbone)
@@ -702,9 +702,9 @@ def run_od_experiment(
                     state=client_states[cid],
                     config=client_config,
                 )
-            elif use_fedpart_be_od:
-                # FedPartBE-OD: head-only for low-battery, full for high-battery
-                update, metadata = _detection_client_update_fedpart_be(
+            elif use_fedstep_od:
+                # FedStep-OD: head-only for low-battery, full for high-battery
+                update, metadata = _detection_client_update_fedstep(
                     model=_client_model,
                     dataloader=client_loaders[cid],
                     state=client_states[cid],
@@ -746,10 +746,10 @@ def run_od_experiment(
                 {k: v.to(device) for k, v in agg_result.new_weights.items()}
             )
             del agg_result.new_weights
-        elif use_fedpart_be_od:
-            # FedPartBE-OD: head from all clients, backbone from Tier-1 only
+        elif use_fedstep_od:
+            # FedStep-OD: head from all clients, backbone from Tier-1 only
             server_lr = merged_config.get("server_lr", 1.0) or 1.0
-            new_weights = _fedpart_be_od_aggregate(
+            new_weights = _fedstep_od_aggregate(
                 global_model, client_tuples, server_lr
             )
             global_model.load_state_dict(
@@ -888,7 +888,7 @@ def main():
     p.add_argument("--config",   type=str, default=None,
                    help="YAML config file (same format as run_experiment.py)")
     p.add_argument("--algo",     type=str, default="fed_od",
-                   choices=["fed_od", "fedavg", "fedpart_be", "fedpart", "centralized"],
+                   choices=["fed_od", "fedavg", "fedstep", "fedpart", "centralized"],
                    help="FL algorithm to run")
     p.add_argument("--output",   type=str, default=None,
                    help="Output directory (overrides YAML output_dir)")
@@ -915,7 +915,7 @@ def main():
     p.add_argument("--benchmark", action="store_true",
                    help="Main benchmark: centralized (upper bound) + fedavg + fed_od")
     p.add_argument("--ablation",  action="store_true",
-                   help="Layer-choice ablation: fedavg + fedpart_be + fed_od")
+                   help="Layer-choice ablation: fedavg + fedstep + fed_od")
 
     args = p.parse_args()
 
@@ -1074,9 +1074,9 @@ def main():
         print(f"\n  Comparison saved → {cmp_path}")
 
     elif args.ablation:
-        # Layer-choice ablation: FedAvg + FedPartBE-OD + FedOD
+        # Layer-choice ablation: FedAvg + FedStep-OD + FedOD
         results = {}
-        for name in ["fedavg", "fedpart_be", "fed_od"]:
+        for name in ["fedavg", "fedstep", "fed_od"]:
             print(f"\n{'#'*70}")
             print(f"  Running: {name.upper()}")
             print(f"{'#'*70}")

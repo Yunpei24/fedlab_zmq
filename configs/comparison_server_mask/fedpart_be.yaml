@@ -1,11 +1,11 @@
 # ============================================================
-# COMPARISON — FedPartBE  (Layer-Group Battery-Adaptive)
+# COMPARISON — FedStep  (Layer-Group Battery-Adaptive)
 # Direct predecessor of Server-Mask. Discrete tiers (3 groups),
 # battery-driven layer assignment.
 # CONTROLLED: local_epochs=5 (same as Server-Mask for fair comparison)
 # ============================================================
 seed: 42
-output_dir: "./results/comparison_server_mask/fedpart_be"
+output_dir: "./results/comparison_server_mask/fedstep"
 device: mps
 
 data:
@@ -20,7 +20,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be
+  algorithm: fedstep
   algo_config:
     lr: 0.01
     momentum: 0.9

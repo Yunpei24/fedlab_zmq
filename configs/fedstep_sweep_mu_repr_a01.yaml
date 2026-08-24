@@ -3,7 +3,7 @@
 # =====================================================================
 # Purpose: test whether the representation-proximal coefficient mu_repr (currently
 # 10x below the code default 0.1) recovers any of the accuracy gap vs FedPart at
-# alpha=0.1. fedpart_be ONLY (mu_repr is FedSTEP-specific). Everything identical
+# alpha=0.1. fedstep ONLY (mu_repr is FedSTEP-specific). Everything identical
 # to the alpha=0.1 E1 baseline (best=0.438 @ mu_repr~0.01) except mu_repr, which
 # the sweep driver rewrites per run. DO NOT edit for ad-hoc work.
 # =====================================================================
@@ -27,7 +27,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be
+  algorithm: fedstep
   algo_config:
     optimizer: adam
     lr: 0.001

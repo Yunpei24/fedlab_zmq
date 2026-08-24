@@ -1,5 +1,5 @@
 # ============================================================
-# Phase 1 — Tuning des hyperparamètres (fedpart_be + ccsEF)
+# Phase 1 — Tuning des hyperparamètres (fedstep + ccsEF)
 # ============================================================
 # Scénario : 30 ESP32-S3, SOC uniforme [30%, 60%]
 # → clients survivent ~100 rounds → convergence visible pour chaque algo
@@ -7,7 +7,7 @@
 #
 # Grille de tuning (encodée dans hpc_phase1_tuning.sh) :
 #   fedavg      : E ∈ {3, 5, 8}                          → 3  runs
-#   fedpart_be  : (E, num_tiers) ∈ {3,5,8} × {2,3,4}     → 9  runs
+#   fedstep  : (E, num_tiers) ∈ {3,5,8} × {2,3,4}     → 9  runs
 #   ccsEF_full  : (E, T_rot)    ∈ {1,3,5} × {1,3,5}      → 9  runs
 #   ccsEF_frozen: (E, T_rot)    ∈ {1,3,5} × {1,3,5}      → 9  runs
 #   Total : 30 runs SLURM (--array=0-29)
@@ -31,7 +31,7 @@ model:
 
 training:
   num_rounds: 100
-  algorithm: fedpart_be     # écrasé par --algo en CLI
+  algorithm: fedstep     # écrasé par --algo en CLI
 
   algo_config:
     # ── Hyperparamètres communs ──────────────────────────────
@@ -47,7 +47,7 @@ training:
     battery_max_j: 13320.0
     energy_scale_factor: 12.6
 
-    # ── fedpart_be ───────────────────────────────────────────
+    # ── fedstep ───────────────────────────────────────────
     warmup_rounds: 5
     num_tiers: 3              # écrasé par le script tuning
     server_lr: null

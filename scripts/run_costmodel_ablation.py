@@ -2,11 +2,11 @@
 """
 scripts/run_costmodel_ablation.py
 =================================
-Run {fedavg, fedpart, fedpart_be} x {phi, corrected, measured} on the same
+Run {fedavg, fedpart, fedstep} x {phi, corrected, measured} on the same
 CIFAR-10 / K=30 ESP32 / SoC[5,95]% / α=1 / E=8 / 200 rounds setup and produce
 a comparison CSV.
 
-Goal: does the FedPartBE-vs-FedPart gap *widen* when we move from the phi
+Goal: does the FedStep-vs-FedPart gap *widen* when we move from the phi
 cost model (legacy, under-counts shallow groups) to the corrected (analytic
 position-aware) or measured (FlopCounterMode) model?
 
@@ -43,7 +43,7 @@ DEFAULT_CONFIG = ROOT / "configs/fedpartbe_survival_wide_cifar10.yaml"
 DEFAULT_OUT = ROOT / "results/costmodel_ablation"
 
 
-ALGOS = ["fedavg", "fedpart", "fedpart_be"]
+ALGOS = ["fedavg", "fedpart", "fedstep"]
 COST_MODELS = ["phi", "corrected", "measured"]
 
 
@@ -134,7 +134,7 @@ def main():
         "--algos",
         nargs="+",
         default=ALGOS,
-        help="Subset of algos to run (default: fedavg fedpart fedpart_be)",
+        help="Subset of algos to run (default: fedavg fedpart fedstep)",
     )
     p.add_argument(
         "--cost-models",

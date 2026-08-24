@@ -373,7 +373,7 @@ class ECEFFL(FLAlgorithm):
         del agg
         gc.collect()
 
-        # ── Metrics (aligned with fedpart_be for cross-algorithm comparison) ─
+        # ── Metrics (aligned with fedstep for cross-algorithm comparison) ─
         total_bytes  = sum(m["bytes_sent"]        for _, m, _ in client_updates)
         total_energy = sum(m["energy_j_consumed"] for _, m, _ in client_updates)
         avg_battery  = sum(s.battery_j            for _, _, s in client_updates) / K
@@ -382,7 +382,7 @@ class ECEFFL(FLAlgorithm):
         avg_loss     = sum(m["local_loss"]         for _, m, _ in active_updates) / K_act
         avg_cr       = sum(m["compression_ratio"]  for _, m, _ in active_updates) / K_act
 
-        # Jain fairness index on bytes_sent (identical formula to fedpart_be)
+        # Jain fairness index on bytes_sent (identical formula to fedstep)
         # Dead clients contribute 0 bytes → penalised correctly.
         bytes_sent = [m["bytes_sent"] for _, m, _ in client_updates]
         if sum(bytes_sent) > 0:

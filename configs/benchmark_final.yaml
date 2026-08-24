@@ -1,5 +1,5 @@
 # ============================================================
-# Phase 2 — Benchmark final (fedpart_be + ccsEF full/frozen)
+# Phase 2 — Benchmark final (fedstep + ccsEF full/frozen)
 # ============================================================
 # Scénario : 30 ESP32-S3, SOC uniforme [5%, 15%]
 # → condition extrême de survie IoT
@@ -28,7 +28,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be
+  algorithm: fedstep
 
   algo_config:
     # ── Commun ───────────────────────────────────────────────
@@ -47,7 +47,7 @@ training:
     battery_max_j: 13320.0
     energy_scale_factor: 12.6
 
-    # ── fedpart_be (optimal Phase 1) ─────────────────────────
+    # ── fedstep (optimal Phase 1) ─────────────────────────
     warmup_rounds: 5
     num_tiers: 3              # à mettre à jour
     server_lr: null

@@ -65,3 +65,10 @@ parse_metrics.py
 SERVER_MASK_FL_IMPLEMENTATION.txt
 test_server_mask.py
 predoc_presentation_outline.md
+output/
+tmp/
+REPRODUCE_E1_E5.md
+AUDIT_algos_efficiency.md
+research/
+.codex/
+ZK_DDP_FL/

@@ -7,7 +7,7 @@
 # ============================================================
 # Usage:
 #   bash configs/comparison_server_mask/run_comparison.sh
-#   bash configs/comparison_server_mask/run_comparison.sh fedavg fedpart_be server_mask
+#   bash configs/comparison_server_mask/run_comparison.sh fedavg fedstep server_mask
 # ============================================================
 
 set -e
@@ -16,7 +16,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_DIR"
 
 # All algorithms in order (fastest → slowest expected)
-ALL_ALGOS=(fedavg fedprox fedsparq leanfed heterofl fjord fedpart fedpart_be fedmask hermes server_mask)
+ALL_ALGOS=(fedavg fedprox fedsparq leanfed heterofl fjord fedpart fedstep fedmask hermes server_mask)
 
 # If arguments provided, run only those
 if [ $# -gt 0 ]; then

@@ -1,6 +1,6 @@
 #!/bin/bash
 # =====================================================================
-# E3 — Ablations of FedSTEP (algo fedpart_be), CIFAR-10, 40xRPi-4, alpha=1,
+# E3 — Ablations of FedSTEP (algo fedstep), CIFAR-10, 40xRPi-4, alpha=1,
 # E=8, T=200, lr=0.003, measured cost. Two parts:
 #   (A) FULL M x T_r GRID: M in {2,3,4} x T_r in {2,3,4}  (rotation always on)
 #   (B) mechanism ablations at the default (M=4, T_r=3): no rotation (T_r=0),
@@ -27,7 +27,7 @@ mk_cfg() {  # $1=num_tiers $2=rotation_period [$3=mu_repr] -> stdout file $4
 
 run() {  # $1=config $2=outdir $3=logtag $4=seed
   echo "===== E3 $3 seed$4 START $(date) ====="
-  caffeinate -si $PY run_experiment.py --config "$1" --algo fedpart_be \
+  caffeinate -si $PY run_experiment.py --config "$1" --algo fedstep \
       --seed "$4" --output "$2" --cost-model measured --device mps \
       > "/tmp/e3_$3_s$4.log" 2>&1 || echo "  FAILED rc=$? (/tmp/e3_$3_s$4.log)"
 }

@@ -46,11 +46,11 @@ the venv python. Live logs go to `/tmp/e<x>_*.log`.
 
 | Exp | what | algorithms | datasets / device | E (local epochs) |
 |-----|------|-----------|-------------------|------------------|
-| **E1** | main comparison, iso-setup | fedavg, fedpart, fedpart_be | CIFAR-10, 40×RPi-4, α=1 | 8 |
+| **E1** | main comparison, iso-setup | fedavg, fedpart, fedstep | CIFAR-10, 40×RPi-4, α=1 | 8 |
 | **E2** | device heterogeneity | + fed_resonance | CIFAR-10, swept fleet¹ | 8 (fed_resonance: 3) |
-| **E3** | ablations (rotation, repr, M, T_r) | fedpart_be | CIFAR-10, 40×RPi-4, α=1 | 8 |
-| **E4** | severe non-IID | fedavg, fedpart, fedpart_be | CIFAR-10, 40×RPi-4, **α=0.1** | 8 |
-| **E5** | cross-dataset | fedavg, fedpart, fedpart_be | CIFAR-100, FEMNIST(LEAF), EMNIST² | 8 (EMNIST: 1) |
+| **E3** | ablations (rotation, repr, M, T_r) | fedstep | CIFAR-10, 40×RPi-4, α=1 | 8 |
+| **E4** | severe non-IID | fedavg, fedpart, fedstep | CIFAR-10, 40×RPi-4, **α=0.1** | 8 |
+| **E5** | cross-dataset | fedavg, fedpart, fedstep | CIFAR-100, FEMNIST(LEAF), EMNIST² | 8 (EMNIST: 1) |
 
 ¹ E2 fleets: `esp32_s3, raspberry_pi_4, raspberry_pi_zero2w, smartphone_midrange,
 smartphone_highend`. ESP32-S3 is expected to die in warmup (the physical
@@ -65,7 +65,7 @@ infeasibility finding, not a bug).
 
 ```bash
 # fewer seeds / one algorithm
-SEEDS="42" ALGOS="fedpart_be" bash scripts/run_e1.sh
+SEEDS="42" ALGOS="fedstep" bash scripts/run_e1.sh
 
 # only some E3 ablations
 VARIANTS="no_rotation M2" bash scripts/run_e3.sh
@@ -77,8 +77,8 @@ DEVICES="raspberry_pi_4" bash scripts/run_e2.sh
 DATASETS="femnist_natural" bash scripts/run_e5.sh
 
 # run a single config directly (full control)
-$PY run_experiment.py --config configs/e1_main.yaml --algo fedpart_be \
-    --seed 42 --output results/E1/fedpart_be/seed42 --cost-model measured --device mps
+$PY run_experiment.py --config configs/e1_main.yaml --algo fedstep \
+    --seed 42 --output results/E1/fedstep/seed42 --cost-model measured --device mps
 ```
 
 ---
@@ -93,7 +93,7 @@ $PY scripts/aggregate_seeds.py results/E4/femnist_natural --latex
 
 # E2 (device) and E3 (variant) vary by PATH, not by the summary -> aggregate per-subdir:
 $PY scripts/aggregate_seeds.py results/E3/no_rotation
-$PY scripts/aggregate_seeds.py results/E2/raspberry_pi_4__fedpart_be
+$PY scripts/aggregate_seeds.py results/E2/raspberry_pi_4__fedstep
 ```
 
 Each cell becomes e.g. `69.8 +/- 0.4`. Convention: report **mean ± std over ≥3 seeds**;

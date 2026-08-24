@@ -1927,7 +1927,7 @@ class FedResonance(FLAlgorithm):
             for mode in m.get("mode_per_layer", {}).values():
                 mode_counts[mode] = mode_counts.get(mode, 0) + 1
 
-        # Jain fairness index on bytes_sent (identical formula to fedpart_be)
+        # Jain fairness index on bytes_sent (identical formula to fedstep)
         # Dead clients contribute 0 bytes → penalised correctly.
         bytes_sent = [m["bytes_sent"] for _, m, _ in client_updates]
         if sum(bytes_sent) > 0:

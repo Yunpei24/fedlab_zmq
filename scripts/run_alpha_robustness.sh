@@ -19,7 +19,7 @@ PY=venv/bin/python
 BASE=configs/e1_main.yaml            # RPi-4 x40, CIFAR-10, E=8, lr=0.003, measured
 SEEDS="${SEEDS:-42 43 44}"
 ALPHAS="${ALPHAS:-1.5 3 5 8}"        # around the physical RPi-4 estimate (~3)
-ALGOS="${ALGOS:-fedavg fedpart fedpart_be}"
+ALGOS="${ALGOS:-fedavg fedpart fedstep}"
 
 for S in $SEEDS; do
   for A in $ALPHAS; do

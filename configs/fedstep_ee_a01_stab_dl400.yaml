@@ -1,0 +1,69 @@
+# =====================================================================
+# E1-EE-V3.1-STAB-DL400 — STAB + budget re-serré (comm fix).
+# STAB (epochs 8→4) a halvé le coût du round → le budget deadline achetait
+# 2× plus → 35/40 clients à k=3 largeur quasi pleine → 1.86 GB total
+# (> FedAvg 1.48). Correction symétrique : deadline_rounds 200→400 divise
+# le budget par 2 (restaure le ratio budget/coût de l'a01 d'origine) tout
+# en gardant les leviers anti-drift. Pas de plafond structurel (exemption
+# intacte, pas de falaise). Garantie de survie étendue au-delà de T.
+# Réf STAB : tail-25 41.9±2.0 / loss 2.1 stable / survie 90% / 191 J /
+# 0.232 MB/cl-rd / 1.86 GB. Cible : ≤ ~0.12 MB/cl-rd en tenant tail ≥ 38.
+# =====================================================================
+
+seed: 42
+output_dir: ./results/E1_ee_v31_a01_stab_dl400
+device: mps
+cost_model: measured
+layer_mismatch: false
+data:
+  dataset: cifar10
+  model: resnet8_ee
+  partition: dirichlet
+  alpha: 0.1
+  data_root: ./data
+model:
+  architecture: resnet8_ee
+training:
+  num_rounds: 200
+  algorithm: fedstep
+  algo_config:
+    exit_mode: early_exit
+    ee_width_mode: adaptive
+    ee_exempt_deep: 2
+    beta_mode: deadline
+    deadline_rounds: 400
+    beta_budget: 0.05
+    aux_loss_weight: 0.3
+    ee_server_lr: 0.7
+    repr_anchor: boundary
+    mu_adaptive: true
+    mu_adapt_scale: 1.0
+    var_aware_agg: true
+    var_agg_tau: 8.0
+    optimizer: adam
+    lr: 0.001
+    momentum: 0.9
+    weight_decay: 0.0001
+    local_epochs: 4
+    batch_size: 32
+    warmup_rounds: 5
+    mu_repr: 0.05
+    mu_weight: 0.0
+    ema_model_alpha: 0.0
+    energy_scale_factor: 3.0
+    alpha_applies_to: compute
+    max_grad_norm: 5.0
+    persist_optimizer: false
+clients:
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 1
+  fleet:
+  - type: raspberry_pi_4
+    count: 40
+  battery_init:
+    distribution: uniform_soc
+    params:
+      min_soc: 0.05
+      max_soc: 0.55

@@ -1,0 +1,15 @@
+{
+  "logits": [[3.0, 1.0, 0.0], [0.0, 2.0, 1.0], [1.0, 0.0, 2.0], [0.0, 1.0, 3.0]],
+  "targets": [0, 1, 2, 2],
+  "margins": [2.0, 1.0, 1.0, 2.0],
+  "profile_values": [2.0, 1.0, 1.5],
+  "profile_counts": [1, 1, 2],
+  "reference": [2.5, 0.5, 2.0],
+  "quadratic_deficit": 0.08333333333333333,
+  "tail_values": [0.0, 1.0, 2.0, 3.0],
+  "tail_weights_input": [0.25, 0.25, 0.25, 0.25],
+  "tail_mass": 0.5,
+  "tail_eta": 2.0,
+  "tail_cvar": 2.5,
+  "tail_weights": [0.0, 0.0, 0.5, 0.5]
+}

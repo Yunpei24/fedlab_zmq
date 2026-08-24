@@ -1,0 +1,46 @@
+# Standalone robust baseline. Change robust_aggregator among:
+# cm_nnm, trmean_nnm, nbs, rfa, cmls.
+seed: 42
+output_dir: ./results/far_references/robust_baseline
+device: cpu
+
+data:
+  dataset: fashionmnist
+  model: lenet5
+  partition: dirichlet
+  alpha: 0.1
+  data_root: ./data
+
+model:
+  architecture: lenet5
+
+training:
+  num_rounds: 100
+  algorithm: robustfedavg
+  algo_config:
+    lr: 0.01
+    momentum: 0.0
+    weight_decay: 0.0
+    local_epochs: 1
+    batch_size: 32
+    robust_aggregator: trmean_nnm
+    num_byzantine: 5
+    client_metrics_every: 5
+    fairness_tail_fraction: 0.2
+    attack:
+      enabled: true
+      name: alie
+      num_byzantine: 5
+      client_ids: [0, 1, 2, 3, 4]
+
+clients:
+  num_clients: 25
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 25
+  fleet:
+    - type: raspberry_pi_4
+      count: 25
+  battery_init:
+    distribution: uniform_soc
+    params: {min_soc: 0.9, max_soc: 0.95}

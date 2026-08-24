@@ -60,7 +60,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_CONFIG = ROOT / "configs/alpha_sensitivity_base.yaml"
 DEFAULT_OUT = ROOT / "results/alpha_sensitivity"
 
-ALGOS = ["fedavg", "fedpart", "fedpart_be"]
+ALGOS = ["fedavg", "fedpart", "fedstep"]
 
 # alpha grid (see configs/alpha_sensitivity_base.yaml for the full rationale).
 # Under cost_model="measured", FLOPs are real, so alpha is a PHYSICAL
@@ -360,10 +360,10 @@ def _relative_table(df):
             v = sl[sl["algo"] == algo][col]
             return v.iloc[0] if len(v) else None
 
-        be_e, fp_e = get("fedpart_be", "total_energy_j"), get(
+        be_e, fp_e = get("fedstep", "total_energy_j"), get(
             "fedpart", "total_energy_j"
         )
-        be_u, fp_u = get("fedpart_be", "uplink_mb"), get("fedpart", "uplink_mb")
+        be_u, fp_u = get("fedstep", "uplink_mb"), get("fedpart", "uplink_mb")
         # Use `is not None` (not truthiness): a legitimate 0.0 energy/uplink
         # (e.g. a fleet that dies immediately) must yield ratio 0.0, not None.
         rows.append(
@@ -403,7 +403,7 @@ def _make_figures(df, rel_df, fig_dir: Path):
     import matplotlib.pyplot as plt
 
     fig_dir.mkdir(parents=True, exist_ok=True)
-    colors = {"fedavg": "#888", "fedpart": "#1f77b4", "fedpart_be": "#d62728"}
+    colors = {"fedavg": "#888", "fedpart": "#1f77b4", "fedstep": "#d62728"}
 
     def _abs_plot(metric, ylabel, fname, title):
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -485,7 +485,7 @@ def _make_figures(df, rel_df, fig_dir: Path):
 
     # Survival gap BE - FedPart vs alpha.
     fig, ax = plt.subplots(figsize=(6, 4))
-    be = dict(_pivot(df, "alive_final")["fedpart_be"])
+    be = dict(_pivot(df, "alive_final")["fedstep"])
     fp = dict(_pivot(df, "alive_final")["fedpart"])
     xs = sorted(set(be) & set(fp))
     gap = [
@@ -497,8 +497,8 @@ def _make_figures(df, rel_df, fig_dir: Path):
     ax.axvline(ALPHA_REFERENCE, ls="--", color="k", alpha=0.5)
     ax.set_xscale("log")
     ax.set_xlabel("energy_scale_factor alpha (log scale)")
-    ax.set_ylabel("alive@end gap  (FedPartBE - FedPart)")
-    ax.set_title("Survival gap FedPartBE - FedPart vs alpha")
+    ax.set_ylabel("alive@end gap  (FedStep - FedPart)")
+    ax.set_title("Survival gap FedStep - FedPart vs alpha")
     ax.grid(True, which="both", alpha=0.3)
     fig.tight_layout()
     fig.savefig(fig_dir / "gap_survival_be_minus_fedpart.png", dpi=130)
@@ -540,11 +540,11 @@ def _robustness(
             per_alpha[alpha] = bool(ok)
         return per_alpha
 
-    surv = _ordering_holds("survival_auc", ["fedpart_be", "fedpart", "fedavg"])
+    surv = _ordering_holds("survival_auc", ["fedstep", "fedpart", "fedavg"])
     energy_order = {}
     for alpha in alphas:
         vals = [
-            at(alpha, a, "total_energy_j") for a in ["fedpart_be", "fedpart", "fedavg"]
+            at(alpha, a, "total_energy_j") for a in ["fedstep", "fedpart", "fedavg"]
         ]
         # bool(...) — a chained numpy comparison returns numpy.bool_, which
         # fails an `is True` identity check downstream.
@@ -557,7 +557,7 @@ def _robustness(
     # Survival gap BE - FedPart (using survival_auc) sign & magnitude.
     gaps = {}
     for alpha in alphas:
-        be, fp = at(alpha, "fedpart_be", "survival_auc"), at(
+        be, fp = at(alpha, "fedstep", "survival_auc"), at(
             alpha, "fedpart", "survival_auc"
         )
         gaps[alpha] = (be - fp) if (be is not None and fp is not None) else None
@@ -639,21 +639,21 @@ def _robustness(
         return s
 
     lines.append(
-        f"**C1 — survival order FedPartBE >= FedPart > FedAvg** "
+        f"**C1 — survival order FedStep >= FedPart > FedAvg** "
         f"(by survival AUC): "
         f"{'HOLDS across the WHOLE grid' if surv_all else 'PARTIAL'} — "
         f"{_range_str(surv_good, surv_bad, surv_na)}."
     )
     lines.append("")
     lines.append(
-        f"**C2 — total energy FedPartBE <= FedPart <= FedAvg**: "
+        f"**C2 — total energy FedStep <= FedPart <= FedAvg**: "
         f"{'HOLDS across the WHOLE grid' if en_all else 'PARTIAL'} — "
         f"{_range_str(en_good, en_bad, en_na)}."
     )
     lines.append("")
     gap_desc = ", ".join(f"alpha={a:g}: {gaps[a]:+.1f}" for a in g0) or "n/a"
     lines.append(
-        f"**C3 — survival gap (FedPartBE - FedPart, survival AUC)**: "
+        f"**C3 — survival gap (FedStep - FedPart, survival AUC)**: "
         f"{'non-negative for all tested alpha' if all_nonneg else 'changes sign'} "
         f"(magnitude vs alpha: {gap_desc})."
     )
@@ -692,8 +692,8 @@ def _robustness(
 
     if surv_all and en_all:
         abs_clause = (
-            f"the survival order (FedPartBE >= FedPart > FedAvg) and the energy "
-            f"order (FedPartBE <= FedPart <= FedAvg) both hold for every alpha in "
+            f"the survival order (FedStep >= FedPart > FedAvg) and the energy "
+            f"order (FedStep <= FedPart <= FedAvg) both hold for every alpha in "
             f"[{amin:g}, {amax:g}] tested, so the findings do not depend on the "
             f"specific choice of alpha (central marker {ALPHA_REFERENCE:g})"
         )

@@ -121,7 +121,7 @@ The error-buffer term O(e_max²/η) vanishes as β → 1 (low compression).
 Comparison with Related Work
 ─────────────────────────────────────────────────────────────────────────────
   FedPart      : partial training, no EF           → permanent gradient loss
-  FedPartBE    : energy-tier assignment, no EF     → permanent gradient loss
+  FedStep    : energy-tier assignment, no EF     → permanent gradient loss
   E-CEFFL      : EF, full model every round        → full uplink cost
   CCS-EF (M=2) : partial training + EF, 2 clusters → ~50% uplink, no loss
   CCS-EF (M≥3) : same, M clusters                 → ~1/M uplink, no loss,
@@ -496,7 +496,7 @@ class CCSEFFL(FLAlgorithm):
                 for _sec_idx in secondary_indices:
                     state.custom["buffer_last_update"][f"g{_sec_idx}"] = round_num
 
-            # BN running stats: always transmitted raw (no TopK) — same as fedpart_be.
+            # BN running stats: always transmitted raw (no TopK) — same as fedstep.
             # They are buffers, not parameters, so not in any partition_names.
             for name, val in delta.items():
                 if name.endswith((".running_mean", ".running_var")):
@@ -513,7 +513,7 @@ class CCSEFFL(FLAlgorithm):
             compressed = {}
 
         # ── Uplink bytes ───────────────────────────────────────────────────
-        # BN stats are raw delta (no TopK) → always dense (4 bytes/elem), like fedpart_be.
+        # BN stats are raw delta (no TopK) → always dense (4 bytes/elem), like fedstep.
         # Primary partition is TopK'd → take min(sparse_fp16, dense_fp32).
         _bn_suffixes = (".running_mean", ".running_var")
         _bpv = 2 if (use_fp16_uplink and not is_warmup) else 4

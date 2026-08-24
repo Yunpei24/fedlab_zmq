@@ -1,0 +1,48 @@
+# FedLE officiel (Yan et al.) — baseline SÉLECTION pour l'axe survie.
+# Sélection par similarité(modèle partiel)→K-means→(1/taille_cluster×batterie),
+# exclusion SoC<delta=0.2, standby des non-sélectionnés. E4, setup E1.
+# C=0.10 (papier 0.05 — choisi charitablement pour plus d'apprentissage).
+clients:
+  battery_init:
+    distribution: uniform_soc
+    params:
+      max_soc: 0.55
+      min_soc: 0.05
+  fleet:
+  - count: 40
+    type: raspberry_pi_4
+  min_clients: 1
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+cost_model: measured
+data:
+  alpha: 1.0
+  data_root: ./data
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+device: mps
+layer_mismatch: false
+model:
+  architecture: resnet8
+output_dir: ./results/E1_fedle_official
+seed: 42
+training:
+  algo_config:
+    optimizer: adam
+    lr: 0.003
+    local_epochs: 4
+    batch_size: 32
+    weight_decay: 0.0001
+    momentum: 0.9
+    max_grad_norm: 10.0
+    energy_scale_factor: 3.0
+    alpha_applies_to: compute
+    warmup_rounds: 0
+    fedle_C: 0.1
+    fedle_n_clusters: 10
+    fedle_delta: 0.2
+    fedle_standby_frac: 0.05
+  algorithm: fedle
+  num_rounds: 200

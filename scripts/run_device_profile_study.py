@@ -442,11 +442,11 @@ def _summary_md(rows, df, base_out: Path):
         cf = [cell(prof, a, "comm_fraction") for a in algos]
         cf = [float(c) for c in cf if _isnum(c)]
         cf_mean = sum(cf) / len(cf) if cf else None
-        # does fedpart_be reduce energy + extend participation vs fedavg?
-        be_e, fa_e = cell(prof, "fedpart_be", "total_energy_j"), cell(
+        # does fedstep reduce energy + extend participation vs fedavg?
+        be_e, fa_e = cell(prof, "fedstep", "total_energy_j"), cell(
             prof, "fedavg", "total_energy_j"
         )
-        be_s, fa_s = cell(prof, "fedpart_be", "survival_auc"), cell(
+        be_s, fa_s = cell(prof, "fedstep", "survival_auc"), cell(
             prof, "fedavg", "survival_auc"
         )
         if _isnum(be_e) and _isnum(fa_e) and float(fa_e) > 0:
@@ -466,7 +466,7 @@ def _summary_md(rows, df, base_out: Path):
         cross.append((prof, cf_mean, e_txt, s_txt, bites))
 
     L.append("\n## Cross-profile: compute↔comm balance & algorithm benefit\n")
-    L.append("| profile | mean comm fraction | FedPartBE energy | FedPartBE survival |")
+    L.append("| profile | mean comm fraction | FedStep energy | FedStep survival |")
     L.append("|---|---|---|---|")
     for prof, cfm, e_txt, s_txt, _ in cross:
         L.append(f"| {prof} | {cfm:.3f} |" if cfm is not None else f"| {prof} | — |")
@@ -476,7 +476,7 @@ def _summary_md(rows, df, base_out: Path):
         lo, hi = cross[0], cross[-1]
 
         def _ref_total(prof):
-            for a in ("fedpart_be", "fedavg", *algos):
+            for a in ("fedstep", "fedavg", *algos):
                 v = cell(prof, a, "total_energy_j")
                 if _isnum(v):
                     return float(v)
@@ -508,7 +508,7 @@ def _summary_md(rows, df, base_out: Path):
             f"datasets. **Where the metric matters**: survival on the "
             f"battery-constrained MCU class (battery bites), total energy / "
             f"rounds-to-accuracy on the capable devices (it does not). "
-            f"**Algorithm benefit**: FedPartBE's partial updates cut compute "
+            f"**Algorithm benefit**: FedStep's partial updates cut compute "
             f"work (and uplink payload), saving energy and extending "
             f"participation on every profile — see the per-profile rows above."
         )

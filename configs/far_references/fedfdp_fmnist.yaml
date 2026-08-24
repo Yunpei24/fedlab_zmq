@@ -1,0 +1,44 @@
+# Pedagogical FedFDP reference. This uses explicit per-example gradients and
+# is intentionally slower than vectorised production DP-SGD.
+seed: 42
+output_dir: ./results/far_references/fedfdp
+device: cpu
+
+data:
+  dataset: fashionmnist
+  model: lenet5
+  partition: dirichlet
+  alpha: 0.1
+  data_root: ./data
+
+model:
+  architecture: lenet5
+
+training:
+  num_rounds: 50
+  algorithm: fedfdp
+  algo_config:
+    lr: 0.01
+    local_epochs: 1
+    batch_size: 32
+    fairness_lambda: 0.1
+    clip_norm: 1.0
+    noise_multiplier: 1.2
+    loss_clip: 5.0
+    adaptive_loss_clip: true
+    loss_noise_multiplier: 1.2
+    delta: 1.0e-5
+    client_metrics_every: 5
+    fairness_tail_fraction: 0.2
+
+clients:
+  num_clients: 20
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 20
+  fleet:
+    - type: raspberry_pi_4
+      count: 20
+  battery_init:
+    distribution: uniform_soc
+    params: {min_soc: 0.9, max_soc: 0.95}

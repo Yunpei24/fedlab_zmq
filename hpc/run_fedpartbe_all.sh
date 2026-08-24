@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# HPC SLURM — FedPartBE Full Experiment Suite
+# HPC SLURM — FedStep Full Experiment Suite
 # Submits all experiments as independent array jobs
 #
 # Usage (from project root):
@@ -50,15 +50,15 @@ mkdir -p "${PROJ}/logs"
 
 echo ""
 echo "============================================================"
-echo "  Submitting FedPartBE experiments"
+echo "  Submitting FedStep experiments"
 echo "============================================================"
 
 
-# ── A. Survival curve: FedPartBE vs all baselines (6 algos × 1 run) ──────────
+# ── A. Survival curve: FedStep vs all baselines (6 algos × 1 run) ──────────
 echo ""
 echo "=== A. Survival Curve ==="
 
-ALGOS_SURVIVAL="fedavg fedprox heterofl fjord fedpart fedpart_be"
+ALGOS_SURVIVAL="fedavg fedprox heterofl fjord fedpart fedstep"
 for ALGO in $ALGOS_SURVIVAL; do
     submit "survival_${ALGO}" "${TIME_MAIN}" \
         "run_experiment.py --algo ${ALGO} \
@@ -75,7 +75,7 @@ done
 echo ""
 echo "=== B. Full Benchmark (Table 1) ==="
 
-ALGOS_BENCH="fedavg fedprox scaffold leanfed fedbacys vaishnav fedsparq heterofl fjord fedpart fedpart_be"
+ALGOS_BENCH="fedavg fedprox scaffold leanfed fedbacys vaishnav fedsparq heterofl fjord fedpart fedstep"
 for ALGO in $ALGOS_BENCH; do
     submit "bench_${ALGO}" "${TIME_MAIN}" \
         "run_experiment.py --algo ${ALGO} \
@@ -112,7 +112,7 @@ submit "ablation_no_staleness" "${TIME_ABL}" \
 echo ""
 echo "=== D. Sensitivity: alpha ==="
 
-for ALGO in fedpart fedpart_be; do
+for ALGO in fedpart fedstep; do
     for ALPHA in 0.1 0.5 1.0; do
         ALPHA_TAG="${ALPHA//./_}"
         submit "sens_alpha${ALPHA_TAG}_${ALGO}" "${TIME_ABL}" \
@@ -133,7 +133,7 @@ echo "=== E. Sensitivity: num_tiers ==="
 
 for M in 2 3 5; do
     submit "sens_tiers_m${M}" "${TIME_ABL}" \
-        "run_experiment.py --algo fedpart_be \
+        "run_experiment.py --algo fedstep \
             --dataset cifar10 --model resnet8 \
             --rounds 200 --clients 30 --alpha 0.3 \
             --partition dirichlet \
@@ -147,7 +147,7 @@ done
 echo ""
 echo "=== F. Reproducibility (seeds 42, 123, 2025) ==="
 
-for ALGO in fedpart fedpart_be; do
+for ALGO in fedpart fedstep; do
     for SEED in 42 123 2025; do
         submit "repro_${ALGO}_s${SEED}" "${TIME_MAIN}" \
             "run_experiment.py --algo ${ALGO} \

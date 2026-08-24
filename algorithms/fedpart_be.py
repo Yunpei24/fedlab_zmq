@@ -1,23 +1,55 @@
 """
 algorithms/fedpart_be.py
 ========================
-FedPartBE: Battery-Energy-aware Federated Partial Network Updates
+FedStep: Battery-Energy-aware Federated Partial Network Updates.
 Extension of FedPart (Wang et al., NeurIPS 2024) with energy-tier assignments.
 
-Key innovations vs FedPart:
+Naming: the algorithm is registered as "fedstep" (paper name). The historical
+key "fedpart_be" is kept as a backward-compatible alias so that old configs
+and result folders remain readable. The module filename is unchanged on
+purpose (import paths, helper re-exports and tests depend on it).
+
+Two operating modes (config key "exit_mode"):
+
+  exit_mode = "group" (default — historical FedPartBE behaviour)
+    Every client runs the FULL forward pass and trains one assigned layer
+    group (partial backward). Battery drives WHICH group a client trains.
+    Limitation (measured in E3): with rotation active, every client pays the
+    same average cost F/3 + (2F/3)·(Σφ_g/M) = F/2 over a rotation cycle, so
+    the battery has no grip on the average energy spend — survival is
+    insensitive to num_tiers / rotation_period.
+
+  exit_mode = "early_exit" (FedStep-EE — requires model "resnet8_ee")
+    Battery drives HOW DEEP a client computes. Client k picks the largest
+    exit depth d whose estimated round energy fits its per-round budget:
+
+        k_i = max{ d : E_round(d) ≤ beta_budget × battery_i }        (β-rule)
+
+    Forward AND backward are truncated at the chosen exit (deeper blocks are
+    never executed), so the round cost is genuinely proportional to the
+    prefix FLOPs — the weakest clients pay ~40% of a full round instead of
+    ~50% forever (ResNet-8), and the differentiation persists because no
+    rotation is needed for cost fairness. Aggregation is per-key coverage-
+    weighted averaging: each parameter is averaged over the clients whose
+    depth reached it. Warmup trains all exits jointly (CE at final head +
+    aux_loss_weight × CE at each aux head).
+    Related work: BranchyNet (early exits), DepthFL (ICLR 2023 — depth from
+    STATIC device capacity). FedStep-EE selects depth from the RESIDUAL
+    battery every round (dynamic).
+
+Key mechanisms vs FedPart (group mode):
   1. Energy-tier layer assignment: sort clients by battery, match cheapest
      groups to lowest-battery clients.
   2. Representation-space proximal regularization: constrains the OUTPUT of
      the active group to stay close to global model output, preserving
-     inter-layer compatibility.
+     inter-layer compatibility. (E3 ablation: effect within seed noise on
+     CIFAR-10 α=1 — kept for non-IID regimes, disable with mu_repr=0.)
   3. Staleness-aware layer priority: groups not updated recently get higher
      scheduling priority.
-  4. Sequential server aggregation (Gauss-Seidel order): apply group deltas
-     in architectural order (early layers first).
-  5. Dynamic tier reorganization: server reassigns client→group mapping
+  4. Dynamic tier reorganization: server reassigns client→group mapping
      every round based on battery levels.
 
-Algorithm:
+Algorithm (group mode):
   Round t < warmup_rounds: full FedAvg update (identical to FedPart).
 
   Round t >= warmup_rounds:
@@ -33,15 +65,16 @@ Algorithm:
     Client k (assigned to group g_k):
       1. Receives global model + group assignment g_k
       2. Freezes all layers except group g_k
-      3. Computes reference representation: h_ref = forward through group g_k
-         using GLOBAL weights on a small reference batch
-      4. Trains for local_epochs with loss:
+      3. Trains for local_epochs with loss:
            L = CE_loss
                + mu_weight * ||W_gk - W_gk_global||^2_F   (weight proximal)
-               + mu_repr   * MSE(h_gk(x), h_ref(x))       (representation proximal)
-      5. Uploads ONLY delta for group g_k
+               + mu_repr   * MSE(h_gk(x), h_ref(x))       (representation proximal,
+                 h_ref computed by a weight-swap forward with global weights)
+      4. Uploads ONLY delta for group g_k (+ BN running stats)
 
-    Server aggregation (single-pass weighted accumulation, Jacobi-style):
+    Server aggregation (single-pass weighted accumulation, Jacobi-style —
+    the deltas are all computed on the same w^{t-1}, accumulated in one pass
+    and applied in one fused GPU op; there is no Gauss-Seidel ordering):
 
       Step 1 — weighted accumulation (one pass over all client updates):
         For each active client k assigned to group g_k:
@@ -82,9 +115,9 @@ Energy benefit: Low-battery clients train cheaper groups, extending lifetime.
 Reference: FedPart (Wang et al., NeurIPS 2024, arXiv:2410.11559v3).
 """
 
-import copy
 import gc
 import math
+import warnings
 from collections import OrderedDict, defaultdict
 
 import torch
@@ -106,18 +139,6 @@ from .fedpart import _compute_group_flops, _derive_layer_groups, _param_group_ke
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
-
-# def _compute_group_costs(groups: list[list[str]], model: nn.Module) -> list[int]:
-#     """
-#     Compute cost (total param count) for each layer group.
-#     Kept as fallback if FLOPs computation fails.
-#     """
-#     state_dict = model.state_dict()
-#     costs = []
-#     for group in groups:
-#         cost = sum(state_dict[k].numel() for k in group if k in state_dict)
-#         costs.append(max(cost, 1))
-#     return costs
 
 
 def _compute_corrected_group_costs(group_flops: list[float]) -> list[float]:
@@ -290,7 +311,7 @@ def _sequential_group_selection(
     window_step: int = 0,
 ) -> dict[int, int]:
     """
-    Sliding-window sequential group selection (FedPartBESeq mode).
+    Sliding-window sequential group selection (FedStepSeq mode).
 
     At PNU round r, select M consecutive groups starting at position:
         window_start = (r * step) mod G
@@ -509,54 +530,98 @@ def _restore_all_grad(model: nn.Module) -> None:
     _flopcost_restore_grad(model)
 
 
-def _compute_reference_representation(
-    model: nn.Module,
-    global_weights: dict,
-    active_group_idx: int,
+# ─────────────────────────────────────────────────────────────────────────────
+# Early-exit helpers (exit_mode = "early_exit")
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _derive_exit_param_names(model: nn.Module) -> list[list[str]]:
+    """
+    Cumulative trainable parameter names per exit depth.
+
+    Reads the model's EXIT_PREFIXES contract (see models.registry.
+    EarlyExitResNet8): entry d-1 lists the name prefixes ADDED at depth d.
+    Returns exits[d-1] = every param name trained when exiting at depth d
+    (prefix of the network + that depth's head), cumulative over depths.
+    """
+    prefixes_per_depth = getattr(model, "EXIT_PREFIXES", None)
+    if prefixes_per_depth is None:
+        raise ValueError(
+            "exit_mode='early_exit' requires a model with EXIT_PREFIXES / aux "
+            "heads (e.g. model: resnet8_ee). Got a plain "
+            f"{model.__class__.__name__}."
+        )
+    all_names = [n for n, _ in model.named_parameters()]
+    exits: list[list[str]] = []
+    cumulative: list[str] = []
+    for depth_prefixes in prefixes_per_depth:
+        cumulative = cumulative + [
+            n
+            for n in all_names
+            if any(n.startswith(p + ".") or n == p for p in depth_prefixes)
+        ]
+        exits.append(list(cumulative))
+    return exits
+
+
+def _exit_flop_fractions(
+    exit_names: list[list[str]],
     groups: list[list[str]],
-    dataloader: torch.utils.data.DataLoader,
-    device: str,
-) -> torch.Tensor:
+    group_flops: list[float],
+) -> list[float]:
     """
-    Compute reference output of the active group using global weights.
+    Fraction of the FULL-model round FLOPs paid at each exit depth.
 
-    Returns:
-        h_ref: tensor of shape (batch_size, ...) containing the output of
-               the active group with global weights on one reference batch.
+    In early-exit mode forward, backward and optimizer are ALL truncated at
+    the exit, so round_flops(d) = full_round_flops × (prefix fwd FLOPs /
+    total fwd FLOPs). Aux-head Linear layers are negligible (<0.1%) and any
+    parameter not covered by the analytic groups (e.g. aux heads) contributes
+    zero here, which is the conservative choice.
     """
-    # Create a copy of the model with global weights
-    ref_model = copy.deepcopy(model)
-    ref_model.load_state_dict(global_weights)
-    ref_model.eval()
-    ref_model.to(device)
+    total = max(sum(group_flops), 1e-12)
+    fractions = []
+    for names in exit_names:
+        name_set = set(names)
+        prefix_flops = sum(
+            gf
+            for group, gf in zip(groups, group_flops)
+            if any(k in name_set for k in group)
+        )
+        fractions.append(min(1.0, prefix_flops / total))
+    if fractions:
+        fractions[-1] = 1.0  # deepest exit is by definition the full model
+    return fractions
 
-    # Get one batch
+
+def _local_label_set(dataloader) -> set[int]:
+    """Classes present in this client's local dataset (cached by the caller).
+
+    Fast paths read the label array directly (torchvision datasets expose
+    `targets`; Subset wraps them with `indices`); the fallback does one pass
+    over the dataloader (loads images once — acceptable, runs once per
+    client lifetime).
+    """
+    ds = dataloader.dataset
     try:
-        x_ref, _ = next(iter(dataloader))
-    except StopIteration:
-        del ref_model
-        gc.collect()
-        return None
-
-    x_ref = x_ref.to(device)
-
-    # Forward through the model up to and including the active group
-    # For simplicity, we'll do a full forward pass and return intermediate
-    # representation. A more sophisticated approach would use hooks.
-    # Here we approximate by running the full model and capturing activations.
-
-    # Since we don't have layer-wise access easily, we'll use a simpler
-    # approach: run full forward and use the logits as proxy for now.
-    # In production, you'd use register_forward_hook on the relevant modules.
-
-    with torch.no_grad():
-        h_ref = ref_model(x_ref)
-
-    h_ref_cpu = h_ref.cpu()
-    # Free the reference model and intermediate tensors immediately.
-    del h_ref, x_ref, ref_model
-    gc.collect()
-    return h_ref_cpu
+        import numpy as _np
+        t = getattr(ds, "targets", None)
+        if t is None:
+            t = getattr(ds, "labels", None)
+        if t is not None:
+            return set(int(v) for v in _np.asarray(t).reshape(-1).tolist())
+        if hasattr(ds, "indices") and hasattr(ds, "dataset"):
+            base = ds.dataset
+            bt = getattr(base, "targets", getattr(base, "labels", None))
+            if bt is not None:
+                bt = _np.asarray(bt).reshape(-1)
+                idx = _np.asarray(ds.indices)
+                return set(int(v) for v in bt[idx].tolist())
+    except Exception:  # pragma: no cover — fall through to the slow path
+        pass
+    seen: set[int] = set()
+    for _, y in dataloader:
+        seen.update(int(v) for v in y.reshape(-1).tolist())
+    return seen
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -564,24 +629,27 @@ def _compute_reference_representation(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@register_algorithm("fedpart_be")
-class FedPartBE(FLAlgorithm):
+@register_algorithm("fedstep")       # primary name (applied last → cls.name)
+@register_algorithm("fedpart_be")    # legacy alias: old configs keep working
+class FedStep(FLAlgorithm):
     """
-    FedPartBE: Battery-Energy-aware Federated Partial Network Updates.
+    FedStep: Battery-Energy-aware Federated Partial Network Updates.
 
     Extension of FedPart with:
       - Energy-tier layer assignment (cheap groups to low-battery clients)
       - Representation-space proximal regularization
       - Staleness-aware layer priority
-      - Sequential server aggregation (Gauss-Seidel order)
+      - Optional early-exit mode (exit_mode="early_exit"): battery drives the
+        computation DEPTH via the β-rule — see module docstring.
 
-    Registration key: "fedpart_be"
+    Registration keys: "fedstep" (primary), "fedpart_be" (legacy alias).
     """
 
-    name = "fedpart_be"
+    name = "fedstep"
     description = (
-        "FedPartBE: Battery-energy-aware partial network updates with "
-        "energy-tier assignments and representation proximal regularization."
+        "FedStep: Battery-energy-aware partial network updates with "
+        "energy-tier assignments, representation proximal regularization, "
+        "and an optional battery-driven early-exit mode."
     )
 
     # ── Client ────────────────────────────────────────────────────────────────
@@ -599,10 +667,15 @@ class FedPartBE(FLAlgorithm):
         1. Derive layer groups if not yet cached.
         2. Get active group assignment from config (set by server).
         3. Freeze all layers except the active group.
-        4. Compute reference representation with global weights.
-        5. Train with CE + weight proximal + representation proximal loss.
-        6. Return partial delta and metadata.
+        4. Train with CE + weight proximal + representation proximal loss
+           (h_ref via weight-swap forward with global weights).
+        5. Return partial delta and metadata.
+
+        exit_mode="early_exit" dispatches to _client_update_early_exit.
         """
+        if config.get("exit_mode", "group") == "early_exit":
+            return self._client_update_early_exit(model, dataloader, state, config)
+
         device = config.get("device", "cpu")
         lr = config.get("lr", 0.01)
         momentum = config.get("momentum", 0.9)
@@ -627,7 +700,7 @@ class FedPartBE(FLAlgorithm):
                     key = _param_group_key(g[0])
                     lines.append(f"    [{i:2d}] {key:<30s} ({len(g)} params)")
                 print(
-                    f"  [FedPartBE] {len(groups)} layer groups derived "
+                    f"  [FedStep] {len(groups)} layer groups derived "
                     f"(shared across all clients)"
                 )
                 print("\n".join(lines))
@@ -726,7 +799,7 @@ class FedPartBE(FLAlgorithm):
         # Estimate cost of training the current group.  If battery < estimate,
         # skip this round without consuming energy — the client will participate
         # again when the rotation returns to a cheaper group.
-        # This is the core FedPartBE innovation vs FedPart: selective participation
+        # This is the core FedStep innovation vs FedPart: selective participation
         # based on group cost, extending device lifetime.
         if not is_warmup:
             # Cache group FLOPs (architecture is fixed)
@@ -796,10 +869,8 @@ class FedPartBE(FLAlgorithm):
                     # Do NOT fire the gate for a group at the staleness cap.
                     # The client must train it even if under-battery; the energy
                     # accounting will drain as much as remains (clamped to 0).
-                    import warnings
-
                     warnings.warn(
-                        f"[FedPartBE] Client {state.client_id}: energy gate suppressed "
+                        f"[FedStep] Client {state.client_id}: energy gate suppressed "
                         f"for group {active_idx} at staleness cap "
                         f"(staleness={_srv_staleness[active_idx]}, τ_max={_tau_max_gate}). "
                         f"Battery {state.battery_j:.1f}J < estimated {energy_est:.1f}J.",
@@ -1133,9 +1204,9 @@ class FedPartBE(FLAlgorithm):
             "bytes_received": downlink_bytes,
             "local_loss": total_ce_loss / max(num_batches, 1),
             "compression_ratio": compression_ratio,
-            # FedPartBE-specific
+            # FedStep-specific
             "active_group_idx": active_idx,
-            "tier_idx": config.get("fedpartbe_tier", -1),
+            "tier_idx": config.get("fedstep_tier", config.get("fedpartbe_tier", -1)),
             "battery_j": state.battery_j,
             "group_cost": group_cost,
             "delta_bytes": uplink_bytes,
@@ -1148,6 +1219,887 @@ class FedPartBE(FLAlgorithm):
 
         return dict(partial_delta), metadata
 
+    # ── Client (early-exit mode) ──────────────────────────────────────────────
+
+    def _skip_meta(self, state, num_exits: int, is_warmup: bool, ds: int) -> dict:
+        """Metadata skeleton for a skipped early-exit round."""
+        return {
+            "client_id": state.client_id,
+            "round_num": state.round_num,
+            "skipped": True,
+            "battery_j_remaining": state.battery_j,
+            "energy_j_consumed": 0.0,
+            "bytes_sent": 0,
+            "bytes_received": 0,
+            "local_loss": 0.0,
+            "compression_ratio": 0.0,
+            "beta_actual": 0.0,
+            "active_group_idx": -1,
+            "exit_depth_k": 0,
+            "is_warmup": is_warmup,
+            "num_layer_groups": num_exits,
+            "dataset_size": ds,
+        }
+
+    def _client_update_early_exit(
+        self,
+        model: nn.Module,
+        dataloader: torch.utils.data.DataLoader,
+        state: ClientState,
+        config: dict,
+    ) -> tuple[dict, dict]:
+        """
+        FedStep-EE local step: the battery picks the computation DEPTH.
+
+        β-rule (per client, per round, no server assignment needed):
+            k = max{ d : E_round(d) ≤ beta_budget × battery }
+        Floor: if even the shallowest exit violates the β budget but still
+        fits the remaining battery, train depth 1 anyway (participation floor
+        — a client that can pay should contribute rather than zombie-skip).
+        If depth 1 exceeds the remaining battery → client is dead.
+
+        Forward AND backward stop at the chosen exit (deeper blocks are never
+        executed), so round cost = full_round_flops × prefix_fraction(k) —
+        the same cached full-round FLOPs and fractions are reused for the
+        gate and for the drain, so estimate and accounting cannot drift.
+
+        Warmup rounds train the full network with a joint multi-exit loss
+        (CE_final + aux_loss_weight · Σ CE_aux) so aux heads are usable from
+        the first PNU round.
+        """
+        device = config.get("device", "cpu")
+        lr = config.get("lr", 0.01)
+        # lr_schedule="cosine" (default "constant"): anneal the LOCAL lr over
+        # the server horizon, lr(t) = lr_min + (lr−lr_min)·½(1+cos(π·t/T)),
+        # lr_min = lr·lr_min_ratio. Late-round client drift under non-IID is
+        # step-size noise; annealing shrinks it where it hurts (the plateau).
+        # Uses _server_round/_total_rounds injected by the harness; falls back
+        # to state.round_num (participation count ≈ server round at f=1.0).
+        if str(config.get("lr_schedule", "constant")) == "cosine":
+            _t = int(config.get("_server_round", state.round_num))
+            _T = max(1, int(config.get("_total_rounds", 200)))
+            _ratio = float(config.get("lr_min_ratio", 0.1))
+            lr = lr * (_ratio + (1.0 - _ratio) * 0.5 * (1.0 + math.cos(math.pi * min(_t, _T) / _T)))
+        momentum = config.get("momentum", 0.9)
+        weight_decay = config.get("weight_decay", 1e-4)
+        local_epochs = config.get("local_epochs", 8)
+        max_grad_norm = config.get("max_grad_norm", 10.0)
+        mu_weight = config.get("mu_weight", 0.01)
+        mu_repr = config.get("mu_repr", 0.1)
+        warmup_rounds = config.get("warmup_rounds", 5)
+        persist_optimizer = config.get("persist_optimizer", True)
+        beta_budget = float(config.get("beta_budget", 0.05))
+        aux_loss_weight = float(config.get("aux_loss_weight", 0.3))
+        esf = config.get("energy_scale_factor", 1.0)
+        alpha_to = config.get("alpha_applies_to", "compute")
+        profile = config.get("device_profile")
+
+        model.train()
+        model.to(device)
+        ds_size = len(dataloader.dataset)
+
+        # ── Exit structure (cached: architecture is fixed) ───────────────────
+        if "ee_exit_names" not in state.custom:
+            exit_names = _derive_exit_param_names(model)
+            if "layer_groups" not in state.custom:
+                state.custom["layer_groups"] = _derive_layer_groups(model)
+            groups = state.custom["layer_groups"]
+            if "group_flops" not in state.custom:
+                input_shape = config.get("input_shape", (1, 3, 32, 32))
+                state.custom["group_flops"] = _compute_group_flops(
+                    groups, model, input_shape
+                )
+            state.custom["ee_exit_names"] = exit_names
+            # Models with identical repeated blocks (transformers) declare
+            # exact analytic fractions via EXIT_FRACTIONS; CNNs fall back to
+            # the per-group FLOPs mapping.
+            _model_fracs = getattr(model, "EXIT_FRACTIONS", None)
+            state.custom["ee_fractions"] = (
+                [float(f) for f in _model_fracs]
+                if _model_fracs is not None
+                else _exit_flop_fractions(
+                    exit_names, groups, state.custom["group_flops"]
+                )
+            )
+            if config.get("verbose_groups", True) and state.client_id == 0:
+                fr = ", ".join(
+                    f"k={i + 1}:{f:.2f}"
+                    for i, f in enumerate(state.custom["ee_fractions"])
+                )
+                print(f"  [FedStep-EE] exit cost fractions: {fr}")
+        exit_names: list[list[str]] = state.custom["ee_exit_names"]
+        fractions: list[float] = state.custom["ee_fractions"]
+        num_exits = len(exit_names)
+
+        # ── Prefix WIDTH: how much of the executed prefix is TRAINED ────────
+        # ee_width_mode:
+        #   "all"      — whole prefix (legacy EE): backward + uplink cover the
+        #                full forward. Reproduces FedAvg cost at k=max.
+        #   "fixed"    — ee_train_groups rotated groups inside the prefix (V3
+        #                Hybrid). Cheapest, but STARVES the deep/head blocks
+        #                (they exist only at k=max AND are rarely rotated to).
+        #   "adaptive" — anti-starvation (V3.1): the last ee_exempt_deep groups
+        #                (output side) are ALWAYS trained when in the prefix,
+        #                then as many rotated shallow groups as the budget
+        #                allows. Deep layers never starve; width follows the
+        #                battery on the SAME deadline budget as the depth.
+        # Back-compat: ee_train_groups 0→"all", ≥1→"fixed" when ee_width_mode
+        # is unset (so the V2a / V3 runs reproduce exactly).
+        _wm_cfg = config.get("ee_width_mode")
+        ee_width_mode = str(
+            _wm_cfg
+            if _wm_cfg is not None
+            else ("all" if int(config.get("ee_train_groups", 0)) == 0 else "fixed")
+        )
+        ee_fixed_w = max(1, int(config.get("ee_train_groups", 1)))
+        ee_exempt_deep = int(config.get("ee_exempt_deep", 0))
+        _emw = config.get("ee_max_width")
+        ee_max_width = None if _emw is None else int(_emw)
+
+        if ee_width_mode != "all" and "ee_prefix_groups" not in state.custom:
+            _groups_all = state.custom["layer_groups"]
+            _gf = state.custom["group_flops"]
+
+            def _head_owner(g: list[str]):
+                # aux_heads.<i> only receives gradient when exiting at depth i;
+                # picking it at another depth gives a loss with no grad path.
+                first = g[0]
+                return (
+                    int(first.split(".")[1])
+                    if first.startswith("aux_heads.")
+                    else None
+                )
+
+            _pg: dict[int, list[int]] = {}
+            _pphi: dict[int, dict[int, float]] = {}
+            for d in range(1, num_exits + 1):
+                _nameset = set(exit_names[d - 1])
+                _idxs = [
+                    gi
+                    for gi, g in enumerate(_groups_all)
+                    if g
+                    and all(k in _nameset for k in g)
+                    and _head_owner(g) in (None, d)
+                ]
+                # Position-aware cost WITHIN the prefix: a group pays its own
+                # backward plus half of every deeper prefix group it must
+                # propagate grad_input through (same law as the global c_g).
+                _cs = {}
+                for _pos, gi in enumerate(_idxs):
+                    _cs[gi] = _gf[gi] + 0.5 * sum(_gf[j] for j in _idxs[_pos + 1 :])
+                _tot = max(sum(_cs.values()), 1e-12)
+                _pg[d] = _idxs  # architectural order (shallow → deep/head)
+                _pphi[d] = {gi: c / _tot for gi, c in _cs.items()}
+            state.custom["ee_prefix_groups"] = _pg
+            state.custom["ee_prefix_phi"] = _pphi
+            state.custom.setdefault("ee_group_cursor", {})
+
+        def _prefix_split(d: int):
+            """(rotating shallow groups, always-trained exempt deep groups)."""
+            idxs = state.custom["ee_prefix_groups"][d]
+            if 0 < ee_exempt_deep < len(idxs):
+                return idxs[:-ee_exempt_deep], idxs[-ee_exempt_deep:]
+            return idxs, []  # exempt_deep 0, or covers the whole prefix
+
+        def _rotated(d: int, n: int) -> list:
+            """n shallow groups starting at this depth's rotation cursor."""
+            shallow, _ = _prefix_split(d)
+            if not shallow or n <= 0:
+                return []
+            cur = state.custom["ee_group_cursor"].get(d, 0)
+            return [shallow[(cur + i) % len(shallow)] for i in range(min(n, len(shallow)))]
+
+        is_warmup = state.round_num < warmup_rounds
+
+        # ── Full-round FLOPs + downlink bytes (cached; gate == accounting) ───
+        # Cache keyed on the CURRENT dataset size: FLOPs scale linearly with
+        # the number of local steps, and under a class-arrival protocol (E7)
+        # the visible dataset GROWS over rounds — a first-participation cache
+        # silently undercharges every later round (pilot bug, 2026-08-05).
+        # The φ fractions are ratios (scale-invariant): only the absolute
+        # total needs refreshing.
+        full_bytes = sum(v.numel() for v in model.state_dict().values()) * 4
+        _cur_ds_size = len(dataloader.dataset)
+        if profile is not None and (
+            "ee_full_flops" not in state.custom
+            or state.custom.get("ee_flops_ds_size") != _cur_ds_size
+        ):
+            _all_names = [n for n, _ in model.named_parameters()]
+            state.custom["ee_full_flops"] = round_compute_flops(
+                model,
+                _all_names,
+                config,
+                profile,
+                dataloader,
+                local_epochs,
+                groups=None,
+                active_group_idx=-1,
+            )
+            state.custom["ee_flops_ds_size"] = _cur_ds_size
+
+        def _eff_fraction(depth: int, g_set=None) -> float:
+            """Fraction of the full-round FLOPs actually paid.
+
+            g_set is None → whole prefix (frac). Otherwise the forward still
+            covers the prefix (frac/3) but the backward only the trained
+            groups: frac·(1/3 + 2/3·Σ_{g∈g_set} φ_g^prefix). Training every
+            prefix group (Σφ=1) recovers the whole-prefix cost frac.
+            """
+            frac = fractions[depth - 1]
+            if g_set is None:
+                return frac
+            phi = state.custom["ee_prefix_phi"][depth]
+            s = sum(phi.get(g, 0.0) for g in g_set)
+            return frac * (1.0 / 3.0 + (2.0 / 3.0) * s)
+
+        def _round_energy(depth: int, uplink_bytes: int, g_set=None) -> float:
+            """Estimated/charged energy for one round at `depth` (1-based)."""
+            frac = _eff_fraction(depth, g_set)
+            if profile is not None:
+                return profile.round_energy_breakdown(
+                    state.custom["ee_full_flops"] * frac,
+                    uplink_bytes,
+                    full_bytes,
+                    esf,
+                    alpha_to,
+                )["total"]
+            # Profile-less fallback (tests / smoke): full round ≈ 2.5 units,
+            # scaled by the effective fraction — same convention as group mode.
+            return 2.5 * frac * esf
+
+        def _group_names(g_set):
+            if g_set is None:
+                return None
+            gl = state.custom["layer_groups"]
+            return [n for gi in g_set for n in gl[gi]]
+
+        def _uplink_bytes_est(depth: int, g_set=None) -> int:
+            sd = model.state_dict()
+            keys = self._ee_tx_keys(
+                exit_names, depth, sd, group_names=_group_names(g_set)
+            )
+            return int(sum(sd[k].numel() for k in keys) * 4)
+
+        def _cost(d: int, g_set) -> float:
+            return _round_energy(d, _uplink_bytes_est(d, g_set), g_set)
+
+        def _select_width(d: int, budget: float):
+            """Trained group set at depth d (None = whole prefix)."""
+            if ee_width_mode == "all":
+                return None
+            shallow, exempt = _prefix_split(d)
+            if ee_width_mode == "fixed":
+                return _rotated(d, ee_fixed_w) + list(exempt)
+            # adaptive: exempt always, then greedily fill the budget with
+            # rotated shallow groups (width follows the battery), capped at
+            # ee_max_width added groups (None = uncapped). The cap bounds the
+            # backward + uplink cost even when the budget is generous — the
+            # lever that closes the energy/comm gap vs FedPart.
+            g_set = list(exempt) if exempt else _rotated(d, 1)
+            _added = 0
+            for g in _rotated(d, len(shallow)):  # full rotation order
+                if g in g_set:
+                    continue
+                if ee_max_width is not None and _added >= ee_max_width:
+                    break
+                if _cost(d, g_set + [g]) <= budget:
+                    g_set = g_set + [g]
+                    _added += 1
+                else:
+                    break
+            return g_set
+
+        # ── Depth + width selection (β-rule) / warmup energy gate ─────────────
+        g_set = None  # groups trained this round (None = whole executed prefix)
+        # depth_mode: "dynamic" (default) — depth re-chosen from the residual
+        #   battery every round (FedStep-EE). "static" — the DepthFL/ScaleFL
+        #   baseline: depth is FROZEN once, by the client's initial-battery
+        #   TIER (capacity), and never adapts to depletion. This is the
+        #   decisive control: does adapting depth to the DEPLETING battery
+        #   help over a fixed capacity-tier assignment (esp. under non-IID,
+        #   where a static weak client is shallow forever → permanent bias)?
+        depth_mode = str(config.get("depth_mode", "dynamic"))
+        if is_warmup:
+            wu_energy = _round_energy(num_exits, full_bytes)
+            if state.battery_j < wu_energy:
+                state.round_num = warmup_rounds  # exit warmup like group mode
+                return {}, self._skip_meta(state, num_exits, True, ds_size)
+            depth = num_exits
+        elif depth_mode == "static":
+            # Freeze depth by initial-battery tier at the first PNU round.
+            if "ee_static_depth" not in state.custom:
+                _bmin = float(config.get("static_batt_min_j", 0.0))
+                _bmax = float(config.get("static_batt_max_j", 0.0))
+                _cap = (
+                    min(1.0, max(0.0, (state.battery_j - _bmin) / (_bmax - _bmin)))
+                    if _bmax > _bmin
+                    else 0.5
+                )
+                # lowest-capacity tier → depth 1, highest → num_exits.
+                state.custom["ee_static_depth"] = max(
+                    1, min(num_exits, 1 + int(round(_cap * (num_exits - 1))))
+                )
+            depth = state.custom["ee_static_depth"]
+            # Width per configured mode; DepthFL trains the whole prefix
+            # ("all" → g_set None). No re-selection, no energy gate: a static
+            # client trains its fixed depth and drains to death if it must.
+            g_set = _select_width(depth, float("inf"))
+        else:
+            # "fraction": budget = β × battery (greedy-deep — FedAvg-early).
+            # "deadline": budget = battery / rounds_remaining (sustainable —
+            # survival to the horizon guaranteed by construction). The SAME
+            # budget governs depth (which prefix) and width (how much of it).
+            if str(config.get("beta_mode", "fraction")) == "deadline":
+                _T = int(config.get("deadline_rounds", 200))
+                _remaining = max(_T - state.round_num, 1)
+                budget = state.battery_j / _remaining
+            else:
+                budget = beta_budget * state.battery_j
+            depth = 0
+            for d in range(num_exits, 0, -1):
+                gs = _select_width(d, budget)
+                if _cost(d, gs) <= budget:
+                    depth, g_set = d, gs
+                    break
+            if depth == 0:
+                # Budget too small for any exit → participation floor at k=1,
+                # unless even that exceeds the whole remaining battery (death).
+                gs1 = _select_width(1, budget)
+                if state.battery_j < _cost(1, gs1):
+                    state.battery_j = 0.0
+                    return {}, self._skip_meta(state, num_exits, False, ds_size)
+                depth, g_set = 1, gs1
+
+        # ── Freeze everything outside the trained set ─────────────────────────
+        # Whole prefix (g_set None) or the selected groups within it.
+        active_names = (
+            _group_names(g_set) if g_set is not None else exit_names[depth - 1]
+        )
+        # Head-training plumbing (repairs V3.2 KD + enables ee_aux_ce): the
+        # width groups exclude aux_heads.<d≠depth> (_head_owner filter, whose
+        # "no grad path" assumption predates forward_exits_upto), so the
+        # freeze below silently dropped every gradient the multi-exit forward
+        # gave the shallow heads — ee_self_distill acted on the trunk only.
+        # When a head-training mechanism is on, unfreeze (and transmit) the
+        # on-path heads: a few hundred params, negligible bytes/energy.
+        _aux_head_names: list[str] = []
+        if (
+            not is_warmup
+            and depth >= 2
+            and (
+                float(config.get("ee_self_distill", 0.0)) > 0.0
+                or float(config.get("ee_aux_ce", 0.0)) > 0.0
+                or float(config.get("ee_global_kd", 0.0)) > 0.0
+            )
+        ):
+            _seen = set(active_names)
+            _aux_head_names = [
+                n
+                for n, _ in model.named_parameters()
+                if n.startswith("aux_heads.")
+                and int(n.split(".")[1]) < depth
+                and n not in _seen
+            ]
+            active_names = list(active_names) + _aux_head_names
+        _flopcost_freeze_to_trainable(model, active_names)
+
+        # ── Proximal bookkeeping (same schedule as group mode) ───────────────
+        w_before = OrderedDict(
+            {k: v.clone().cpu() for k, v in model.state_dict().items()}
+        )
+        # ee_global_kd needs the same machinery as the anchor: a copy of the
+        # global weights and the swap buffers (its teacher pass piggybacks the
+        # anchor-epoch weight swap).
+        _gkd_on = not is_warmup and float(config.get("ee_global_kd", 0.0)) > 0.0
+        w_global: dict = {}
+        if not is_warmup and (mu_weight > 0 or mu_repr > 0 or _gkd_on):
+            w_global = {
+                k: v.clone().to(device) for k, v in model.state_dict().items()
+            }
+        _do_repr = not is_warmup and mu_repr > 0 and bool(w_global)
+        active_set = set(active_names)
+        active_param_refs = (
+            {n: p for n, p in model.named_parameters() if n in active_set}
+            if (not is_warmup and (mu_weight > 0 or mu_repr > 0 or _gkd_on))
+            else {}
+        )
+        saved_buf = (
+            {k: torch.empty_like(p.data) for k, p in active_param_refs.items()}
+            if (_do_repr or _gkd_on)
+            else {}
+        )
+
+        # ── Optimizer (state persisted per depth) ────────────────────────────
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        if config.get("optimizer", "sgd").lower() == "adam":
+            optimizer = optim.Adam(trainable_params, lr=lr, weight_decay=weight_decay)
+        else:
+            optimizer = optim.SGD(
+                trainable_params, lr=lr, momentum=momentum, weight_decay=weight_decay
+            )
+        # Optimizer state is keyed by the exact trained param set so a reload
+        # only reuses momentum when the parameters match (they must, or Adam's
+        # state_dict load would mismatch). With rotating widths the same key
+        # recurs rarely, which is fine — persistence is an optimisation, not
+        # a correctness requirement (the E1 runs use persist_optimizer=False).
+        opt_key = (
+            f"ee{depth}"
+            if g_set is None
+            else "ee%d:%s" % (depth, "-".join(map(str, sorted(g_set))))
+        )
+        if persist_optimizer and not is_warmup:
+            saved = state.custom.get("optimizer_states", {}).get(opt_key)
+            if saved is not None:
+                optimizer.load_state_dict(saved)
+        criterion = nn.CrossEntropyLoss()
+
+        # ── Local training (truncated at `depth`) ────────────────────────────
+        # V2a additions (all default-off, see get_default_config):
+        #   repr_anchor="boundary" — anchor the GAP-pooled feature at the exit
+        #     boundary (the interface deeper blocks consume) instead of the
+        #     head logits, which are blind to most of that interface.
+        #   mu_adaptive — FedDPA-style state-dependent strength: μ_eff grows
+        #     with the measured local/global boundary divergence, so aligned
+        #     clients pay ~μ0 and drifting clients are held harder.
+        exit_k = None if (is_warmup or depth == num_exits) else depth
+        repr_anchor = str(config.get("repr_anchor", "logits"))
+        use_boundary = _do_repr and repr_anchor == "boundary"
+        mu_adaptive = bool(config.get("mu_adaptive", False))
+        mu_adapt_scale = float(config.get("mu_adapt_scale", 1.0))
+        # V3.2 addition (default-off): deep→shallow self-distillation.
+        #   ee_self_distill=λ>0 — at depth k≥2 the deepest ON-PATH exit
+        #   teaches the shallower exits (KL on temperature-softened logits,
+        #   teacher detached). DepthFL/ScaleFL-style self-distillation
+        #   restricted to the client's truncated prefix: aligns shallow
+        #   heads/trunk with deep semantics WITHOUT sharing one fc across
+        #   depths (a shared head mixes shallow/deep feature statistics and
+        #   invites gradient conflict — the reason DepthFL keeps heads
+        #   separate). Complements ee_exempt_deep: exemption guarantees deep
+        #   COVERAGE, KD propagates deep SEMANTICS shallow-ward.
+        kd_weight = float(config.get("ee_self_distill", 0.0))
+        kd_temp = float(config.get("ee_distill_temp", 3.0))
+        do_kd = (not is_warmup) and kd_weight > 0.0 and depth >= 2
+        # ee_aux_ce=w>0 — joint CE beyond warmup: every depth≥2 client adds
+        # w·CE(true labels) at each of ITS on-path shallow heads, so heads
+        # track the evolving trunk instead of freezing at their warmup state
+        # (the starvation measured when the β-rule assigns nobody to a depth).
+        # True-label supervision, unlike KD, cannot distill the local
+        # teacher's class bias into the heads under label skew. Shares the
+        # multi-exit forward and the unfreeze plumbing with ee_self_distill.
+        aux_ce_weight = float(config.get("ee_aux_ce", 0.0))
+        do_aux_ce = (not is_warmup) and aux_ce_weight > 0.0 and depth >= 2
+        # ee_global_kd=λg>0 — GLOBAL-teacher distillation (FedGKD-style, per
+        # exit): on anchor epochs, while the weights are swapped to the global
+        # model for the anchor's reference pass, forward_exits_upto also yields
+        # the GLOBAL logits at every on-path head; each local head d ≤ depth is
+        # then distilled toward its global counterpart. Unlike ee_self_distill
+        # (local deep head = teacher trained on this client's 1-2 classes,
+        # which distills the local bias) the global teacher has seen ALL
+        # classes through aggregation and is IDENTICAL across clients — a
+        # consistency signal, not a bias injection. Works at depth 1 too.
+        # Cost: free when the anchor is on (mu_repr>0 — the teacher pass
+        # rides the anchor's swapped forward, active on the 2 anchor epochs
+        # only). With mu_repr=0 it ADDS an uncharged no-grad forward on those
+        # epochs (energy accounting has no gkd term) — pair it with the
+        # anchor, as every production recipe does.
+        gkd_weight = float(config.get("ee_global_kd", 0.0))
+        do_gkd = (not is_warmup) and gkd_weight > 0.0
+        gkd_ntd = bool(config.get("ee_gkd_ntd", False))
+        # ee_global_kd_scope: "all" (default) distills every on-path head;
+        # "final" only the deepest on-path head — the dual-teacher split
+        # (local KD teaches heads 1..k-1, global KD teaches head k) that
+        # gives each teacher the territory where it measured best.
+        _gkd_students = (
+            [depth]
+            if str(config.get("ee_global_kd_scope", "all")) == "final"
+            else list(range(1, depth + 1))
+        )
+        do_multi = do_kd or do_aux_ce or do_gkd
+        # Teacher pass must not be dropout-noised (ViT variants have live
+        # Dropout in train mode; resnet8_ee has none). Only Dropout modules
+        # are toggled — BN/GN behavior is deliberately left untouched.
+        _dropout_mods = (
+            [m for m in model.modules() if isinstance(m, nn.Dropout)]
+            if do_gkd
+            else []
+        )
+        # FedRS-style restricted softmax (Li & Zhan, KDD 2021), default-off.
+        #   fedrs_alpha=a<1 — in the LOCAL CE only, logits of classes ABSENT
+        #   from this client's data are scaled by a, shrinking the gradient
+        #   that pushes their classifier rows down (the label-skew head-bias
+        #   mechanism: a 1-2-class client spends most of its CE gradient
+        #   "destroying" the classes it never sees). Applied at every trained
+        #   head (warmup joint loss included); inference, anchors and
+        #   transmitted deltas are untouched. Natural complement of the
+        #   exemption: exempt heads are ALWAYS trained, hence always exposed
+        #   to the bias this flag removes.
+        fedrs_alpha = float(config.get("fedrs_alpha", 1.0))
+        _rs_scale = None
+        if fedrs_alpha < 1.0:
+            if "fedrs_present" not in state.custom:
+                state.custom["fedrs_present"] = _local_label_set(dataloader)
+            _rs_present = state.custom["fedrs_present"]
+
+        def _rs_ce(logits, target):
+            nonlocal _rs_scale
+            if fedrs_alpha >= 1.0:
+                return criterion(logits, target)
+            if _rs_scale is None or _rs_scale.device != logits.device:
+                s = torch.full((logits.shape[1],), fedrs_alpha,
+                               device=logits.device)
+                idx = [c for c in _rs_present if c < logits.shape[1]]
+                s[idx] = 1.0
+                _rs_scale = s
+            return criterion(logits * _rs_scale, target)
+
+        total_loss = total_ce = total_wprox = total_rprox = 0.0
+        total_kd = 0.0
+        mu_eff_sum = 0.0
+        mu_eff_n = 0
+        ce_hist: list[float] = []  # per-batch CE — feeds update_variance metric
+        num_batches = 0
+        for epoch in range(local_epochs):
+            is_anchor_epoch = epoch == 1 or epoch == local_epochs - 1
+            for x, y in dataloader:
+                x, y = x.to(device), y.to(device)
+                optimizer.zero_grad()
+
+                f_loc = None
+                if is_warmup:
+                    outs = model.forward_all_exits(x)
+                    final = outs[num_exits]
+                    ce_loss = _rs_ce(final, y) + aux_loss_weight * sum(
+                        _rs_ce(outs[d], y) for d in range(1, num_exits)
+                    )
+                    out = final
+                else:
+                    outs_kd = None
+                    if do_multi:
+                        # One truncated multi-exit forward (prefix ≤ depth):
+                        # same traversal as forward(exit_k=depth), plus the
+                        # tiny shallow heads (features already computed).
+                        if use_boundary and is_anchor_epoch:
+                            outs_kd, f_loc = model.forward_exits_upto(
+                                x, depth, return_boundary=True
+                            )
+                        else:
+                            outs_kd = model.forward_exits_upto(x, depth)
+                        out = outs_kd[depth]
+                    elif use_boundary and is_anchor_epoch:
+                        out, f_loc = (
+                            model(x, exit_k=exit_k, return_boundary=True)
+                            if exit_k
+                            else model(x, return_boundary=True)
+                        )
+                    else:
+                        out = model(x, exit_k=exit_k) if exit_k else model(x)
+                    ce_loss = _rs_ce(out, y)
+                    if do_aux_ce:
+                        ce_loss = ce_loss + aux_ce_weight * sum(
+                            _rs_ce(outs_kd[d], y) for d in range(1, depth)
+                        )
+
+                wprox = 0.0
+                if active_param_refs and mu_weight > 0:
+                    for k, p in active_param_refs.items():
+                        if k in w_global:
+                            wprox += torch.sum((p - w_global[k]) ** 2)
+                    wprox *= mu_weight / 2.0
+
+                rprox = 0.0
+                outs_glob = None
+                if (_do_repr or do_gkd) and is_anchor_epoch:
+                    with torch.no_grad():
+                        # Swap active params to global. Frozen params never
+                        # left their round-start (= global) values, so the
+                        # whole model IS the global model during the swap.
+                        for k, p in active_param_refs.items():
+                            saved_buf[k].copy_(p.data)
+                            p.data.copy_(w_global[k])
+                        if do_gkd:
+                            # One multi-exit global pass serves both the gkd
+                            # teacher (outs_glob) and the anchor reference
+                            # (f_glob / href) — same traversal cost as the
+                            # single-exit pass it replaces. Dropout silenced
+                            # for a deterministic teacher (review finding).
+                            for _m in _dropout_mods:
+                                _m.eval()
+                            if use_boundary:
+                                outs_glob, f_glob = model.forward_exits_upto(
+                                    x, depth, return_boundary=True
+                                )
+                                f_glob = f_glob.detach()
+                            else:
+                                outs_glob = model.forward_exits_upto(x, depth)
+                            href = outs_glob[depth]
+                            for _m in _dropout_mods:
+                                _m.train()
+                        elif use_boundary:
+                            _, f_glob = (
+                                model(x, exit_k=exit_k, return_boundary=True)
+                                if exit_k
+                                else model(x, return_boundary=True)
+                            )
+                            f_glob = f_glob.detach()
+                        else:
+                            href = (
+                                model(x, exit_k=exit_k) if exit_k else model(x)
+                            ).detach()
+                        for k, p in active_param_refs.items():
+                            p.data.copy_(saved_buf[k])
+                    if use_boundary:
+                        mu_eff = mu_repr
+                        if mu_adaptive:
+                            _div = float(
+                                (f_loc.detach() - f_glob).norm()
+                                / (f_glob.norm() + 1e-8)
+                            )
+                            mu_eff = mu_repr * (1.0 + mu_adapt_scale * _div)
+                        mu_eff_sum += mu_eff
+                        mu_eff_n += 1
+                        rprox = mu_eff * torch.mean((f_loc - f_glob) ** 2)
+                    else:
+                        rprox = mu_repr * torch.mean((out - href) ** 2)
+
+                kd_loss = 0.0
+                if do_kd:
+                    # Deepest on-path exit = detached teacher; every
+                    # shallower exit = student. KL over T-softened logits,
+                    # ×T² (Hinton scaling), averaged over students so λ is
+                    # comparable across depths.
+                    t_soft = torch.softmax(
+                        outs_kd[depth].detach() / kd_temp, dim=1
+                    )
+                    kd_loss = sum(
+                        nn.functional.kl_div(
+                            torch.log_softmax(outs_kd[d] / kd_temp, dim=1),
+                            t_soft,
+                            reduction="batchmean",
+                        )
+                        for d in range(1, depth)
+                    ) * (kd_weight * kd_temp * kd_temp / (depth - 1))
+
+                gkd_loss = 0.0
+                if do_gkd and outs_glob is not None:
+                    # Every on-path head (final included) distilled toward its
+                    # GLOBAL counterpart. Same Hinton T² scaling as ee_self_
+                    # distill; averaged over the `depth` students so λg is
+                    # comparable across depths. Teacher logits are no-grad.
+                    # ee_gkd_ntd (FedNTD, Lee et al. NeurIPS'22): mask the
+                    # TRUE-class logit out of both softmaxes so the KL only
+                    # preserves global knowledge over the not-true classes —
+                    # CE keeps sole authority on the true class, and a
+                    # mediocre teacher can no longer cap the heads on it.
+                    if gkd_ntd:
+                        _mask = torch.zeros_like(outs_kd[depth])
+                        _mask.scatter_(1, y.unsqueeze(1), -1e9)
+                        gkd_loss = sum(
+                            nn.functional.kl_div(
+                                torch.log_softmax(
+                                    (outs_kd[d] + _mask) / kd_temp, dim=1
+                                ),
+                                torch.softmax(
+                                    (outs_glob[d] + _mask) / kd_temp, dim=1
+                                ),
+                                reduction="batchmean",
+                            )
+                            for d in _gkd_students
+                        ) * (gkd_weight * kd_temp * kd_temp / len(_gkd_students))
+                    else:
+                        gkd_loss = sum(
+                            nn.functional.kl_div(
+                                torch.log_softmax(outs_kd[d] / kd_temp, dim=1),
+                                torch.softmax(outs_glob[d] / kd_temp, dim=1),
+                                reduction="batchmean",
+                            )
+                            for d in _gkd_students
+                        ) * (gkd_weight * kd_temp * kd_temp / len(_gkd_students))
+
+                loss = ce_loss + wprox + rprox + kd_loss + gkd_loss
+                loss.backward()
+                if max_grad_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(
+                        trainable_params, max_norm=max_grad_norm
+                    )
+                optimizer.step()
+
+                total_loss += loss.item()
+                _ce = ce_loss.item()
+                total_ce += _ce
+                ce_hist.append(_ce)
+                total_wprox += wprox if isinstance(wprox, float) else wprox.item()
+                total_rprox += rprox if isinstance(rprox, float) else rprox.item()
+                total_kd += kd_loss if isinstance(kd_loss, float) else kd_loss.item()
+                total_kd += (
+                    gkd_loss if isinstance(gkd_loss, float) else gkd_loss.item()
+                )
+                num_batches += 1
+
+        if persist_optimizer and not is_warmup:
+            state.custom.setdefault("optimizer_states", {})[opt_key] = (
+                optimizer.state_dict()
+            )
+        if g_set is not None:
+            # Advance the client-local rotation by the number of SHALLOW
+            # (non-exempt) groups trained, so the next visit continues the
+            # round-robin over the rotating groups (exempt deep groups are
+            # always trained and don't consume the cursor).
+            _shallow_d, _ = _prefix_split(depth)
+            _n_rot = len([g for g in g_set if g in set(_shallow_d)])
+            if _n_rot:
+                _cur = state.custom["ee_group_cursor"].get(depth, 0)
+                state.custom["ee_group_cursor"][depth] = _cur + _n_rot
+        _flopcost_restore_grad(model)
+        if w_global:
+            del w_global
+        gc.collect()
+
+        # ── Delta: trained params + BN buffers of the EXECUTED prefix ────────
+        current_sd = model.state_dict()
+        if is_warmup:
+            tx_keys = list(w_before.keys())
+        else:
+            tx_keys = self._ee_tx_keys(
+                exit_names, depth, w_before, group_names=_group_names(g_set)
+            )
+        # On-path aux heads trained via the head-training plumbing must reach
+        # the server too — _ee_tx_keys follows the width groups, which exclude
+        # them (same exclusion the freeze fix above compensates).
+        for _n in _aux_head_names:
+            if _n in w_before and _n not in tx_keys:
+                tx_keys.append(_n)
+        partial_delta = OrderedDict(
+            {k: (w_before[k] - current_sd[k].cpu()).float() for k in tx_keys}
+        )
+
+        # ── intN delta quantization + error feedback (default-off) ───────────
+        # uplink_quant_bits=8|4 → per-tensor symmetric intN with STOCHASTIC
+        # rounding and ERROR FEEDBACK: the residual (delta − dequant(delta))
+        # is carried in state.custom and added back next round, so the scheme
+        # is unbiased over rounds (Karimireddy et al. 2019). Communication
+        # drops ~4× (int8) / ~8× (int4: 2 values packed per byte) + one
+        # float32 scale/tensor. Deltas quantize far better than weights; at
+        # 4 bits (15 levels) EF is what keeps the scheme viable. The SERVER
+        # receives the dequantized delta (we quantize→dequantize here and
+        # transmit the reconstructed values), so aggregation is unchanged;
+        # only the BYTE COUNT reflects the compressed payload.
+        q_bits = int(config.get("uplink_quant_bits", 0))
+        if q_bits in (4, 8) and not is_warmup:
+            qmax = (1 << (q_bits - 1)) - 1  # 127 (int8) | 7 (int4)
+            ef = state.custom.setdefault("ef_residual", {})
+            n_scales = 0
+            for k, d in partial_delta.items():
+                d = d + ef.get(k, 0.0)  # re-inject last round's residual
+                amax = d.abs().max()
+                if amax < 1e-12:
+                    ef[k] = d
+                    partial_delta[k] = torch.zeros_like(d)
+                    n_scales += 1
+                    continue
+                scale = amax / qmax
+                noise = torch.rand_like(d) - 0.5  # stochastic rounding
+                q = torch.clamp(torch.round(d / scale + noise), -qmax, qmax)
+                deq = q * scale
+                ef[k] = d - deq            # residual carried forward
+                partial_delta[k] = deq     # server gets the reconstructed delta
+                n_scales += 1
+            # bytes: q_bits/8 per value (int4 packs 2/byte) + one float32 scale/tensor
+            _nvals = sum(t.numel() for t in partial_delta.values())
+            uplink_bytes = (_nvals * q_bits + 7) // 8 + 4 * n_scales
+        else:
+            uplink_bytes = self.count_bytes(partial_delta, sparse=False)
+
+        # ── Accounting (same numbers as the gate → no drift) ─────────────────
+        full_model_bytes = self.count_bytes(w_before, sparse=False)
+        del w_before, current_sd
+        gc.collect()
+
+        _g_acct = g_set if not is_warmup else None
+        if profile is not None:
+            frac = _eff_fraction(depth, _g_acct)
+            _bd = profile.round_energy_breakdown(
+                state.custom["ee_full_flops"] * frac,
+                uplink_bytes,
+                full_model_bytes,
+                esf,
+                alpha_to,
+            )
+        else:
+            e = _round_energy(depth, uplink_bytes, _g_acct)
+            _bd = {"compute": e, "uplink": 0.0, "downlink": 0.0, "total": e}
+        energy_j = _bd["total"]
+        state.battery_j = max(0.0, state.battery_j - energy_j)
+        state.round_num += 1
+
+        metadata = {
+            "client_id": state.client_id,
+            "round_num": state.round_num,
+            "beta_actual": 1.0,
+            "battery_j_remaining": state.battery_j,
+            "energy_j_consumed": energy_j,
+            "energy_compute_j": _bd["compute"],
+            "energy_uplink_j": _bd["uplink"],
+            "energy_downlink_j": _bd["downlink"],
+            "bytes_sent": uplink_bytes,
+            "bytes_received": full_model_bytes,
+            "local_loss": total_ce / max(num_batches, 1),
+            "compression_ratio": uplink_bytes / max(full_model_bytes, 1),
+            "active_group_idx": -1,  # server tier machinery unused in EE mode
+            "exit_depth_k": depth,
+            "exit_fraction": fractions[depth - 1],
+            "ee_trained_groups": (sorted(g_set) if g_set is not None else []),
+            "ee_width": (len(g_set) if g_set is not None else -1),
+            "ee_eff_fraction": _eff_fraction(depth, _g_acct),
+            "weight_prox_loss": total_wprox / max(num_batches, 1),
+            "repr_prox_loss": total_rprox / max(num_batches, 1),
+            "kd_loss": total_kd / max(num_batches, 1),
+            # update_variance: squared coefficient of variation of the
+            # per-batch CE losses this round — scale-free instability proxy
+            # (FedBS-style), consumed by the var-aware server aggregation.
+            "update_variance": (
+                float(
+                    (sum((c - total_ce / num_batches) ** 2 for c in ce_hist)
+                     / num_batches)
+                    / max((total_ce / num_batches) ** 2, 1e-12)
+                )
+                if num_batches > 1
+                else 0.0
+            ),
+            "mu_eff_mean": (mu_eff_sum / mu_eff_n) if mu_eff_n else mu_repr,
+            "repr_anchor": repr_anchor,
+            "is_warmup": is_warmup,
+            "num_layer_groups": num_exits,
+            "dataset_size": ds_size,
+        }
+        return dict(partial_delta), metadata
+
+    @staticmethod
+    def _ee_tx_keys(
+        exit_names: list[list[str]],
+        depth: int,
+        sd: dict,
+        group_names: list[str] | None = None,
+    ) -> list[str]:
+        """Keys transmitted at `depth`: trained params + BN buffers of the
+        EXECUTED prefix (the forward updates every prefix BN regardless of
+        which params trained; deeper BN stats never moved — forward stopped).
+
+        group_names (hybrid): restrict the trained params to that single
+        group; the BN-buffer set still spans the whole executed prefix."""
+        trained = group_names if group_names is not None else exit_names[depth - 1]
+        params = [k for k in trained if k in sd]
+        prefix_modules = {
+            k.rsplit(".", 1)[0] for k in exit_names[depth - 1] if k in sd
+        }
+        bn = [
+            k
+            for k in sd
+            if k.endswith(("running_mean", "running_var", "num_batches_tracked"))
+            and k.rsplit(".", 1)[0] in prefix_modules
+        ]
+        seen = set(params)
+        return params + [k for k in bn if k not in seen]
+
     # ── Server ─────────────────────────────────────────────────────────────────
 
     def server_aggregate(
@@ -1158,15 +2110,23 @@ class FedPartBE(FLAlgorithm):
         config: dict,
     ) -> AggregateResult:
         """
-        Energy-tier-aware aggregation with sequential (Gauss-Seidel) ordering.
+        Energy-tier-aware aggregation (single-pass Jacobi, fused GPU apply).
 
         During warmup: full FedAvg aggregation.
-        After warmup:
+        After warmup (group mode):
           1. Compute tier assignments for next round
-          2. Aggregate deltas sequentially by group (early layers first)
+          2. Aggregate deltas per group (weighted mean, one fused apply)
           3. Update staleness vector
           4. Return new weights and metrics
+
+        exit_mode="early_exit" dispatches to _server_aggregate_early_exit
+        (per-key coverage-weighted averaging — no tiers, no staleness).
         """
+        if config.get("exit_mode", "group") == "early_exit":
+            return self._server_aggregate_early_exit(
+                global_model, client_updates, round_num, config
+            )
+
         K = len(client_updates)
         global_sd = global_model.state_dict()
         warmup_rounds = config.get("warmup_rounds", 5)
@@ -1276,7 +2236,7 @@ class FedPartBE(FLAlgorithm):
         else:
             # ── Post-warmup: multi-tier Gauss-Seidel aggregation ─────────────
             #
-            # True FedPartBE: num_tiers groups trained simultaneously each round.
+            # True FedStep: num_tiers groups trained simultaneously each round.
             #   Tier 0 (lowest battery) → cheapest cost-bucket → cheap group
             #   Tier K-1 (highest battery) → most expensive bucket → head group
             #
@@ -1437,7 +2397,7 @@ class FedPartBE(FLAlgorithm):
                     parts.append(f"T{t}→G{gg}[{_gname(gg)}]({n}c)")
                 stale_str = ",".join(str(s) for s in staleness)
                 print(
-                    f"  [FedPartBE] R{round_num} | {' | '.join(parts)} | "
+                    f"  [FedStep] R{round_num} | {' | '.join(parts)} | "
                     f"stale=[{stale_str}]"
                 )
 
@@ -1499,8 +2459,6 @@ class FedPartBE(FLAlgorithm):
                         )
                     _K0 = self._server_state["adaptive_rot_K0"]
                     _K_alive = max(len(alive_clients_for_assign), 1)
-                    import math
-
                     _rot_effective = _rotation_period * math.ceil(_K0 / _K_alive)
                 else:
                     _rot_effective = _rotation_period
@@ -1514,7 +2472,7 @@ class FedPartBE(FLAlgorithm):
             self._server_state["_rot_effective_last"] = _rot_effective
 
             if _group_selection == "sequential":
-                # ── Sequential sliding window (FedPartBESeq mode) ────────────
+                # ── Sequential sliding window (FedStepSeq mode) ────────────
                 # M consecutive groups starting at (pnu_round × step) mod G.
                 # Tier assignment within the window: cheapest group → tier-0.
                 # No staleness tracking needed — coverage guaranteed by design.
@@ -1693,7 +2651,7 @@ class FedPartBE(FLAlgorithm):
                 for u, m, _ in client_updates:
                     if not u or m.get("skipped", False):
                         continue
-                    _grp = m.get("active_group", None)
+                    _grp = m.get("active_group_idx", None)  # was "active_group": bug — σ² was never computed during PNU
                     if _grp is not None:
                         flat = torch.cat(
                             [v.float().cpu().reshape(-1) for v in u.values()]
@@ -1739,7 +2697,7 @@ class FedPartBE(FLAlgorithm):
             "sigma2_gradient_approx": sigma2_gradient_approx,
         }
 
-        # FedPartBE-specific metrics
+        # FedStep-specific metrics
         if not is_warmup:
             metrics["staleness_vector"] = staleness.copy()
             metrics["active_groups"] = active_groups
@@ -1757,11 +2715,176 @@ class FedPartBE(FLAlgorithm):
 
         return AggregateResult(new_weights=broadcast_weights, metrics=metrics)
 
+    # ── Server (early-exit mode) ──────────────────────────────────────────────
+
+    def _server_aggregate_early_exit(
+        self,
+        global_model: nn.Module,
+        client_updates: list[tuple[dict, dict, ClientState]],
+        round_num: int,
+        config: dict,
+    ) -> AggregateResult:
+        """
+        FedStep-EE aggregation: per-key coverage-weighted averaging.
+
+        Each parameter key is averaged over the clients whose exit depth
+        reached it, weighted by dataset size:
+
+            w[key] -= ee_server_lr × Σ_i n_i·δ_i[key] / Σ_i n_i[key]
+
+        Shallow layers are averaged over (almost) the whole fleet; deep
+        layers only over the clients that could afford them. Every key gets
+        exactly ONE weighted-mean delta → ee_server_lr defaults to 1.0
+        (there is no multi-group displacement issue here). No tiers, no
+        staleness, no rotation: the client-side β-rule replaces assignment.
+        Warmup rounds aggregate with the same per-key rule (all clients send
+        the full model → it reduces to plain weighted FedAvg).
+        """
+        K = len(client_updates)
+        global_sd = global_model.state_dict()
+        warmup_rounds = config.get("warmup_rounds", 5)
+        is_warmup = round_num < warmup_rounds
+        server_lr = float(config.get("ee_server_lr", 1.0))
+
+        active = [
+            (u, m, s)
+            for u, m, s in client_updates
+            if not m.get("skipped", False) and u
+        ]
+
+        new_weights = OrderedDict({k: v.float() for k, v in global_sd.items()})
+        sums: dict[str, torch.Tensor] = {}
+        counts: dict[str, float] = defaultdict(float)
+        # Variance-aware weighting (V2a, FedBS/FedPBS-style, default off):
+        # w_i = n_i · exp(−τ · Var_i). Down-weights unstable clients on the
+        # keys they share with the fleet (the prefix), protecting stem/layer1
+        # from noisy shallow-client updates under severe non-IID.
+        _var_aware = bool(config.get("var_aware_agg", False))
+        _var_tau = float(config.get("var_agg_tau", 4.0))
+        # bn_agg_mode="plain": BN running statistics are NOT gradients — they
+        # must not go through the gradient machinery. Under severe non-IID this
+        # is what destabilises training (measured: loss blow-ups, σ=18 across
+        # seeds). In "plain" mode BN buffers are aggregated as a pure
+        # data-weighted mean (no variance re-weighting, no server_lr, and
+        # excluded from the EMA below); weights keep the standard treatment.
+        _bn_plain = str(config.get("bn_agg_mode", "standard")).lower() == "plain"
+        _is_bn = lambda k: k.endswith(  # noqa: E731
+            ("running_mean", "running_var", "num_batches_tracked")
+        )
+        sums_bn: dict[str, torch.Tensor] = {}
+        counts_bn: dict[str, float] = defaultdict(float)
+        for upd, meta, _ in active:
+            n_raw = float(meta.get("dataset_size", 1))
+            n_k = n_raw
+            if _var_aware and not is_warmup:
+                _v = float(meta.get("update_variance", 0.0) or 0.0)
+                n_k *= math.exp(-_var_tau * min(_v, 10.0))
+            for k, v in upd.items():
+                vf = v.float()
+                if _bn_plain and _is_bn(k):
+                    if k not in sums_bn:
+                        sums_bn[k] = vf.mul(n_raw)
+                    else:
+                        sums_bn[k].add_(vf, alpha=n_raw)
+                    counts_bn[k] += n_raw
+                    continue
+                if k not in sums:
+                    sums[k] = vf.mul(n_k)
+                else:
+                    sums[k].add_(vf, alpha=n_k)
+                counts[k] += n_k
+
+        for k, s_ in sums.items():
+            if k in new_weights and counts[k] > 0:
+                new_weights[k] = new_weights[k] - server_lr * (
+                    s_.div_(counts[k]).to(new_weights[k].device)
+                )
+        # BN buffers: plain data-weighted mean of the clients' local stats
+        # (server_lr = 1 by construction, no variance re-weighting).
+        for k, s_ in sums_bn.items():
+            if k in new_weights and counts_bn[k] > 0:
+                new_weights[k] = new_weights[k] - (
+                    s_.div_(counts_bn[k]).to(new_weights[k].device)
+                )
+        del sums, sums_bn
+        gc.collect()
+
+        # ── Server-side EMA on global weights (FedAvgM-style) ─────────────────
+        # Same contract as the group-mode block in server_aggregate: with
+        # ema_model_alpha > 0, w_ema = (1-α)·w_ema + α·w_brut and the EMA
+        # model is broadcast instead of the raw aggregate. Damps single-round
+        # aggregation blow-ups (a destroyed aggregate weighs α, not 100%).
+        # Disabled during warmup (full FedAvg steps) and by default (α=0).
+        _ema_alpha = float(config.get("ema_model_alpha", 0.0))
+        if is_warmup:
+            _ema_alpha = 0.0
+        if _ema_alpha > 0.0:
+            if not hasattr(self, "_server_state"):
+                self._server_state = {}
+            if "w_ema_ee" not in self._server_state:
+                self._server_state["w_ema_ee"] = OrderedDict(
+                    {k: v.clone() for k, v in new_weights.items()}
+                )
+            else:
+                w_ema = self._server_state["w_ema_ee"]
+                for k in new_weights:
+                    # bn_agg_mode="plain": BN buffers bypass the momentum —
+                    # smoothing a running STATISTIC over rounds compounds the
+                    # staleness instead of damping noise. Take them fresh.
+                    if _bn_plain and _is_bn(k):
+                        w_ema[k] = new_weights[k].clone()
+                        continue
+                    if k in w_ema:
+                        w_ema[k].mul_(1.0 - _ema_alpha).add_(
+                            new_weights[k].to(w_ema[k].device),
+                            alpha=_ema_alpha,
+                        )
+                    else:
+                        w_ema[k] = new_weights[k].clone()
+            new_weights = self._server_state["w_ema_ee"]
+
+        # ── Metrics ───────────────────────────────────────────────────────────
+        K_act = max(len(active), 1)
+        total_bytes = sum(m["bytes_sent"] for _, m, _ in client_updates)
+        total_energy = sum(m["energy_j_consumed"] for _, m, _ in client_updates)
+        avg_battery = sum(s.battery_j for _, _, s in client_updates) / max(K, 1)
+        avg_loss = sum(m["local_loss"] for _, m, _ in active) / K_act
+        bytes_sent = [m["bytes_sent"] for _, m, _ in client_updates]
+        jain = (
+            (sum(bytes_sent) ** 2) / (K * sum(b**2 for b in bytes_sent))
+            if sum(bytes_sent) > 0
+            else 1.0
+        )
+        exit_hist: dict[int, int] = defaultdict(int)
+        for _, m, _ in active:
+            exit_hist[int(m.get("exit_depth_k", 0))] += 1
+
+        metrics = {
+            "round": round_num,
+            "total_bytes_sent": total_bytes,
+            "total_energy_j": total_energy,
+            "avg_beta": 1.0,
+            "avg_battery_j": avg_battery,
+            "avg_local_loss": avg_loss,
+            "compression_ratio": sum(m["compression_ratio"] for _, m, _ in active)
+            / K_act,
+            "participation_rate": len(active) / max(K, 1),
+            "jain_index": jain,
+            "num_clients": K,
+            "is_warmup_round": is_warmup,
+            "exit_mode": "early_exit",
+            "exit_histogram": dict(sorted(exit_hist.items())),
+            "skipped_clients": sum(
+                1 for _, m, _ in client_updates if m.get("skipped", False)
+            ),
+        }
+        return AggregateResult(new_weights=new_weights, metrics=metrics)
+
     # ── Default configuration ──────────────────────────────────────────────────
 
     def get_default_config(self) -> dict:
         """
-        Default hyperparameters for FedPartBE.
+        Default hyperparameters for FedStep.
 
         warmup_rounds     : 5    — initial full FedAvg rounds
         num_tiers         : 3    — number of energy tiers (K)
@@ -1835,4 +2958,119 @@ class FedPartBE(FLAlgorithm):
             # Set to False only for ablation studies that intentionally allow
             # unbounded staleness growth.
             "enforce_staleness_cap": True,
+            # ── Early-exit mode (FedStep-EE) ──────────────────────────────────
+            # exit_mode: "group" (historical FedPartBE behaviour, default) or
+            # "early_exit" (battery drives the computation DEPTH; requires a
+            # model with aux heads, e.g. model: resnet8_ee).
+            "exit_mode": "group",
+            # beta_budget (β): max fraction of the REMAINING battery a client
+            # may spend on one round. The client picks the deepest exit whose
+            # estimated round energy fits β × battery (β-rule). Smaller β →
+            # earlier throttling to shallow exits → longer lifetime.
+            "beta_budget": 0.05,
+            # aux_loss_weight: weight of the auxiliary heads' CE in the warmup
+            # joint loss (CE_final + aux_loss_weight × Σ CE_aux).
+            "aux_loss_weight": 0.3,
+            # ee_server_lr: scale applied to the per-key weighted-mean delta.
+            # 1.0 is correct (each key receives exactly one mean delta).
+            "ee_server_lr": 1.0,
+            # ── Early-exit V2a (all default-off = pre-V2a behaviour) ─────────
+            # beta_mode: "fraction" (budget = β×battery; greedy-deep — spends
+            # like FedAvg while battery is abundant) or "deadline" (budget =
+            # battery / rounds_remaining; sustainable spend over the horizon).
+            "beta_mode": "fraction",
+            "deadline_rounds": 200,
+            # repr_anchor: "logits" (legacy MSE on head logits) or "boundary"
+            # (MSE on the GAP-pooled feature at the exit boundary — the
+            # interface deeper blocks actually consume).
+            "repr_anchor": "logits",
+            # mu_adaptive: μ_eff = mu_repr × (1 + mu_adapt_scale × div) where
+            # div = ‖F_loc − F_glob‖/‖F_glob‖ (boundary anchor only).
+            "mu_adaptive": False,
+            "mu_adapt_scale": 1.0,
+            # var_aware_agg: per-client aggregation weight n_i·exp(−τ·Var_i),
+            # Var_i = CV² of per-batch CE losses (see update_variance).
+            "var_aware_agg": False,
+            "var_agg_tau": 4.0,
+            # ── Hybrid width (V3 / V3.1) ─────────────────────────────────────
+            # ee_width_mode: "all" (whole prefix, legacy EE) | "fixed" (V3:
+            #   ee_train_groups rotated groups) | "adaptive" (V3.1: exempt deep
+            #   groups always + greedily fill the budget with rotated shallow).
+            #   Unset → derived from ee_train_groups (0→all, ≥1→fixed).
+            "ee_width_mode": None,
+            # ee_train_groups: rotated-group count for "fixed" (0 = whole
+            # prefix). Backward+upload cost = frac·(1/3 + 2/3·Σφ_g^prefix):
+            # equals FedPart at full depth+width, strictly cheaper otherwise.
+            "ee_train_groups": 0,
+            # ee_exempt_deep: number of output-side prefix groups ALWAYS
+            # trained (never rationed) — prevents deep/head starvation, the
+            # failure mode of naive width-1 hybrid. Used by "adaptive"/"fixed".
+            "ee_exempt_deep": 0,
+            # ee_max_width: cap on the number of rotated shallow groups the
+            # "adaptive" mode may add beyond the exempt set (None = uncapped).
+            # Bounds backward + uplink cost even under a generous budget —
+            # the knob that closes the energy/comm gap vs FedPart.
+            "ee_max_width": None,
+            # ── depth_mode: dynamic (FedStep-EE) vs static (DepthFL baseline) ─
+            # "static" freezes depth by the client's initial-battery tier and
+            # never adapts to depletion (the decisive dynamic-vs-static
+            # control). static_batt_{min,max}_j define the fleet battery range
+            # used to map battery → capacity tier → fixed depth.
+            "depth_mode": "dynamic",
+            "static_batt_min_j": 0.0,
+            "static_batt_max_j": 0.0,
+            # ── V3.2: deep→shallow self-distillation (default-off) ───────────
+            # ee_self_distill: weight λ of the KD loss. At depth k≥2 the
+            # deepest on-path exit (detached teacher) teaches the shallower
+            # exits via temperature-softened KL. Complements ee_exempt_deep:
+            # exemption guarantees deep-block COVERAGE; KD propagates deep
+            # SEMANTICS into the shallow heads/trunk (DepthFL-style, but
+            # restricted to the client's truncated prefix — no full forward).
+            "ee_self_distill": 0.0,
+            # ee_distill_temp: softmax temperature T (KL scaled by T²).
+            "ee_distill_temp": 3.0,
+            # bn_agg_mode: "standard" (legacy: BN buffers go through the same
+            # server_lr / variance-weighting / EMA as the weights) or "plain"
+            # (BN buffers aggregated as a pure data-weighted mean, excluded
+            # from server_lr, variance-weighting and EMA). BN running stats
+            # are statistics, not gradients; under severe non-IID the legacy
+            # path destabilises training.
+            "bn_agg_mode": "standard",
+            # uplink_quant_bits: 0 = off (dense float32) | 8 = int8 (~4×) |
+            # 4 = int4 (~8×, 2 values/byte) delta quantization with stochastic
+            # rounding + error feedback (residual in state.custom["ef_residual"]).
+            "uplink_quant_bits": 0,
+            # ── FedRS restricted softmax (default-off) ───────────────────────
+            # fedrs_alpha: scale applied, in the LOCAL CE only, to the logits
+            # of classes ABSENT from the client's data (Li & Zhan, KDD 2021).
+            # 1.0 = off; 0.5 = paper-typical. Targets the label-skew head
+            # bias (a 1-2-class client destroying the classes it never sees);
+            # complements the exemption, whose always-trained heads are the
+            # most exposed. Inference/deltas/anchors untouched.
+            "fedrs_alpha": 1.0,
+            # lr_schedule: "constant" | "cosine" — anneal local lr over the
+            # server horizon (lr_min_ratio floor). See client_update (EE path).
+            "lr_schedule": "constant",
+            "lr_min_ratio": 0.1,
+            # ee_aux_ce: w>0 — joint CE beyond warmup at every on-path shallow
+            # head (w·CE(true labels), depth≥2 clients). Cures head starvation
+            # when the β-rule assigns nobody to a depth; heads are unfrozen
+            # and transmitted (plumbing shared with the repaired
+            # ee_self_distill). 0 = off.
+            "ee_aux_ce": 0.0,
+            # ee_global_kd: λg>0 — GLOBAL-teacher per-exit distillation
+            # (FedGKD-style): on anchor epochs each on-path head (final
+            # included) is distilled toward the GLOBAL model's same head,
+            # computed for free during the anchor weight swap. The teacher is
+            # identical across clients and has seen all classes — the
+            # bias-free alternative after aux-CE/local-KD both failed under
+            # severe label skew. 0 = off.
+            "ee_global_kd": 0.0,
+            # ee_gkd_ntd: True — FedNTD masking on the global-KD term: the
+            # true-class logit is removed from student AND teacher softmax, so
+            # the KL only preserves not-true-class structure (CE keeps the
+            # true class). Counters the head-capping observed with a mediocre
+            # global teacher under severe skew. Only meaningful with
+            # ee_global_kd>0.
+            "ee_gkd_ntd": False,
         }

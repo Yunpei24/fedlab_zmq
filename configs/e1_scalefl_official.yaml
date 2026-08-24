@@ -1,0 +1,57 @@
+# =====================================================================
+# E1-ScaleFL-OFFICIEL — Ilhan et al., CVPR 2023, porté dans le harnais.
+# Mécanique fidèle: split 2D (profondeur x largeur) par ratios {.25,.5,1}
+# (grid-search Eq. 1, coût en FLOPs — sanctionné §3.1 et cohérent avec
+# notre facturation énergie), tranchage upper-left, perte Eq. 5
+# (CE pondérée par la profondeur + distillation sortie finale->précoces,
+# tau=3, beta=0.1), agrégation par ÉLÉMENT (Eq. 2, coquilles imbriquées).
+# Niveaux statiques uniformes, battery-blind. Setup = E1, iso-optimiseur.
+# =====================================================================
+
+clients:
+  battery_init:
+    distribution: uniform_soc
+    params:
+      max_soc: 0.55
+      min_soc: 0.05
+  fleet:
+  - count: 40
+    type: raspberry_pi_4
+  min_clients: 1
+  num_clients: 40
+  sample_fraction: 1.0
+  sampling_strategy: random
+cost_model: measured
+data:
+  alpha: 1.0
+  data_root: ./data
+  dataset: cifar10
+  model: resnet8_ee
+  partition: dirichlet
+device: mps
+layer_mismatch: false
+model:
+  architecture: resnet8_ee
+output_dir: ./results/E1_scalefl_official
+seed: 42
+training:
+  algo_config:
+    optimizer: adam
+    lr: 0.003
+    local_epochs: 8
+    batch_size: 32
+    weight_decay: 0.0001
+    momentum: 0.9
+    max_grad_norm: 10.0
+    energy_scale_factor: 3.0
+    alpha_applies_to: compute
+    level_assign: uniform
+    scalefl_ratios:
+    - 0.25
+    - 0.5
+    - 1.0
+    scalefl_eps: 1.0
+    scalefl_temp: 3.0
+    scalefl_beta: 0.1
+  algorithm: scalefl
+  num_rounds: 200

@@ -6,12 +6,12 @@ Server-Mask FL: Battery-Adaptive Parameter-Level Masking with Gradient Importanc
 Nikiema & Amhoud, UM6P 2026
 
 Core idea:
-    Instead of assigning fixed layer groups (FedPartBE), the server computes a
+    Instead of assigning fixed layer groups (FedStep), the server computes a
     personalized parameter-level mask for each client based on historical gradient
     importance scores (EMA). Clients with low battery train fewer parameter tensors
     (small β_k), high-battery clients train more tensors (large β_k).
 
-Key differences from FedPartBE:
+Key differences from FedStep:
     - Mask granularity: parameter tensors (e.g., conv1.weight, bn1.bias) vs layer groups
     - Mask assignment: continuous β_k(battery) vs discrete tiers
     - Mask selection: gradient-importance-based vs cost-based

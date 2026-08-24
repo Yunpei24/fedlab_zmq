@@ -1,0 +1,59 @@
+# Main SC-Partial-FAR-DP protocol. Start with conservative sensitivity 2C.
+seed: 42
+output_dir: ./results/scpfar/cifar10_resnet18
+device: cuda
+
+data:
+  dataset: cifar10
+  model: resnet18_gn4
+  partition: dirichlet
+  alpha: 0.1
+  data_root: ./data
+
+model:
+  architecture: resnet18_gn4
+
+training:
+  num_rounds: 100
+  algorithm: sc_partial_far_dp
+  algo_config:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.0e-4
+    local_epochs: 2
+    batch_size: 64
+    warmup_rounds: 0
+    num_layer_groups: 5
+    rounds_per_layer: 1
+    layer_selection: sequential
+    user_clip_norm: 1.0
+    distance_clip_multiple: 2.0
+    score_mode: hard_clip
+    far_alpha: 0.1
+    kappa_w: 2.0
+    alpha_bound_policy: clip
+    robust_reference: cm_nnm
+    num_byzantine: 5
+    sensitivity_mode: conservative_2C
+    enable_central_dp: true
+    target_epsilon: 6.0
+    privacy_num_rounds: 100
+    delta: 1.0e-5
+    client_metrics_every: 5
+    fairness_tail_fraction: 0.2
+    attack:
+      enabled: true
+      name: minsum
+      num_byzantine: 5
+      client_ids: [0, 1, 2, 3, 4]
+
+clients:
+  num_clients: 25
+  sample_fraction: 1.0
+  min_clients: 25
+  fleet:
+    - type: jetson_nano
+      count: 25
+  battery_init:
+    distribution: uniform_soc
+    params: {min_soc: 0.8, max_soc: 0.95}

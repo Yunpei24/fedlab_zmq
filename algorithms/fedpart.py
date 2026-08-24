@@ -418,8 +418,11 @@ class FedPart(FLAlgorithm):
         criterion = nn.CrossEntropyLoss()
 
         total_loss, num_batches = 0.0, 0
+        max_local_batches = config.get("max_local_batches")
         for _ in range(local_epochs):
-            for x, y in dataloader:
+            for batch_idx, (x, y) in enumerate(dataloader):
+                if max_local_batches is not None and batch_idx >= int(max_local_batches):
+                    break
                 x, y = x.to(device), y.to(device)
                 optimizer.zero_grad()
                 loss = criterion(model(x), y)
@@ -606,23 +609,30 @@ class FedPart(FLAlgorithm):
         total_n = max(sum(sizes), 1)
 
         # ── Average partial deltas (uniform) + weighted BN accumulation ───────
-        agg: Optional[dict] = None
+        # Per-key accumulation with per-key counts: identical math when all
+        # clients send the same partition keys (the static case), and robust
+        # when key sets diverge — under the E7 class-arrival protocol clients
+        # skip data-less rounds, desynchronising the layer rotation (the
+        # original `for k in agg: update[k]` crashed with KeyError there).
+        agg: dict = {}
+        agg_cnt: dict = {}
         agg_bn: dict = {}
         for (update, meta, _), n_k in zip(client_updates, sizes):
             w_k = n_k / total_n
-            if agg is None:
-                agg = {k: v.clone().float() for k, v in update.items()}
-            else:
-                for k in agg:
-                    agg[k] += update[k].float()
             for k, v in update.items():
+                if k in agg:
+                    agg[k] += v.float()
+                    agg_cnt[k] += 1
+                else:
+                    agg[k] = v.clone().float()
+                    agg_cnt[k] = 1
                 if k.endswith((".running_mean", ".running_var")):
                     if k not in agg_bn:
                         agg_bn[k] = v.clone().float() * w_k
                     else:
                         agg_bn[k] += v.float() * w_k
         for k in agg:
-            agg[k] /= K
+            agg[k] /= agg_cnt[k]
 
         # ── Apply averaged delta to global model ───────────────────────────────
         # Deltas are always on CPU (computed via .cpu() in client_update).
@@ -712,4 +722,6 @@ class FedPart(FLAlgorithm):
             "active_group_idx": None,  # None = use round-based schedule
             "device": "cpu",
             "device_profile": None,
+            # Diagnostic/smoke-test limit. Leave None for real experiments.
+            "max_local_batches": None,
         }

@@ -1,0 +1,109 @@
+schema_version: 1
+campaign: dmd_phase_a_non_private
+description: >-
+  Preregistered non-private confirmation of DMD-CB and delayed upper
+  semivariance. Differential privacy and Byzantine clients are out of scope.
+
+defaults:
+  rounds: 150
+  warmup_rounds: 2
+  clients: 10
+  local_epochs: 1
+  batch_size: 64
+  eval_batch_size: 256
+  test_eval_every: 5
+  learning_rate: 0.03
+  momentum: 0.9
+  weight_decay: 0.0005
+  gradient_clip: 10.0
+  anchor_fraction: 0.2
+  max_train_samples: 500
+  max_anchor_samples: 150
+  min_train_samples: 50
+  dmd_mean_mu: 0.15
+  dmd_tail_mu: 0.0375
+  dmd_dispersion_mu: 0.0375
+  dmd_cvar_tail_mass: 0.2
+  dmd_client_weights: data
+  loss_fair_mu: 0.7548875145
+  term_tau: 1.0
+  term_weight_cap: 1.0
+  min_reference_clients: 3
+  reliability_power: 1.0
+  calibration_bins: 10
+
+methods:
+  - id: fedavg
+    runner_method: fedavg
+    role: utility baseline
+  - id: fedfair_loss
+    runner_method: fedfair_loss
+    role: loss-space fairness baseline (non-private FedFair objective)
+  - id: term
+    runner_method: term
+    role: federated first-order TERM approximation using pre-round anchor losses
+  - id: margin_mean_sample
+    runner_method: margin_mean_sample_fixed_zero_matched
+    role: sample-weighted margin control
+  - id: dmd_cb
+    runner_method: margin_mean_cb_fixed_zero_matched
+    role: class-balanced Decision-Margin Deficit
+  - id: dmd_cb_usv025
+    runner_method: margin_mean_cb_fixed_zero_stale_usv_r025
+    role: DMD-CB plus one-round-delayed upper-semivariance, mu_V/mu_M=0.25
+
+scenarios:
+  - id: cifar10_resnet18gn
+    dataset: cifar10
+    model: resnet18_gn4
+    classes: 10
+  - id: emnist_byclass_cnngn
+    dataset: emnist
+    model: cnn_gn
+    classes: 62
+
+stages:
+  - id: smoke
+    description: Two-round CUDA gate before any long array.
+    expected_tasks: 24
+    rounds: 2
+    seeds: [101]
+    alphas: [0.1]
+    participations:
+      - id: full
+        participation_rate: 1.0
+        dropout_rate: 0.0
+      - id: partial_dropout
+        participation_rate: 0.5
+        dropout_rate: 0.2
+
+  - id: phase_a_full
+    description: Independent full-participation confirmation on two architectures.
+    expected_tasks: 180
+    seeds: [101, 102, 103, 104, 105]
+    alphas: [0.1, 0.3, 1.0]
+    participations:
+      - id: full
+        participation_rate: 1.0
+        dropout_rate: 0.0
+
+  - id: phase_a_partial_no_dropout
+    description: Five selected clients without dropout; alpha=1 is omitted as a specificity regime.
+    expected_tasks: 120
+    seeds: [101, 102, 103, 104, 105]
+    alphas: [0.1, 0.3]
+    participations:
+      - id: partial_no_dropout
+        participation_rate: 0.5
+        dropout_rate: 0.0
+
+  - id: phase_a_partial_dropout
+    description: Five selected clients, one dropout before profile upload and local training.
+    expected_tasks: 120
+    seeds: [101, 102, 103, 104, 105]
+    alphas: [0.1, 0.3]
+    participations:
+      - id: partial_dropout
+        participation_rate: 0.5
+        dropout_rate: 0.2
+

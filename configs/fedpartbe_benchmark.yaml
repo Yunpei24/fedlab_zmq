@@ -1,6 +1,6 @@
 # ============================================================
-# FedPartBE Paper — Full Benchmark (Table 1)
-# All algorithms: FedAvg | FedProx | HeteroFL | FjORD | FedPart | FedPartBE
+# FedStep Paper — Full Benchmark (Table 1)
+# All algorithms: FedAvg | FedProx | HeteroFL | FjORD | FedPart | FedStep
 # Metrics: best_acc | final_acc | total_energy_J | jain_index
 #          system_lifetime | accuracy_at_half_dropout
 # ============================================================
@@ -23,7 +23,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be   # primary (benchmark mode runs all)
+  algorithm: fedstep   # primary (benchmark mode runs all)
   algo_config:
     lr: 0.01
     momentum: 0.9

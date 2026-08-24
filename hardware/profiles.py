@@ -361,6 +361,46 @@ def _build_profiles() -> dict:
             storage_mb=16000,
             channel_params=ch["wifi5"],  # Shannon model: P_tx=0.20W, P_cir=0.80W
         ),
+        # ── Raspberry Pi 4B + LoRa (E7 radio-dominated regime) ────────────────
+        # Same compute/battery as raspberry_pi_4; the LINK is the bottleneck:
+        # LoRa SF10-class uplink (5.5 kbit/s, 0.4 W TX) makes a dense 315 KB
+        # model upload cost ~183 J — 3-4× the E=1 compute bill — while the
+        # gateway-side broadcast downlink stays cheap (250 kbit/s, 0.15 W RX).
+        # channel_params=None → fixed-bandwidth comm model (the Shannon wifi
+        # params must not override the LoRa rates).
+        "raspberry_pi_4_lora": DeviceProfile(
+            name="Raspberry Pi 4B (LoRa)",
+            description="RPi4 sensing node on a LoRa SF10-class uplink",
+            compute=ComputeSpec(
+                name="BCM2711 ARM Cortex-A72",
+                num_cores=4,
+                freq_ghz=1.5,
+                float_ops_per_cycle=4.0,
+                precision_bits=32,
+            ),
+            power=PowerSpec(
+                idle_w=3.4,
+                compute_w=6.4,
+                tx_w=0.4,
+                rx_w=0.15,
+            ),
+            battery=BatterySpec(
+                capacity_mah=10000,
+                voltage_v=5.1,
+                initial_soc=1.0,
+            ),
+            comm=CommSpec(
+                technology="LoRa",
+                uplink_mbps=0.0055,
+                downlink_mbps=0.25,
+                latency_ms=400.0,
+                packet_loss_rate=0.01,
+                tx_power_dbm=14.0,
+            ),
+            ram_mb=3900,
+            storage_mb=16000,
+            channel_params=None,
+        ),
         # ── Raspberry Pi Zero 2W ──────────────────────────────────────────────
         # SoC: RP3A0, 4× Cortex-A53 @ 1.0GHz
         # Very constrained — typical IoT sensing node
@@ -616,7 +656,7 @@ def make_fleet(
     Returns:
         List of DeviceProfile instances with heterogeneous initial batteries.
 
-    Example (FedPartBE paper setup — Weibull batteries):
+    Example (FedStep paper setup — Weibull batteries):
         fleet = make_fleet(
             [("raspberry_pi_4", 10), ("smartphone_midrange", 10),
              ("jetson_nano", 5), ("esp32_s3", 5)],

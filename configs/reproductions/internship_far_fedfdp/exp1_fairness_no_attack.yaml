@@ -1,0 +1,119 @@
+schema_version: 1
+lane: faithful
+revision: far_prox_v2
+source: internship_report_experiment_1
+description: >-
+  Reproduction de l'experience 1 du rapport de stage: fairness sur MNIST
+  fortement non-IID, sans attaque active.
+expected_runs: 27
+
+scenarios:
+  - id: exp1_fairness_no_attack
+    seeds: [28, 36, 54]
+    base_config:
+      device: cpu
+      data:
+        dataset: mnist
+        partition: dirichlet
+        alpha: 0.1
+        partition_policy: shared_across_training_seeds
+        partition_seed: 28
+        data_root: ./data
+      model:
+        architecture: lenet5
+      training:
+        num_rounds: 40
+        cost_model: measured
+        algo_config:
+          lr: 0.01
+          momentum: 0.0
+          weight_decay: 0.0
+          local_epochs: 2
+          # FAR report lane: proximal multi-epoch deltas. The distinct
+          # paper-style single-gradient mode is available as
+          # far_update_mode: single_step_gradient.
+          far_update_mode: multi_epoch_delta
+          far_prox_mu: 0.01
+          batch_size: 64
+          client_metrics_every: 2
+          fairness_tail_fraction: 0.2
+      clients:
+        num_clients: 10
+        sample_fraction: 1.0
+        sampling_strategy: random
+        min_clients: 10
+        fleet:
+          - type: raspberry_pi_4
+            count: 10
+        battery_init:
+          distribution: uniform_soc
+          params: {min_soc: 0.95, max_soc: 0.95}
+      eval:
+        eval_every: 2
+        honest_clients_only: true
+        metrics:
+          - test_accuracy
+          - honest_client_accuracy_mean
+          - honest_client_accuracy_variance
+          - honest_client_worst_20_accuracy
+          - honest_client_best_20_accuracy
+          - honest_client_best_worst_gap
+          - fedfdp_balanced_fairness_psi
+    conditions:
+      - id: non_private
+        privacy:
+          model: none
+          target_epsilon: infinity
+        attacks:
+          - id: none
+            config: null
+        methods:
+          - id: fedavg
+            algorithm: fedavg
+            algo_config:
+              client_prior: dataset_size
+          - id: far_alpha_m1p5
+            algorithm: far
+            algo_config: &far_common
+              far_alpha: -1.5
+              robust_reference: cm_nnm
+              num_byzantine: 2
+          - id: far_alpha_m0p5
+            algorithm: far
+            algo_config:
+              <<: *far_common
+              far_alpha: -0.5
+          - id: far_alpha_m0p1
+            algorithm: far
+            algo_config:
+              <<: *far_common
+              far_alpha: -0.1
+          - id: far_alpha_0p1
+            algorithm: far
+            algo_config:
+              <<: *far_common
+              far_alpha: 0.1
+          - id: far_alpha_0p4
+            algorithm: far
+            algo_config:
+              <<: *far_common
+              far_alpha: 0.4
+          - id: far_alpha_1p0
+            algorithm: far
+            algo_config:
+              <<: *far_common
+              far_alpha: 1.0
+          - id: qffl_q1
+            algorithm: qffl
+            algo_config:
+              q: 1.0
+              lipschitz: 100.0
+              client_prior: dataset_size
+          - id: fedfair_lambda_0p1
+            algorithm: fedfair
+            algo_config:
+              fairness_lambda: 0.1
+              clip_norm: 1.0
+              loss_clip: 2.5
+              adaptive_loss_clip: false
+              enable_dp: false

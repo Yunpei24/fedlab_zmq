@@ -3,7 +3,7 @@
 # Phase 1 — Tuning hyperparamètres (SLURM array, 45 runs)
 # ============================================================
 # Baselines  : FedAvg(3) + FedPart(3) + HeteroFL(3) + FjORD(3) + FedProx(6)
-# Proposés   : FedPartBE(9) + ccsEF_full(9) + ccsEF_frozen(9)
+# Proposés   : FedStep(9) + ccsEF_full(9) + ccsEF_frozen(9)
 # Total      : 45 runs  (--array=0-44)
 #
 # Hors comparaison (non publiés) : eceffl, fed_resonance
@@ -72,16 +72,16 @@ CONFIGS=(
     "fedprox     8  mu 0.01 0  fedprox_e8_mu001"
     "fedprox     8  mu 0.1  0  fedprox_e8_mu01"
 
-    # ── Proposé : FedPartBE (E,num_tiers) ∈ {3,5,8}×{2,3,4} ── IDs 18-26
-    "fedpart_be  3  num_tiers 2 0  fedpartbe_e3_t2"
-    "fedpart_be  3  num_tiers 3 0  fedpartbe_e3_t3"
-    "fedpart_be  3  num_tiers 4 0  fedpartbe_e3_t4"
-    "fedpart_be  5  num_tiers 2 0  fedpartbe_e5_t2"
-    "fedpart_be  5  num_tiers 3 0  fedpartbe_e5_t3"
-    "fedpart_be  5  num_tiers 4 0  fedpartbe_e5_t4"
-    "fedpart_be  8  num_tiers 2 0  fedpartbe_e8_t2"
-    "fedpart_be  8  num_tiers 3 0  fedpartbe_e8_t3"
-    "fedpart_be  8  num_tiers 4 0  fedpartbe_e8_t4"
+    # ── Proposé : FedStep (E,num_tiers) ∈ {3,5,8}×{2,3,4} ── IDs 18-26
+    "fedstep  3  num_tiers 2 0  fedpartbe_e3_t2"
+    "fedstep  3  num_tiers 3 0  fedpartbe_e3_t3"
+    "fedstep  3  num_tiers 4 0  fedpartbe_e3_t4"
+    "fedstep  5  num_tiers 2 0  fedpartbe_e5_t2"
+    "fedstep  5  num_tiers 3 0  fedpartbe_e5_t3"
+    "fedstep  5  num_tiers 4 0  fedpartbe_e5_t4"
+    "fedstep  8  num_tiers 2 0  fedpartbe_e8_t2"
+    "fedstep  8  num_tiers 3 0  fedpartbe_e8_t3"
+    "fedstep  8  num_tiers 4 0  fedpartbe_e8_t4"
 
     # ── Proposé : ccsEF full (E,T_rot) ∈ {1,3,5}×{1,3,5} ── IDs 27-35
     "ccsEF       1  T_rot 1 0  ccsEF_full_e1_r1"

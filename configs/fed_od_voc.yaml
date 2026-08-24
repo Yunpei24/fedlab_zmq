@@ -12,7 +12,7 @@
 # Baselines
 # ---------
 #   fedavg     : full model, all clients → upper bound accuracy, fast death
-#   fedpart_be : battery-aware layer cycling → closest FL baseline
+#   fedstep : battery-aware layer cycling → closest FL baseline
 #   fed_od     : ours — backbone/head split (architecturally motivated)
 #
 # Model: SSDLite320 MobileNetV3-Large
@@ -66,7 +66,7 @@
 #
 #   # HPC / multi-seed:
 #   for SEED in 42 123 456; do
-#     for ALGO in fedavg fedpart_be fed_od; do
+#     for ALGO in fedavg fedstep fed_od; do
 #       python run_experiment_cv.py \
 #           --config configs/fed_od_voc.yaml \
 #           --algo $ALGO --seed $SEED \
@@ -130,7 +130,7 @@ training:
     server_lr: 0.5
     warmup_rounds: 5    # 5 full-model rounds before tier assignment begins
 
-    # ── FedPartBE specific (ignored by FedOD and FedAvg) ────────────────
+    # ── FedStep specific (ignored by FedOD and FedAvg) ────────────────
     beta_min: 0.01
     beta_max: 1.0
     num_tiers: 3

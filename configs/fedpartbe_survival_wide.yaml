@@ -1,11 +1,11 @@
 # ============================================================
-# FedPartBE — Experiment B: Wide Battery Spread (SOC [5%, 95%])
+# FedStep — Experiment B: Wide Battery Spread (SOC [5%, 95%])
 # ============================================================
 # Scénario : 30 ESP32-S3 avec batteries très hétérogènes, représentant
 # une flotte IoT en fonctionnement continu (certains appareils récemment
 # chargés, d'autres presque vides).
 #
-# Pourquoi ce scénario est le bon pour FedPartBE (Option A)
+# Pourquoi ce scénario est le bon pour FedStep (Option A)
 # ---------------------------------------------------------
 # Avec un spread large (spread = B_max/B_min = 19×) :
 #
@@ -17,7 +17,7 @@
 #     warmup round 2-3 (warmup coûte ~74.5J/round × 12.6).
 #     Le modèle s'entraîne ensuite sur un sous-ensemble biaisé → accuracy ↓
 #
-#   FedPartBE proportionnel :
+#   FedStep proportionnel :
 #     - Client 5% SOC → groupe le moins cher → coût ≈ 10% de mean_cost
 #       → survive ~8× plus longtemps qu'en FedPart
 #     - Client 95% SOC → groupe le plus cher → drain proportionnel
@@ -38,12 +38,12 @@
 # --------------------------------
 #   FedAvg            : Best ~70%, tous morts ~round 30 (warmup kills low-SOC fast)
 #   FedPart           : Best ~55-60%, 50% dropout ~round 20 (expensive groups kill fast)
-#   FedPartBE (Opt A) : Best ~62-65%, 50% dropout ~round 50 (proportional drain)
+#   FedStep (Opt A) : Best ~62-65%, 50% dropout ~round 50 (proportional drain)
 #   FedPartUniversal  : Best ~55%, last client ~round 60
 #
 # Usage
 # -----
-#   # Lancer FedPartBE avec assignation proportionnelle :
+#   # Lancer FedStep avec assignation proportionnelle :
 #   python run_experiment.py --config configs/fedpartbe_survival_wide.yaml --device mps
 #
 #   # Comparer avec FedPart sur même scénario :
@@ -57,7 +57,7 @@ device: mps
 
 # ── Layer Mismatch Diagnostic ─────────────────────────────────────────────────
 # Active ou désactive le diagnostic de désalignement inter-couches après chaque
-# agrégation FedAvg/FedPartBE. Résultats sauvegardés dans metrics.json :
+# agrégation FedAvg/FedStep. Résultats sauvegardés dans metrics.json :
 #   round_metrics["layer_mismatch"] : score scalaire ∈ [0, 1]
 #     0 = aucun désalignement  |  1 = désalignement sévère
 layer_mismatch: false
@@ -100,7 +100,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be
+  algorithm: fedstep
   algo_config:
     lr: 0.01
     momentum: 0.9
@@ -132,7 +132,7 @@ training:
     # Les clients à 5% SOC (185J) meurent pendant warmup (les 2 premières
     # rounds de warmup coûtent 2×74.5J = 149J < 185J — tout juste survivant).
     # Ceci est intentionnel : montre que même les clients les plus faibles
-    # peuvent contribuer en phase PNU avec FedPartBE.
+    # peuvent contribuer en phase PNU avec FedStep.
     energy_scale_factor: 12.6
     max_grad_norm: 10.0
     ema_alpha: 0.3

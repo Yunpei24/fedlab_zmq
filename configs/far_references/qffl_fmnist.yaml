@@ -1,0 +1,41 @@
+# q-FFL / q-FedAvg reference. Run q in {0, 1, 5, 10} for the fairness sweep.
+seed: 42
+output_dir: ./results/far_references/qffl
+device: cpu
+
+data:
+  dataset: fashionmnist
+  model: lenet5
+  partition: dirichlet
+  alpha: 0.1
+  data_root: ./data
+
+model:
+  architecture: lenet5
+
+training:
+  num_rounds: 100
+  algorithm: qffl
+  algo_config:
+    lr: 0.01
+    momentum: 0.0
+    weight_decay: 0.0
+    local_epochs: 1
+    batch_size: 32
+    q: 5.0
+    lipschitz: 100.0
+    client_prior: dataset_size
+    client_metrics_every: 5
+    fairness_tail_fraction: 0.2
+
+clients:
+  num_clients: 20
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 20
+  fleet:
+    - type: raspberry_pi_4
+      count: 20
+  battery_init:
+    distribution: uniform_soc
+    params: {min_soc: 0.9, max_soc: 0.95}

@@ -9,7 +9,7 @@ Before this module, every algorithm reimplemented its own variant of the
 "forward + (partial) backward" cost:
 
   - FedPart      : full * (1/3 + 2/3 * group_flops[g]/sum(group_flops))   ← phi-model
-  - FedPartBE    : phi-model for ENERGY ACCOUNTING but corrected costs for tier
+  - FedStep    : phi-model for ENERGY ACCOUNTING but corrected costs for tier
                    ASSIGNMENT — internally inconsistent.
   - ServerMaskFL : (1 + beta) / 2 * full_flops
   - ccsEF        : (d + 2 * |primary|) * 2 * B * S  (freeze_secondary branch)
@@ -232,7 +232,7 @@ def restore_grad(model: nn.Module) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Group cost helpers (moved from algorithms/fedpart and fedpart_be)
+# Group cost helpers (moved from algorithms/fedpart and fedstep)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -527,7 +527,7 @@ def round_compute_flops(
             and active_group_idx >= 0
             and group_flops_analytic
         ):
-            # fedpart / fedpart_be (PNU round)
+            # fedpart / fedstep (PNU round)
             frac = group_flops_analytic[active_group_idx] / sum(group_flops_analytic)
             return float(full_flops * (1.0 / 3.0 + 2.0 / 3.0 * frac))
         # FedAvg, FedResonance, warmup paths → full

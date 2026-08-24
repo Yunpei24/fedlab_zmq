@@ -79,6 +79,8 @@ def spearman(a, b):
 print(f"Spearman rho (corrected vs measured ordering) = {spearman(corr, meas):.3f}")
 
 # ---- (3) communication C(M) ----
+# NOTE (2026-07): algorithm renamed fedpart_be -> fedstep (registry alias kept);
+# keys below stay "fedpart_be" to match the historical result dirs this script reads.
 # Scheduler convention (algorithms/fedpart_be.py l.155-167): sort groups by
 # corrected cost ASCENDING, then move the classifier head (fc) to the END so it
 # always lands in the most-expensive bucket (Tier K-1).

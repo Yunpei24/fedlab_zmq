@@ -1,4 +1,4 @@
-# Méthodologie énergie — FedLab ZMQ (FedPartBE)
+# Méthodologie énergie — FedLab ZMQ (FedStep)
 
 *Description honnête de l'état RÉEL du dépôt (branche `chore/artifact-cleanup`).
 Les valeurs sont citées depuis le code ; « fait vs en cours » est séparé au §8.*
@@ -11,7 +11,7 @@ On étudie l'**apprentissage fédéré sous contrainte d'énergie** : une flotte
 d'appareils edge sur batterie entraîne un modèle partagé. La question est
 **quel client entraîne quoi, et quand, pour que la flotte continue de participer
 avant que les batteries ne meurent** — et si l'entraînement *partiel*
-battery-aware (FedPartBE) aide réellement une fois l'énergie comptée
+battery-aware (FedStep) aide réellement une fois l'énergie comptée
 **honnêtement**.
 
 Le cadre simule, par round et par client, l'énergie dépensée et décharge une
@@ -106,12 +106,12 @@ corrected_p = gflops[p] + 0.5 · Σ_{i>p} gflops[i]      # son bwd + moitié de 
 round_flops = full · (1/3 + 2/3 · corrected_p / Σ corrected)
 ```
 
-**La correction de cohérence.** FedPartBE utilisait auparavant `phi` pour la
+**La correction de cohérence.** FedStep utilisait auparavant `phi` pour la
 **comptabilité d'énergie** mais les coûts corrigés pour l'**assignation des
 tiers** — incohérent. Désormais assignation **et** comptabilité utilisent le
-**même** cost_model. Sous comptabilité honnête, le *vrai* avantage de FedPartBE
+**même** cost_model. Sous comptabilité honnête, le *vrai* avantage de FedStep
 apparaît : il était en partie caché sous `phi`, qui mal-tarifait justement les
-groupes peu profonds que FedPartBE protège.
+groupes peu profonds que FedStep protège.
 
 > Convention : `calibrate_convention()` mesure ResNet-50 une fois ; PyTorch 2.x
 > rapporte de vrais FLOPs → facteur **1.0** (asserté par la suite de tests).
@@ -163,7 +163,7 @@ Sous comptabilité honnête (`measured`), entraîner un ResNet-8 **complet** sur
 (observé dans `results/CORRECTION/NIID05_E3/`). C'est une **vérité physique**,
 pas un artefact de réglage : un MCU sans FPU ne peut tout simplement pas
 s'offrir l'entraînement complet. C'est la motivation de l'**entraînement partiel
-battery-aware** (FedPartBE) : n'entraîner qu'un sous-ensemble abordable de
+battery-aware** (FedStep) : n'entraîner qu'un sous-ensemble abordable de
 couches par round. (Réduire la charge par round à E=1 amène la durée de vie
 médiane à **~15–35 rounds** — un régime de survie lisible ; voir §6.)
 
@@ -188,7 +188,7 @@ ESP32), énergie totale / rounds-pour-accuracy là où elle ne mord *pas*
 (RPi/smartphone).
 
 **Ce que le smoke 2-extrêmes montre à ce stade** (esp32_s3 vs smartphone_highend,
-3 clients) : FedPartBE **économise ~57 % d'énergie** vs FedAvg sur ESP32 et
+3 clients) : FedStep **économise ~57 % d'énergie** vs FedAvg sur ESP32 et
 **~35 %** sur le smartphone, et survit plus longtemps là où la batterie mord.
 Réserve honnête : pour ResNet-8 (~78 k params) sur données locales complètes, le
 **compute domine sur tous les profils** (fraction comm seulement 0.000 → ~0.007).
@@ -250,14 +250,14 @@ Flags réels (`run_experiment.py`) : `--config`, `--algo`, `--epochs`, `--output
 # (a) Un run unique
 caffeinate -si python run_experiment.py \
     --config configs/fedpartbe_survival_wide_cifar10.yaml \
-    --algo fedpart_be \
+    --algo fedstep \
     --epochs 3 \
-    --output results/single/fedpart_be \
+    --output results/single/fedstep \
     --cost-model measured \
     --device mps
 
-# (a') A/B FedPartBE vs FedPart, comptabilité honnête (les runs CORRECTION)
-for ALGO in fedpart_be fedpart; do
+# (a') A/B FedStep vs FedPart, comptabilité honnête (les runs CORRECTION)
+for ALGO in fedstep fedpart; do
     caffeinate -si python run_experiment.py \
         --config configs/fedpartbe_survival_wide_cifar10.yaml \
         --algo $ALGO \
@@ -271,7 +271,7 @@ done
 caffeinate -si python scripts/run_device_profile_study.py --device mps --jobs 4
 #   sanity rapide 2-extrêmes (le smoke validé) :
 python scripts/run_device_profile_study.py --smoke \
-    --profiles esp32_s3 smartphone_highend --algos fedavg fedpart_be
+    --profiles esp32_s3 smartphone_highend --algos fedavg fedstep
 
 # (c) Sweep de sensibilité alpha (grille physique [1,2,3,5,10,20], marqueur 5)
 caffeinate -si python scripts/run_alpha_sensitivity.py --grid full --device mps --jobs 4

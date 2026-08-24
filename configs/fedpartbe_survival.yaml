@@ -1,7 +1,7 @@
 # ============================================================
-# FedPartBE Paper — Experiment A: Survival Curve
+# FedStep Paper — Experiment A: Survival Curve
 # Main figure: % clients alive vs rounds
-# Compares: FedAvg | FedProx | HeteroFL | FjORD | FedPart | FedPartBE
+# Compares: FedAvg | FedProx | HeteroFL | FjORD | FedPart | FedStep
 # ============================================================
 # Scenario: 30 ESP32-S3 microcontrollers with depleted batteries
 # (5%–15% initial SOC), representing a post-deployment IoT fleet
@@ -13,7 +13,7 @@
 #   - Battery range: ~700–1900 J per client
 #   - Expected first dropout (FedPart): ~round 17
 #   - Expected 50% dropout (FedPart):  ~round 49
-#   - FedPartBE extends 50% dropout point by ~30–50 rounds
+#   - FedStep extends 50% dropout point by ~30–50 rounds
 #     by assigning cheapest layer groups to low-battery clients
 #
 # Energy calibration (energy_scale_factor=34):
@@ -44,7 +44,7 @@ model:
 
 training:
   num_rounds: 200      # long enough to see all dropouts for the ESP32 cohort
-  algorithm: fedpart_be   # primary algorithm (others launched separately)
+  algorithm: fedstep   # primary algorithm (others launched separately)
   algo_config:
     lr: 0.01
     momentum: 0.9
@@ -96,7 +96,7 @@ training:
     #
     #   Result (seed=42, uniform [5%,15%], after bug fixes):
     #     first_dropout ≈ round 17, 50%_dropout ≈ round 44, all_dead ≈ round 60
-    #     FedPartBE advantage: +10–20 rounds on 50% survival vs FedPart
+    #     FedStep advantage: +10–20 rounds on 50% survival vs FedPart
     #     (because tier-0 clients train cheapest groups → fewer joules/round)
     #
     #   Bug fix note (2026-04-10):

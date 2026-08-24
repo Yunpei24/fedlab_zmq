@@ -2,7 +2,7 @@
 """
 hpc/launch_zmq_hpc.py
 =====================
-FedPartBE ZMQ Distributed Experiment Launcher for UM6P HPC (SLURM).
+FedStep ZMQ Distributed Experiment Launcher for UM6P HPC (SLURM).
 
 Each SLURM job allocates ONE node and runs:
   - 1 ZMQ server (tcp://*:ROUTER_PORT, tcp://*:PUB_PORT)
@@ -260,7 +260,7 @@ export FEDLAB_CLIENT_BATTERIES='{batteries_json}'"""
     # ── Full SLURM script ──────────────────────────────────────────────────
     script = f"""#!/bin/bash
 # =====================================================================
-# FedPartBE ZMQ Experiment — SLURM job script (auto-generated)
+# FedStep ZMQ Experiment — SLURM job script (auto-generated)
 # Experiment : {exp_name}
 # Group      : {exp.get('group', 'unknown')}
 # Algorithm  : {algorithm}
@@ -289,7 +289,7 @@ mkdir -p "{output_dir}"
 mkdir -p "{PROJ}/{log_dir}"
 
 echo "====================================================="
-echo " FedPartBE ZMQ Experiment (SLURM)"
+echo " FedStep ZMQ Experiment (SLURM)"
 echo "====================================================="
 echo " Job        : ${{SLURM_JOB_ID}}"
 echo " Experiment : {exp_name}"
@@ -353,7 +353,7 @@ fi
 
 def main():
     parser = argparse.ArgumentParser(
-        description="FedPartBE ZMQ HPC Launcher",
+        description="FedStep ZMQ HPC Launcher",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

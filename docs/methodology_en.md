@@ -1,4 +1,4 @@
-# Energy Methodology — FedLab ZMQ (FedPartBE)
+# Energy Methodology — FedLab ZMQ (FedStep)
 
 *Honest description of the real repository state (branch `chore/artifact-cleanup`).
 Values are quoted from the code; "done vs in-progress" is separated in §8.*
@@ -10,7 +10,7 @@ Values are quoted from the code; "done vs in-progress" is separated in §8.*
 We study **energy-constrained federated learning**: a fleet of battery-powered
 edge devices trains a shared model. The question is **which client trains what,
 and when, so the fleet keeps participating before batteries die** — and whether
-battery-aware *partial* training (FedPartBE) actually helps once energy is
+battery-aware *partial* training (FedStep) actually helps once energy is
 accounted for **honestly**.
 
 The energy framework simulates, per round and per client, the energy spent and
@@ -104,11 +104,11 @@ corrected_p = gflops[p] + 0.5 · Σ_{i>p} gflops[i]      # own bwd + half of dow
 round_flops = full · (1/3 + 2/3 · corrected_p / Σ corrected)
 ```
 
-**The consistency fix.** FedPartBE previously used `phi` for **energy
+**The consistency fix.** FedStep previously used `phi` for **energy
 accounting** but corrected costs for **tier assignment** — internally
 inconsistent. Now assignment **and** accounting use the **same** cost model. Under
-honest costing the *real* FedPartBE advantage appears: it was partly hidden under
-`phi`, which mis-priced exactly the shallow groups FedPartBE protects.
+honest costing the *real* FedStep advantage appears: it was partly hidden under
+`phi`, which mis-priced exactly the shallow groups FedStep protects.
 
 > Convention: `calibrate_convention()` measures ResNet-50 once; PyTorch 2.x
 > reports true FLOPs → factor **1.0** (asserted by the test suite).
@@ -158,7 +158,7 @@ Under honest accounting (`measured`), training a **full** ResNet-8 on an
 rounds** (observed in `results/CORRECTION/NIID05_E3/`). This is a **physical
 truth**, not a tuning artifact: a no-FPU MCU simply cannot afford full-model
 training. It is the motivation for **battery-aware partial training**
-(FedPartBE): only train an affordable subset of layers per round. (Reducing the
+(FedStep): only train an affordable subset of layers per round. (Reducing the
 per-round workload to E=1 moves median lifetime to **~15–35 rounds** — a readable
 survival regime; see §6.)
 
@@ -181,7 +181,7 @@ RPi/smartphone genuinely run the model.
 class), total energy / rounds-to-accuracy where it does *not* (RPi/smartphone).
 
 **What the 2-extreme smoke shows so far** (esp32_s3 vs smartphone_highend,
-3 clients): FedPartBE **saves ~57 % energy** vs FedAvg on ESP32 and **~35 %** on
+3 clients): FedStep **saves ~57 % energy** vs FedAvg on ESP32 and **~35 %** on
 the smartphone, and survives longer where the battery bites. Honest caveat: for
 ResNet-8 (~78 k params) on full local data, **compute dominates on every
 profile** (comm fraction only 0.000 → ~0.007). A genuinely comm-bound regime
@@ -242,14 +242,14 @@ Real flags (`run_experiment.py`): `--config`, `--algo`, `--epochs`, `--output`,
 # (a) Single run
 caffeinate -si python run_experiment.py \
     --config configs/fedpartbe_survival_wide_cifar10.yaml \
-    --algo fedpart_be \
+    --algo fedstep \
     --epochs 3 \
-    --output results/single/fedpart_be \
+    --output results/single/fedstep \
     --cost-model measured \
     --device mps
 
-# (a') A/B FedPartBE vs FedPart, honest costing (the CORRECTION runs)
-for ALGO in fedpart_be fedpart; do
+# (a') A/B FedStep vs FedPart, honest costing (the CORRECTION runs)
+for ALGO in fedstep fedpart; do
     caffeinate -si python run_experiment.py \
         --config configs/fedpartbe_survival_wide_cifar10.yaml \
         --algo $ALGO \
@@ -263,7 +263,7 @@ done
 caffeinate -si python scripts/run_device_profile_study.py --device mps --jobs 4
 #   fast 2-extreme sanity (the validated smoke):
 python scripts/run_device_profile_study.py --smoke \
-    --profiles esp32_s3 smartphone_highend --algos fedavg fedpart_be
+    --profiles esp32_s3 smartphone_highend --algos fedavg fedstep
 
 # (c) alpha sensitivity sweep (physical grid [1,2,3,5,10,20], marker 5)
 caffeinate -si python scripts/run_alpha_sensitivity.py --grid full --device mps --jobs 4

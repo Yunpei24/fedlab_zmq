@@ -20,6 +20,7 @@ from torch.utils.data import Dataset, Subset
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def iid_partition(
     dataset: Dataset,
     num_clients: int,
@@ -32,7 +33,7 @@ def iid_partition(
     rng = np.random.default_rng(seed)
     indices = rng.permutation(len(dataset)).tolist()
     size = len(dataset) // num_clients
-    return [indices[i * size: (i + 1) * size] for i in range(num_clients)]
+    return [indices[i * size : (i + 1) * size] for i in range(num_clients)]
 
 
 def dirichlet_partition(
@@ -73,10 +74,12 @@ def dirichlet_partition(
         proportions = rng.dirichlet(alpha=np.ones(num_clients) * alpha)
 
         # Enforce minimum samples
-        proportions = np.array([
-            p * (len(idx_j) < min_samples or True)
-            for p, idx_j in zip(proportions, client_indices)
-        ])
+        proportions = np.array(
+            [
+                p * (len(idx_j) < min_samples or True)
+                for p, idx_j in zip(proportions, client_indices)
+            ]
+        )
         proportions = proportions / proportions.sum()
 
         # Assign indices
@@ -88,6 +91,53 @@ def dirichlet_partition(
     for k in range(num_clients):
         rng.shuffle(client_indices[k])
 
+    return client_indices
+
+
+def matched_dirichlet_partition(
+    dataset: Dataset,
+    num_clients: int,
+    alpha: float = 0.5,
+    seed: int = 42,
+) -> list[list[int]]:
+    """Dirichlet split whose class proportions match across train and test.
+
+    A usual implementation consumes random numbers while shuffling each
+    class.  Because train and test class sizes differ, reusing the same seed
+    does *not* then reproduce the same client proportions.  Client-level
+    fairness evaluation needs each held-out shard to represent the matching
+    training client.  We therefore use independent deterministic streams for
+    the class proportions and for index shuffling.
+    """
+
+    if hasattr(dataset, "targets"):
+        labels = np.asarray(dataset.targets)
+    elif hasattr(dataset, "labels"):
+        labels = np.asarray(dataset.labels)
+    else:
+        labels = np.asarray([dataset[i][1] for i in range(len(dataset))])
+
+    num_classes = int(labels.max()) + 1
+    client_indices = [[] for _ in range(num_clients)]
+    for class_id in range(num_classes):
+        class_idx = np.where(labels == class_id)[0]
+        index_rng = np.random.default_rng(
+            np.random.SeedSequence([seed, class_id, 1, len(dataset)])
+        )
+        index_rng.shuffle(class_idx)
+        proportion_rng = np.random.default_rng(
+            np.random.SeedSequence([seed, class_id, 0])
+        )
+        proportions = proportion_rng.dirichlet(np.full(num_clients, float(alpha)))
+        splits = (np.cumsum(proportions) * len(class_idx)).astype(int)[:-1]
+        for client_id, chunk in enumerate(np.split(class_idx, splits)):
+            client_indices[client_id].extend(chunk.tolist())
+
+    for client_id, indices in enumerate(client_indices):
+        client_rng = np.random.default_rng(
+            np.random.SeedSequence([seed, client_id, 2, len(dataset)])
+        )
+        client_rng.shuffle(indices)
     return client_indices
 
 
@@ -112,15 +162,17 @@ def pathological_partition(
 
     sorted_idx = np.argsort(labels)
     shard_size = len(dataset) // num_shards
-    shards = [sorted_idx[i * shard_size: (i + 1) * shard_size].tolist()
-              for i in range(num_shards)]
+    shards = [
+        sorted_idx[i * shard_size : (i + 1) * shard_size].tolist()
+        for i in range(num_shards)
+    ]
 
     shard_indices = rng.permutation(num_shards).tolist()
     shards_per_client = num_shards // num_clients
 
     client_indices = []
     for k in range(num_clients):
-        assigned = shard_indices[k * shards_per_client: (k + 1) * shards_per_client]
+        assigned = shard_indices[k * shards_per_client : (k + 1) * shards_per_client]
         combined = []
         for s in assigned:
             combined.extend(shards[s])
@@ -136,6 +188,7 @@ def partition_dataset(
     alpha: float = 0.5,
     num_shards: int = 200,
     seed: int = 42,
+    matched_dirichlet: bool = False,
 ) -> list[Subset]:
     """
     Main entry point: partition a dataset and return list of Subsets.
@@ -146,11 +199,16 @@ def partition_dataset(
     if partition == "iid":
         idx_lists = iid_partition(dataset, num_clients, seed)
     elif partition == "dirichlet":
-        idx_lists = dirichlet_partition(dataset, num_clients, alpha, seed)
+        if matched_dirichlet:
+            idx_lists = matched_dirichlet_partition(dataset, num_clients, alpha, seed)
+        else:
+            idx_lists = dirichlet_partition(dataset, num_clients, alpha, seed)
     elif partition == "pathological":
         idx_lists = pathological_partition(dataset, num_clients, num_shards, seed)
     else:
-        raise ValueError(f"Unknown partition: {partition}. "
-                         f"Choose from: iid, dirichlet, pathological")
+        raise ValueError(
+            f"Unknown partition: {partition}. "
+            f"Choose from: iid, dirichlet, pathological"
+        )
 
     return [Subset(dataset, indices) for indices in idx_lists]

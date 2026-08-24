@@ -15,7 +15,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 PY=venv/bin/python
 SEEDS="${SEEDS:-42 43 44}"
 DATASETS="${DATASETS:-cifar100 femnist_natural emnist}"
-ALGOS="${ALGOS:-fedavg fedpart fedpart_be}"
+ALGOS="${ALGOS:-fedavg fedpart fedstep}"
 
 cfg_for() {  # dataset -> config path (macOS bash 3.2: no assoc arrays)
   case "$1" in

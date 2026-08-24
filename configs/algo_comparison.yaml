@@ -1,6 +1,6 @@
 # ============================================================
 # Benchmark : Comparaison équitable entre 6 algorithmes
-#   eceffl | fed_resonance | fedpart | fedpart_be
+#   eceffl | fed_resonance | fedpart | fedstep
 #   ccsEF (full) | ccsEF (frozen)
 # ============================================================
 # Scénario : 30 ESP32-S3, SOC uniforme [5%, 95%], CIFAR-10/ResNet-8
@@ -8,7 +8,7 @@
 #
 # Usage
 # -----
-#   for ALGO in eceffl fed_resonance fedpart fedpart_be ccsEF_full ccsEF_frozen; do
+#   for ALGO in eceffl fed_resonance fedpart fedstep ccsEF_full ccsEF_frozen; do
 #     python run_experiment.py \
 #       --config configs/algo_comparison.yaml \
 #       --algo $ALGO \
@@ -27,7 +27,7 @@
 # ----------------------------------------------------------
 #   lr, local_epochs, batch_size, energy_scale_factor
 #   beta_min, beta_max, battery_max_j  (eceffl + fed_resonance)
-#   warmup_rounds, num_tiers, ...      (fedpart + fedpart_be, ignorés par les autres)
+#   warmup_rounds, num_tiers, ...      (fedpart + fedstep, ignorés par les autres)
 # ============================================================
 
 seed: 42
@@ -47,7 +47,7 @@ model:
 
 training:
   num_rounds: 200
-  algorithm: fedpart_be       # écrasé par --algo en CLI
+  algorithm: fedstep       # écrasé par --algo en CLI
   algo_config:
 
     # ── Hyperparamètres communs ──────────────────────────────────────────
@@ -60,7 +60,7 @@ training:
     local_epochs: 8
     batch_size: 32
 
-    # ── Modèle de batterie (commun : eceffl, fed_resonance, fedpart_be) ──
+    # ── Modèle de batterie (commun : eceffl, fed_resonance, fedstep) ──
     # beta_t^k = beta_min + (beta_max - beta_min) * B_t^k / B_max
     # Avec SOC [5%, 95%] → beta ∈ [0.01, 0.95] selon l'état de charge
     beta_min: 0.01           # compression minimale garantie (participation universelle)
@@ -74,7 +74,7 @@ training:
     # Différence normale : Fed-Resonance compresse mieux → moins de bytes → moins d'énergie TX
     energy_scale_factor: 3.0
 
-    # ── Paramètres fed_resonance (ignorés par eceffl, fedpart, fedpart_be) ─
+    # ── Paramètres fed_resonance (ignorés par eceffl, fedpart, fedstep) ─
     rank_min: 4              # rang SVD minimum
     rank_max: 32             # rang SVD maximum
     spectral_energy_thresh: 0.95   # fraction d'énergie spectrale à capturer
@@ -85,7 +85,7 @@ training:
     rsvd_oversample: 10
     rsvd_power_iter: 2
 
-    # ── Paramètres fedpart / fedpart_be (ignorés par eceffl, fed_resonance) ─
+    # ── Paramètres fedpart / fedstep (ignorés par eceffl, fed_resonance) ─
     warmup_rounds: 5               # rounds FedAvg complet avant PNU
     num_tiers: 3                   # nombre de groupes d'énergie
     server_lr: null                # auto = 1/num_tiers = 0.333
@@ -106,7 +106,7 @@ training:
     # Phase 0 : C1→g1 (primaire), C2→g2 (primaire) ; Phase 1 : swap
     # EF sur groupe primaire (TopK+buffer) ; buffer secondaire accumulé sans transmission
     ccsEF_warmup_rounds: 5         # rounds full-model avant compression CCS-EF
-                                   # DISTINCT de warmup_rounds (fedpart/fedpart_be)
+                                   # DISTINCT de warmup_rounds (fedpart/fedstep)
                                    # SOC [5-15%] : 1 seul round warmup pour préserver la batterie
                                    # SOC [30-80%]: 3-5 rounds pour meilleure convergence initiale
     lr_min: null                  # cosine LR decay floor (null = LR constant)

@@ -1,0 +1,46 @@
+# Mechanical end-to-end check only; this is not a scientific result.
+seed: 7
+output_dir: ./results/far_references/smoke
+device: cpu
+
+data:
+  dataset: cifar10
+  model: resnet8
+  partition: dirichlet
+  alpha: 0.5
+  data_root: ./data
+
+model:
+  architecture: resnet8
+
+training:
+  num_rounds: 1
+  algorithm: far
+  algo_config:
+    lr: 0.01
+    momentum: 0.0
+    weight_decay: 0.0
+    local_epochs: 1
+    batch_size: 8
+    max_local_batches: 1
+    far_alpha: 0.1
+    robust_reference: cm_nnm
+    num_byzantine: 1
+    client_metrics_every: 1
+    client_eval_max_batches: 1
+    attack:
+      enabled: true
+      name: alie
+      num_byzantine: 1
+      client_ids: [0]
+
+clients:
+  num_clients: 4
+  sample_fraction: 1.0
+  min_clients: 4
+  fleet:
+    - type: raspberry_pi_4
+      count: 4
+  battery_init:
+    distribution: uniform_soc
+    params: {min_soc: 0.9, max_soc: 0.95}

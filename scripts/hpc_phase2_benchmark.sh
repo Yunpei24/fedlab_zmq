@@ -3,7 +3,7 @@
 # Phase 2 — Benchmark final (SLURM array, 8 runs)
 # ============================================================
 # Baselines  : FedAvg | FedPart | HeteroFL | FjORD | FedProx
-# Proposés   : FedPartBE | ccsEF full | ccsEF frozen
+# Proposés   : FedStep | ccsEF full | ccsEF frozen
 #
 # Prérequis : Phase 1 terminée.
 # Après find_best_config.py, mettre à jour CONFIGS[] ci-dessous
@@ -61,8 +61,8 @@ CONFIGS=(
     "fedprox    5  mu       0.01  0  fedprox_opt"
 
     # ── Proposés ───────────────────────────────────────────────────────────
-    # ID 5 — FedPartBE  (optimal Phase 1)
-    "fedpart_be 8  num_tiers  3   0  fedpartbe_opt"
+    # ID 5 — FedStep  (optimal Phase 1)
+    "fedstep 8  num_tiers  3   0  fedpartbe_opt"
 
     # ID 6 — ccsEF full  (optimal Phase 1)
     "ccsEF      3  T_rot      3   0  ccsEF_full_opt"
