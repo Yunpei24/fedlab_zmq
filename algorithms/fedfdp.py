@@ -124,8 +124,13 @@ class _FedFairCore(FLAlgorithm):
                     logits = model(sample_x.unsqueeze(0))
                     loss = nn.functional.cross_entropy(logits, sample_y.unsqueeze(0))
                     grads = torch.autograd.grad(loss, parameters, retain_graph=False)
+                    # MPS does not implement float64 tensors.  The gradients
+                    # already use the model's training dtype (normally
+                    # float32), which is sufficient for the clipping norm and
+                    # avoids a backend-specific cast that used to stop the
+                    # faithful FedFair/FedFDP campaign on Apple Silicon.
                     grad_norm = torch.sqrt(
-                        sum(grad.detach().double().square().sum() for grad in grads)
+                        sum(grad.detach().float().square().sum() for grad in grads)
                     ).item()
                     fair_scale = 1.0 + fairness_lambda * (
                         float(loss.item()) - global_loss

@@ -59,6 +59,18 @@ def _has_batch_norm(model: nn.Module) -> bool:
     return any(isinstance(module, nn.modules.batchnorm._BatchNorm) for module in model.modules())
 
 
+def _diagnostic_dtype(device: str | torch.device) -> torch.dtype:
+    """Use the most accurate accumulation dtype supported by the backend.
+
+    Apple MPS has no float64 kernels.  CPU and CUDA retain the previous
+    float64 diagnostic accumulation, while MPS uses float32.  This helper is
+    only used for clipping/noise norms and scalar releases; it does not alter
+    the model parameter dtype or the DP mechanism.
+    """
+
+    return torch.float32 if torch.device(device).type == "mps" else torch.float64
+
+
 def _per_sample_grads_loop(
     model: nn.Module,
     parameters: list[nn.Parameter],
@@ -213,9 +225,17 @@ def local_dpsgd_train(
                     proximal_anchor=proximal_anchor,
                 )
 
-            norm_sq = torch.zeros(x.shape[0], dtype=torch.float64, device=device)
+            diagnostic_dtype = _diagnostic_dtype(device)
+            norm_sq = torch.zeros(
+                x.shape[0], dtype=diagnostic_dtype, device=device
+            )
             for sample_grad in per_sample:
-                norm_sq += sample_grad.reshape(x.shape[0], -1).double().square().sum(1)
+                norm_sq += (
+                    sample_grad.reshape(x.shape[0], -1)
+                    .to(dtype=diagnostic_dtype)
+                    .square()
+                    .sum(1)
+                )
             norms = norm_sq.sqrt()
             factors = (float(clip_norm) / norms.clamp_min(1e-12)).clamp(max=1.0)
 
@@ -229,7 +249,9 @@ def local_dpsgd_train(
                         float(noise_multiplier) * float(clip_norm)
                     )
                     clipped_sum = clipped_sum + noise
-                    step_noise_norm_sq += float(noise.double().square().sum().item())
+                    step_noise_norm_sq += float(
+                        noise.to(dtype=diagnostic_dtype).square().sum().item()
+                    )
                 parameter.grad = clipped_sum / max(int(x.shape[0]), 1)
             optimizer.step()
 
@@ -260,8 +282,11 @@ def private_mean_release(
         return 0.0
     if clip <= 0:
         raise ValueError("clip must be positive")
-    clipped = torch.tensor(values, dtype=torch.float64, device=device).clamp(0.0, clip)
-    noise = torch.randn((), dtype=torch.float64, device=device) * (
+    diagnostic_dtype = _diagnostic_dtype(device)
+    clipped = torch.tensor(values, dtype=diagnostic_dtype, device=device).clamp(
+        0.0, clip
+    )
+    noise = torch.randn((), dtype=diagnostic_dtype, device=device) * (
         float(noise_multiplier) * float(clip)
     )
     return float(((clipped.sum() + noise) / len(values)).item())
