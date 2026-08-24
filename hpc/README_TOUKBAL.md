@@ -1,5 +1,8 @@
 # Toubkal experiment launchers
 
+For the complete CPU installation and validation procedure, see
+[`SETUP_TOUKBAL_CPU.md`](SETUP_TOUKBAL_CPU.md).
+
 The launchers are split by scientific purpose so that results from different
 protocols are never pooled accidentally.
 
