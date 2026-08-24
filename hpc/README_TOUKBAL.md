@@ -10,6 +10,12 @@ protocols are never pooled accidentally.
 | S | `run_level_s_scfar_validation.slurm` | Main SC-Partial-FAR-DP training validation |
 | S | `run_level_s_sensitivity_audit.slurm` | CPU replace-one sensitivity falsification audit |
 
+CPU-first equivalents are provided as:
+
+- `run_r1_r2_r3_cpu.slurm`;
+- `run_level_p_paper_fidelity_cpu.slurm`;
+- `run_level_s_scfar_validation_cpu.slurm`.
+
 The older `run_internship_far_fedfdp.slurm` is the generic R/P matrix engine.
 `run_r1_r2_r3.slurm` is the explicit Toubkal entry point requested for Level R.
 
@@ -33,6 +39,10 @@ sbatch --account=<PROJECT>-DEFAULT-GPU ../hpc/run_level_p_paper_fidelity.slurm
 sbatch --account=<PROJECT>-DEFAULT-GPU ../hpc/run_level_s_scfar_validation.slurm
 sbatch --account=<PROJECT>-DEFAULT-CPU ../hpc/run_level_s_sensitivity_audit.slurm
 ```
+
+For a CPU-first campaign, use the `_cpu.slurm` entry points with the
+`<PROJECT>-DEFAULT-CPU` account.  Their array concurrency is deliberately
+bounded so that the initial validation does not monopolise the CPU project.
 
 Environment variables such as `REPO_DIR`, `PROJECT_DIR`, `WORK_ROOT`,
 `DATA_ROOT`, `OUTPUT_ROOT`, and `CONDA_ENV` can be overridden with
