@@ -20,9 +20,9 @@ defaults:
   max_train_samples: 500
   max_anchor_samples: 150
   min_train_samples: 50
-  dmd_mean_mu: 0.15
-  dmd_tail_mu: 0.0375
-  dmd_dispersion_mu: 0.0375
+  dmd_mean_mu: 0.1875
+  dmd_tail_mu: 0.046875
+  dmd_dispersion_mu: 0.046875
   dmd_cvar_tail_mass: 0.2
   dmd_client_weights: data
   loss_fair_mu: 0.7548875145
@@ -39,18 +39,42 @@ methods:
   - id: fedfair_loss
     runner_method: fedfair_loss
     role: loss-space fairness baseline (non-private FedFair objective)
+    algo_config:
+      fairness_lambda: 0.7548875145
   - id: term
     runner_method: term
     role: federated first-order TERM approximation using pre-round anchor losses
+    algo_config:
+      tilt: 1.0
+      client_prior: dataset_size
   - id: margin_mean_sample
-    runner_method: margin_mean_sample_fixed_zero_matched
+    runner_method: dmd_mean
     role: sample-weighted margin control
+    algo_config:
+      num_classes: 10
+      reference_mode: fixed_zero
+      mean_mu: 0.1875
+      class_weight_mode: frequency
+      min_reference_clients: 3
   - id: dmd_cb
-    runner_method: margin_mean_cb_fixed_zero_matched
+    runner_method: dmd_mean
     role: class-balanced Decision-Margin Deficit
+    algo_config:
+      num_classes: 10
+      reference_mode: fixed_zero
+      mean_mu: 0.1875
+      class_weight_mode: uniform
+      min_reference_clients: 3
   - id: dmd_cb_usv025
-    runner_method: margin_mean_cb_fixed_zero_stale_usv_r025
+    runner_method: dmd_usv
     role: DMD-CB plus one-round-delayed upper-semivariance, mu_V/mu_M=0.25
+    algo_config:
+      num_classes: 10
+      reference_mode: fixed_zero
+      mean_mu: 0.1875
+      dispersion_mu: 0.046875
+      class_weight_mode: uniform
+      min_reference_clients: 3
 
 scenarios:
   - id: cifar10_resnet18gn
@@ -106,4 +130,3 @@ stages:
       - id: partial_dropout
         participation_rate: 0.5
         dropout_rate: 0.2
-

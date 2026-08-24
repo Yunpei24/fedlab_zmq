@@ -25,9 +25,10 @@ class FederatedTERM(FedAvg):
     description = "Client-level TERM with stable exponential loss tilting."
 
     def client_update(self, model, dataloader, state, config):
+        profile_loader = config.get("anchor_dataloader") or dataloader
         loss = empirical_loss(
             model,
-            dataloader,
+            profile_loader,
             config.get("device", "cpu"),
             max_batches=config.get("loss_eval_max_batches"),
         )

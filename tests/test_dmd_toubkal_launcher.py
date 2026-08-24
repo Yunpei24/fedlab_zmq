@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -54,18 +55,21 @@ def test_command_is_single_method_cuda_and_paired_seed(tmp_path: Path) -> None:
         resume=True,
     )
 
-    assert command[command.index("--methods") + 1] == (
-        "margin_mean_cb_fixed_zero_stale_usv_r025"
-    )
+    MODULE.write_native_config(task, data_root=tmp_path / "data", device="cuda")
+    assert command[command.index("--algo") + 1] == "dmd_usv"
+    assert command[1].endswith("run_experiment.py")
+    assert command[command.index("--config") + 1] == str(task.resolved_config_path)
     assert command[command.index("--device") + 1] == "cuda"
     assert command[command.index("--seed") + 1] == "101"
-    assert command[command.index("--partition-seed") + 1] == "101"
-    assert command[command.index("--participation-seed") + 1] == "101"
-    assert command[command.index("--participation-rate") + 1] == "0.5"
-    assert command[command.index("--dropout-rate") + 1] == "0.2"
-    assert command[command.index("--dataset") + 1] == "emnist"
-    assert command[command.index("--model") + 1] == "cnn_gn"
-    assert "--resume" in command
+    resolved = MODULE.native_config(task, data_root=tmp_path / "data", device="cuda")
+    assert resolved["seed"] == 101
+    assert resolved["clients"]["sample_fraction"] == 0.5
+    assert resolved["clients"]["dropout_rate"] == 0.2
+    assert resolved["data"]["dataset"] == "emnist"
+    assert resolved["model"]["architecture"] == "cnn_gn"
+    assert resolved["training"]["algo_config"]["num_classes"] == 62
+    assert resolved["training"]["algo_config"]["reference_mode"] == "fixed_zero"
+    assert "--resume" not in command
 
 
 def test_pilot_rounds_are_isolated_from_confirmatory_outputs(tmp_path: Path) -> None:
@@ -95,3 +99,24 @@ def test_pilot_rounds_are_isolated_from_confirmatory_outputs(tmp_path: Path) -> 
     assert pilot.output_dir != full.output_dir
     assert "pilots" in pilot.output_dir.parts
 
+
+def test_native_completion_contract_uses_metrics_json(tmp_path: Path) -> None:
+    document = MODULE.load_matrix(MATRIX)
+    task = MODULE.expand_tasks(
+        document,
+        output_root=tmp_path,
+        stage_ids={"smoke"},
+        scenario_ids={"cifar10_resnet18gn"},
+        method_ids={"dmd_cb"},
+        seeds={101},
+        alphas={0.1},
+        pilot_rounds=2,
+    )[0]
+    task.result_dir.mkdir(parents=True)
+    (task.result_dir / "metrics.json").write_text(
+        json.dumps({"rounds": [{"round_num": 1}, {"round_num": 2}]}),
+        encoding="utf-8",
+    )
+    (task.result_dir / "final_model.pt").write_bytes(b"model")
+    (task.result_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    assert MODULE.is_complete(task)

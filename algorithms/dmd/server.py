@@ -169,9 +169,10 @@ def server_aggregate(
         **audit,
     }
     if context is not None:
-        # This field is deliberately explicit. The current generic ZMQ server
-        # logs it but does not yet inject it into the following TRAIN_REQ.
         metrics["dmd_next_round_context"] = context.to_wire()
+        metrics["_server_state_updates"] = {
+            "dmd_round_context": context.to_wire()
+        }
     return AggregateResult(new_weights=new_weights, metrics=metrics)
 
 

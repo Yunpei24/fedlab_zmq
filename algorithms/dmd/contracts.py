@@ -60,8 +60,9 @@ class DMDClientReport:
     """Client report that can be embedded in existing metadata messages.
 
     Only primitive Python values are emitted by :meth:`to_wire`; tensors never
-    enter msgpack directly.  Margins are evaluated after local training and
-    become eligible for the one-round-stale reference of the next round.
+    enter msgpack directly. Margins are evaluated on the received global model,
+    before local training, and become eligible for the one-round-stale context
+    of the next round.
     """
 
     client_id: int
@@ -107,10 +108,10 @@ class DMDClientReport:
 class DMDRoundContext:
     """Frozen context consumed by local optimization in a later round.
 
-    The current ZMQ server does not yet propagate algorithm-generated state to
-    the next ``TRAIN_REQ``.  Consequently this contract is deployable only
-    when an orchestrator injects ``dmd_round_context`` explicitly.  Absence of
-    a context safely falls back to cross-entropy-only local training.
+    The server publishes this mapping through ``_server_state_updates``. The
+    generic FedLab runner injects it in the next round under
+    ``dmd_round_context``. Absence of a context, notably during warm-up, safely
+    falls back to cross-entropy-only local training.
     """
 
     source_round: int

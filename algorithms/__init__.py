@@ -46,6 +46,7 @@ from algorithms import qffl                   # q-FedAvg / q-FFL     (Li et al.,
 from algorithms import term                   # Client-level TERM    (Li et al., ICLR 2021)
 from algorithms import far                    # FAR robust-reference reweighting
 from algorithms import fedfdp                 # FedFair / FedFDP
+from algorithms import fedfair_loss           # Efficient loss-variance baseline
 from algorithms import robust_fedavg          # Standalone Byzantine-robust baselines
 from algorithms import dp_references          # Shared DP-SGD FedAvg / q-FFL / FAR
 from algorithms import sc_partial_far_dp      # Sensitivity-Controlled (Partial) FAR-DP

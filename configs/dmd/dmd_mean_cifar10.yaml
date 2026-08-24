@@ -1,6 +1,4 @@
-# Deployable DMD-Mean adapter. The current generic ZMQ server does not yet
-# feed `dmd_next_round_context` back into TRAIN_REQ; until that hook lands,
-# generic distributed runs execute CE-only and log profiles for the next round.
+# Native DMD-CB configuration for run_experiment.py.
 seed: 42
 output_dir: ./results/dmd/dmd_mean_cifar10
 device: mps
@@ -27,13 +25,22 @@ training:
     local_epochs: 1
     batch_size: 64
     num_classes: 10
-    mean_mu: 0.15
+    mean_mu: 0.1875
     dispersion_mu: 0.0
     cvar_tail_mass: 0.2
     class_weight_mode: uniform
+    reference_mode: fixed_zero
     reference_method: median
-    min_reference_clients: 2
+    min_reference_clients: 3
     context_policy: one_round_stale
+    warmup_rounds: 2
+    anchor_fraction: 0.2
+    anchor_batch_size: 256
+    max_train_samples: 500
+    max_anchor_samples: 150
+    min_train_samples: 50
+    require_anchor_dataloader: true
+    client_metrics_every: 5
     device: mps
     device_profile: null
 

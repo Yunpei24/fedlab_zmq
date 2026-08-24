@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Validate, enumerate, and execute the DMD Toubkal experiment matrix.
 
-Each array task owns exactly one method directory.  This prevents concurrent
-jobs from overwriting the DMD prototype's shared manifest and aggregate CSVs.
-The scientific runner remains non-private by construction; this launcher
-refuses matrices that claim to be differentially private.
+Each array task owns exactly one native ``run_experiment.py`` output directory.
+The campaign remains non-private by construction; this launcher refuses
+matrices that claim to be differentially private.
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
 
-import pandas as pd
 import yaml
 
 
@@ -58,6 +56,19 @@ class Task:
                 self.method_id,
             )
         )
+
+    @property
+    def result_dir(self) -> Path:
+        cfg = self.config
+        name = (
+            f"{self.runner_method}_{cfg['dataset']}_{cfg['model']}_dirichlet_"
+            f"ncl{cfg['clients']}_r{cfg['rounds']}_s{self.seed}"
+        )
+        return self.output_dir / name
+
+    @property
+    def resolved_config_path(self) -> Path:
+        return self.output_dir / "resolved_fedlab_config.yaml"
 
 
 def _slug(value: str) -> str:
@@ -230,6 +241,9 @@ def expand_tasks(
                                     "dropout_rate": float(
                                         participation["dropout_rate"]
                                     ),
+                                    "method_algo_config": dict(
+                                        method.get("algo_config", {})
+                                    ),
                                 }
                             )
                             root = output_root / campaign
@@ -289,113 +303,106 @@ def task_command(
     data_root: Path,
     resume: bool,
 ) -> list[str]:
-    cfg = task.config
-    command = [
+    del resume  # Native runner resumes at task granularity via is_complete().
+    return [
         python_bin,
-        str(ROOT / "research" / "dmd_prototype" / "run_cifar10_experiment.py"),
-        "--output-dir",
+        str(ROOT / "run_experiment.py"),
+        "--config",
+        str(task.resolved_config_path),
+        "--algo",
+        str(task.runner_method),
+        "--output",
         str(task.output_dir),
-        "--methods",
-        task.runner_method,
         "--data-root",
         str(data_root),
-        "--dataset",
-        str(cfg["dataset"]),
-        "--model",
-        str(cfg["model"]),
-        "--classes",
-        str(cfg["classes"]),
         "--device",
         device,
         "--seed",
         str(task.seed),
-        "--partition-seed",
-        str(task.seed),
-        "--participation-seed",
-        str(task.seed),
-        "--clients",
-        str(cfg["clients"]),
-        "--participation-rate",
-        str(cfg["participation_rate"]),
-        "--dropout-rate",
-        str(cfg["dropout_rate"]),
-        "--rounds",
-        str(cfg["rounds"]),
-        "--warmup-rounds",
-        str(cfg["warmup_rounds"]),
-        "--dirichlet-alpha",
-        str(task.alpha),
-        "--anchor-fraction",
-        str(cfg["anchor_fraction"]),
-        "--max-train-samples",
-        str(cfg["max_train_samples"]),
-        "--max-anchor-samples",
-        str(cfg["max_anchor_samples"]),
-        "--min-train-samples",
-        str(cfg["min_train_samples"]),
-        "--batch-size",
-        str(cfg["batch_size"]),
-        "--eval-batch-size",
-        str(cfg["eval_batch_size"]),
-        "--test-eval-every",
-        str(cfg["test_eval_every"]),
-        "--local-epochs",
-        str(cfg["local_epochs"]),
-        "--learning-rate",
-        str(cfg["learning_rate"]),
-        "--momentum",
-        str(cfg["momentum"]),
-        "--weight-decay",
-        str(cfg["weight_decay"]),
-        "--gradient-clip",
-        str(cfg["gradient_clip"]),
-        "--dmd-mean-mu",
-        str(cfg["dmd_mean_mu"]),
-        "--dmd-tail-mu",
-        str(cfg["dmd_tail_mu"]),
-        "--dmd-dispersion-mu",
-        str(cfg["dmd_dispersion_mu"]),
-        "--dmd-cvar-tail-mass",
-        str(cfg["dmd_cvar_tail_mass"]),
-        "--dmd-client-weights",
-        str(cfg["dmd_client_weights"]),
-        "--loss-fair-mu",
-        str(cfg["loss_fair_mu"]),
-        "--term-tau",
-        str(cfg["term_tau"]),
-        "--term-weight-cap",
-        str(cfg["term_weight_cap"]),
-        "--min-reference-clients",
-        str(cfg["min_reference_clients"]),
-        "--reliability-power",
-        str(cfg["reliability_power"]),
-        "--calibration-bins",
-        str(cfg["calibration_bins"]),
     ]
-    if resume:
-        command.append("--resume")
-    return command
+
+
+def native_config(task: Task, *, data_root: Path, device: str) -> dict[str, Any]:
+    """Resolve one matrix cell into the standard FedLab YAML schema."""
+
+    cfg = task.config
+    common_algo = {
+        "lr": float(cfg["learning_rate"]),
+        "momentum": float(cfg["momentum"]),
+        "weight_decay": float(cfg["weight_decay"]),
+        "local_epochs": int(cfg["local_epochs"]),
+        "batch_size": int(cfg["batch_size"]),
+        "max_grad_norm": float(cfg["gradient_clip"]),
+        "client_metrics_every": int(cfg["test_eval_every"]),
+        "client_eval_batch_size": int(cfg["eval_batch_size"]),
+        "partition_seed": int(task.seed),
+        "anchor_fraction": float(cfg["anchor_fraction"]),
+        "anchor_batch_size": int(cfg["eval_batch_size"]),
+        "max_train_samples": int(cfg["max_train_samples"]),
+        "max_anchor_samples": int(cfg["max_anchor_samples"]),
+        "min_train_samples": int(cfg["min_train_samples"]),
+        "require_anchor_dataloader": task.runner_method.startswith("dmd_"),
+        "warmup_rounds": int(cfg["warmup_rounds"]),
+    }
+    common_algo.update(cfg.get("method_algo_config", {}))
+    if task.runner_method.startswith("dmd_"):
+        common_algo["num_classes"] = int(cfg["classes"])
+    return {
+        "seed": int(task.seed),
+        "output_dir": str(task.output_dir),
+        "device": device,
+        "cost_model": "measured",
+        "data": {
+            "dataset": cfg["dataset"],
+            "partition": "dirichlet",
+            "alpha": float(task.alpha),
+            "data_root": str(data_root),
+        },
+        "model": {"architecture": cfg["model"]},
+        "training": {
+            "num_rounds": int(cfg["rounds"]),
+            "algorithm": task.runner_method,
+            "algo_config": common_algo,
+        },
+        "clients": {
+            "num_clients": int(cfg["clients"]),
+            "sample_fraction": float(cfg["participation_rate"]),
+            "sampling_strategy": "random",
+            "min_clients": max(
+                1, int(round(cfg["participation_rate"] * cfg["clients"]))
+            ),
+            "dropout_rate": float(cfg["dropout_rate"]),
+            "fleet": [{"type": "raspberry_pi_4", "count": int(cfg["clients"])}],
+        },
+    }
+
+
+def write_native_config(task: Task, *, data_root: Path, device: str) -> Path:
+    task.output_dir.mkdir(parents=True, exist_ok=True)
+    task.resolved_config_path.write_text(
+        yaml.safe_dump(
+            native_config(task, data_root=data_root, device=device),
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return task.resolved_config_path
 
 
 def is_complete(task: Task) -> bool:
     rounds = int(task.config["rounds"])
-    stem = f"{task.runner_method}_seed{task.seed}"
-    round_path = task.output_dir / f"round_metrics_{stem}.csv"
-    client_path = task.output_dir / f"client_metrics_{stem}.csv"
-    checkpoint = task.output_dir / f"checkpoint_{stem}.pt"
-    model = task.output_dir / f"model_{stem}.pt"
-    if not all(path.exists() for path in (round_path, client_path, checkpoint, model)):
+    metrics = task.result_dir / "metrics.json"
+    model = task.result_dir / "final_model.pt"
+    manifest = task.result_dir / "manifest.json"
+    if not all(path.exists() for path in (metrics, model, manifest)):
         return False
     try:
-        frame = pd.read_csv(round_path, usecols=["round"])
-    except (ValueError, pd.errors.EmptyDataError):
+        payload = json.loads(metrics.read_text(encoding="utf-8"))
+    except (ValueError, OSError, json.JSONDecodeError):
         return False
-    return bool(
-        len(frame) == rounds
-        and int(frame["round"].min()) == 1
-        and int(frame["round"].max()) == rounds
-        and not frame["round"].duplicated().any()
-    )
+    rows = payload.get("rounds", [])
+    round_ids = [int(row.get("round_num", -1)) for row in rows]
+    return len(rows) == rounds and round_ids == list(range(1, rounds + 1))
 
 
 def _write_task_manifest(
@@ -451,6 +458,7 @@ def _git_commit() -> str | None:
 
 
 def export_dashboard(task: Task, dashboard_root: Path, python_bin: str) -> None:
+    del python_bin
     destination = dashboard_root.joinpath(
         task.campaign,
         task.stage_id,
@@ -460,18 +468,24 @@ def export_dashboard(task: Task, dashboard_root: Path, python_bin: str) -> None:
         f"seed{task.seed}",
         task.method_id,
     )
-    subprocess.run(
-        [
-            python_bin,
-            str(ROOT / "scripts" / "export_dmd_to_dashboard.py"),
-            "--input-root",
-            str(task.output_dir),
-            "--output-root",
-            str(destination),
-            "--overwrite",
-        ],
-        cwd=ROOT,
-        check=True,
+    destination.mkdir(parents=True, exist_ok=True)
+    source = task.result_dir / "metrics.json"
+    if not source.exists():
+        raise FileNotFoundError(source)
+    (destination / "metrics.json").write_bytes(source.read_bytes())
+    source_manifest = task.result_dir / "manifest.json"
+    if source_manifest.exists():
+        (destination / "manifest.json").write_bytes(source_manifest.read_bytes())
+    (destination / "dashboard_source.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "native_fedlab_metrics": str(source.resolve()),
+                "sha256": _sha256(source),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
     )
 
 
@@ -552,6 +566,9 @@ def main() -> None:
     if not 0 <= args.job_index < len(tasks):
         raise SystemExit(f"job-index must be between 0 and {len(tasks) - 1}")
     task = tasks[args.job_index]
+    write_native_config(
+        task, data_root=args.data_root.resolve(), device=args.device
+    )
     command = task_command(
         task,
         python_bin=args.python_bin,
@@ -603,4 +620,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

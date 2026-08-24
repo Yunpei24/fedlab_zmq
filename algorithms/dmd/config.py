@@ -28,6 +28,7 @@ class DMDConfig:
     trim_fraction: float = 0.1
     min_reference_clients: int = 2
     context_policy: str = "one_round_stale"
+    warmup_rounds: int = 1
 
     def validate(self) -> "DMDConfig":
         if self.variant not in {"mean", "upper_semivariance", "cvar"}:
@@ -52,6 +53,8 @@ class DMDConfig:
             raise ValueError("min_reference_clients must be positive")
         if self.context_policy != "one_round_stale":
             raise ValueError("only one_round_stale context is currently supported")
+        if self.warmup_rounds < 1:
+            raise ValueError("warmup_rounds must be at least one")
         return self
 
     def to_dict(self) -> dict[str, Any]:

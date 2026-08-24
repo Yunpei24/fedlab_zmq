@@ -13,8 +13,12 @@ from hardware.flop_cost import round_compute_flops
 
 from .config import DMDConfig
 from .contracts import DMDClientReport, DMDRoundContext
-from .objectives import deficit_distribution_objective, example_quadratic_dmd_loss
-from .profiles import class_margin_profile, profile_to_wire
+from .objectives import (
+    class_balanced_example_margin_deficit,
+    deficit_distribution_objective,
+    example_quadratic_dmd_loss,
+)
+from .profiles import class_margin_profile, profile_to_wire, true_class_margin
 
 
 def parse_round_context(value: Any) -> DMDRoundContext | None:
@@ -40,7 +44,7 @@ def evaluate_margin_report(
     reference: torch.Tensor | None,
     class_weight_mode: str,
 ) -> DMDClientReport:
-    """Evaluate the updated global/local model without changing its mode."""
+    """Evaluate a global/local model without changing its mode."""
 
     was_training = model.training
     model.eval()
@@ -100,6 +104,45 @@ def client_update(
         (key, value.detach().cpu().clone()) for key, value in model.state_dict().items()
     )
     model.to(device)
+    dataset_size = len(dataloader.dataset) if hasattr(dataloader, "dataset") else 1
+    anchor = config.get("anchor_dataloader")
+    if anchor is None:
+        if bool(config.get("require_anchor_dataloader", False)):
+            raise ValueError(
+                "DMD requires anchor_dataloader; configure anchor_fraction in "
+                "run_experiment.py"
+            )
+        anchor = dataloader
+    server_round = int(config.get("_server_round", state.round_num))
+    if (
+        context is not None
+        and "_server_round" in config
+        and context.source_round != server_round - 1
+    ):
+        raise ValueError(
+            "stale DMD context mismatch: expected source_round="
+            f"{server_round - 1}, got {context.source_round}"
+        )
+    # The report is deliberately computed before SGD: it describes how the
+    # received collaborative model w_t serves this client, not its post-local
+    # personalized model. It is uploaded with the update and used at t+1.
+    report = evaluate_margin_report(
+        model,
+        anchor,
+        device=device,
+        num_classes=cfg.num_classes,
+        min_count=cfg.min_profile_count,
+        client_id=state.client_id,
+        round_num=server_round,
+        dataset_size=dataset_size,
+        reference=(
+            context.reference_tensor(device="cpu", dtype=torch.float32)
+            if context is not None
+            else None
+        ),
+        class_weight_mode=cfg.class_weight_mode,
+    )
+    context_active = context is not None and server_round >= cfg.warmup_rounds
     model.train()
     optimizer = optim.SGD(
         model.parameters(),
@@ -110,7 +153,7 @@ def client_update(
     criterion = nn.CrossEntropyLoss()
     reference = None
     reliability = None
-    if context is not None:
+    if context_active:
         reference = context.reference_tensor(device=device, dtype=torch.float32)
         reliability = context.reliability_tensor(device=device, dtype=torch.float32)
 
@@ -132,13 +175,48 @@ def client_update(
                 normalization_weights = (
                     None if class_weights is None else torch.ones_like(reliability)
                 )
-                deficit = example_quadratic_dmd_loss(
-                    logits,
-                    targets,
-                    reference,
-                    class_weights=class_weights,
-                    normalization_class_weights=normalization_weights,
-                )
+                if cfg.class_weight_mode == "uniform":
+                    configured_counts = config.get("client_class_counts")
+                    if configured_counts is None:
+                        deficit = class_balanced_example_margin_deficit(
+                            true_class_margin(logits, targets),
+                            targets,
+                            reference,
+                            class_reliability=(
+                                None
+                                if cfg.reference_mode == "fixed_zero"
+                                else reliability
+                            ),
+                        )
+                    else:
+                        counts = torch.as_tensor(
+                            configured_counts, device=device, dtype=logits.dtype
+                        )
+                        if counts.numel() != cfg.num_classes:
+                            raise ValueError(
+                                "client_class_counts must align with num_classes"
+                            )
+                        inverse = torch.where(
+                            counts > 0, counts.reciprocal(), torch.zeros_like(counts)
+                        )
+                        numerator = inverse
+                        if cfg.reference_mode != "fixed_zero":
+                            numerator = inverse * reliability
+                        deficit = example_quadratic_dmd_loss(
+                            logits,
+                            targets,
+                            reference,
+                            class_weights=numerator,
+                            normalization_class_weights=inverse,
+                        )
+                else:
+                    deficit = example_quadratic_dmd_loss(
+                        logits,
+                        targets,
+                        reference,
+                        class_weights=class_weights,
+                        normalization_class_weights=normalization_weights,
+                    )
                 threshold = (
                     context.cvar_eta
                     if variant == "cvar"
@@ -154,6 +232,9 @@ def client_update(
                 )
             loss = ce + fairness
             loss.backward()
+            max_norm = config.get("max_grad_norm")
+            if max_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), float(max_norm))
             optimizer.step()
             total_loss += float(loss.detach())
             total_ce += float(ce.detach())
@@ -195,20 +276,6 @@ def client_update(
     energy_j = float(breakdown["total"])
     state.battery_j = max(0.0, state.battery_j - energy_j)
     state.round_num += 1
-    dataset_size = len(dataloader.dataset) if hasattr(dataloader, "dataset") else 1
-    anchor = config.get("anchor_dataloader") or dataloader
-    report = evaluate_margin_report(
-        model,
-        anchor,
-        device=device,
-        num_classes=cfg.num_classes,
-        min_count=cfg.min_profile_count,
-        client_id=state.client_id,
-        round_num=state.round_num,
-        dataset_size=dataset_size,
-        reference=reference,
-        class_weight_mode=cfg.class_weight_mode,
-    )
     metadata = {
         "client_id": state.client_id,
         "round_num": state.round_num,
@@ -225,7 +292,12 @@ def client_update(
         "local_dmd_addend": total_fair / max(num_batches, 1),
         "compression_ratio": 1.0,
         "dataset_size": dataset_size,
-        "dmd_context_applied": context is not None,
+        "dmd_context_applied": context_active,
+        "dmd_context_source_round": (
+            context.source_round if context is not None else None
+        ),
+        "dmd_profile_timing": "pre_training_global_model",
+        "dmd_anchor_size": len(anchor.dataset),
         "dmd_client_report": report.to_wire(),
     }
     del optimizer, current, w_before

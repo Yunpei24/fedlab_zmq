@@ -80,6 +80,7 @@ from attacks import apply_configured_attack
 from algorithms.base import ClientState, get_algorithm, list_algorithms
 from core.seeding import seed_everything
 from datasets.registry import get_dataloader, INPUT_SHAPE
+from datasets.anchor_split import dataset_targets, split_train_anchor_loader
 from diagnostics.layer_mismatch import LayerMismatchDiagnostic
 from hardware.profiles import make_fleet
 from models.registry import get_model
@@ -205,6 +206,7 @@ def run_single_experiment(
     sample_fraction: float = 1.0,
     sampling_strategy: str = "random",
     min_clients: int = 1,
+    dropout_rate: float = 0.0,
     battery_dist: str = "gaussian",
     battery_params: Optional[dict] = None,
     class_arrival: Optional[dict] = None,
@@ -332,6 +334,51 @@ def run_single_experiment(
         )
         client_loaders.append(loader)
 
+    # Algorithms such as DMD use a fixed local anchor set to describe how the
+    # received global model serves each client. The split is algorithm-agnostic:
+    # baselines train on exactly the same reduced train shards, preventing the
+    # DMD arm from receiving less/more training data than its controls.
+    anchor_fraction = float(merged_config.get("anchor_fraction", 0.0))
+    if anchor_fraction > 0.0 and class_arrival and class_arrival.get("enabled", False):
+        raise ValueError(
+            "anchor_fraction with class_arrival is not supported because a static "
+            "anchor could reveal classes before their configured arrival"
+        )
+    client_anchor_loaders = [None] * num_clients
+    if anchor_fraction > 0.0:
+        split_loaders = []
+        for cid, loader in enumerate(client_loaders):
+            train_loader, anchor_loader = split_train_anchor_loader(
+                loader,
+                anchor_fraction=anchor_fraction,
+                seed=partition_seed * 1009 + cid,
+                max_train_samples=merged_config.get("max_train_samples"),
+                max_anchor_samples=merged_config.get("max_anchor_samples"),
+                min_train_samples=int(merged_config.get("min_train_samples", 1)),
+                anchor_batch_size=int(
+                    merged_config.get("anchor_batch_size", batch_size)
+                ),
+            )
+            split_loaders.append(train_loader)
+            client_anchor_loaders[cid] = anchor_loader
+        client_loaders = split_loaders
+        if verbose:
+            train_sizes = [len(loader.dataset) for loader in client_loaders]
+            anchor_sizes = [len(loader.dataset) for loader in client_anchor_loaders]
+            print(
+                "  Fixed train/anchor split: "
+                f"train={min(train_sizes)}..{max(train_sizes)}, "
+                f"anchor={min(anchor_sizes)}..{max(anchor_sizes)} per client"
+            )
+    client_train_class_counts = []
+    for loader in client_loaders:
+        labels = dataset_targets(loader.dataset)
+        counts = np.bincount(
+            labels,
+            minlength=int(merged_config.get("num_classes", int(labels.max()) + 1)),
+        )
+        client_train_class_counts.append(counts.astype(np.int64).tolist())
+
     # Fairness is a distribution across clients, not the accuracy on one pooled
     # IID test set.  Build matching held-out shards only when requested by the
     # algorithm/config because evaluating all clients can be expensive.
@@ -436,7 +483,10 @@ def run_single_experiment(
 
     # ── Sampling RNG (separate stream so seed is reproducible) ───────────────
     _sample_rng = np.random.default_rng(seed + 9999)
+    _dropout_rng = np.random.default_rng(seed + 19999)
     _do_sampling = sample_fraction < 1.0
+    if not 0.0 <= dropout_rate < 1.0:
+        raise ValueError("dropout_rate must lie in [0, 1)")
 
     if verbose and _do_sampling:
         k_expected = max(min_clients, int(np.ceil(sample_fraction * num_clients)))
@@ -536,6 +586,20 @@ def run_single_experiment(
             )
         else:
             selected_ids = list(range(num_clients))
+        selected_before_dropout = list(selected_ids)
+        dropout_ids: list[int] = []
+        if dropout_rate > 0.0 and len(selected_ids) > 1:
+            num_dropouts = min(
+                len(selected_ids) - 1,
+                max(1, int(round(dropout_rate * len(selected_ids)))),
+            )
+            dropout_ids = sorted(
+                _dropout_rng.choice(
+                    selected_ids, size=num_dropouts, replace=False
+                ).tolist()
+            )
+            dropout_set = set(dropout_ids)
+            selected_ids = [cid for cid in selected_ids if cid not in dropout_set]
 
         client_tuples = []
         client_models_before_agg = []  # for diagnostic
@@ -590,7 +654,12 @@ def run_single_experiment(
                 # Reset reusable client model to current global weights.
                 _client_model.load_state_dict(global_sd_snapshot)
 
-                client_config = {**round_config, "device_profile": fleet[cid]}
+                client_config = {
+                    **round_config,
+                    "device_profile": fleet[cid],
+                    "anchor_dataloader": client_anchor_loaders[cid],
+                    "client_class_counts": client_train_class_counts[cid],
+                }
                 _battery_before = client_states[cid].battery_j
 
                 _t_client = time.time()
@@ -839,7 +908,12 @@ def run_single_experiment(
             "avg_beta": agg_m.get("avg_beta", 1.0),
             "jain_index": _jain_all,
             "participation_rate": _num_participated / num_clients,
-            "num_selected": len(selected_ids),
+            "num_selected": len(selected_before_dropout),
+            "num_pre_training_dropouts": len(dropout_ids),
+            "num_survivors": len(selected_ids),
+            "selected_client_ids": ",".join(map(str, selected_before_dropout)),
+            "pre_training_dropout_client_ids": ",".join(map(str, dropout_ids)),
+            "survivor_client_ids": ",".join(map(str, selected_ids)),
             "num_clients": num_clients,
             "elapsed_s": elapsed,
             # ── Simulated distributed time (parallel client assumption) ───
@@ -934,6 +1008,7 @@ def run_single_experiment(
         "num_rounds": num_rounds,
         "num_clients": num_clients,
         "sample_fraction": sample_fraction,
+        "dropout_rate": dropout_rate,
         "sampling_strategy": sampling_strategy,
         "seed": seed,
         "best_accuracy": best_acc,
@@ -1425,6 +1500,15 @@ Examples:
         default=1,
         help="Minimum clients selected per round regardless of fraction (default: 1)",
     )
+    p.add_argument(
+        "--dropout-rate",
+        type=float,
+        default=0.0,
+        help=(
+            "Fraction of selected clients removed before profiling and local "
+            "training (default: 0.0)"
+        ),
+    )
 
     args = p.parse_args()
 
@@ -1479,6 +1563,7 @@ Examples:
         sample_fraction = cfg["clients"].get("sample_fraction", 1.0)
         sampling_strategy = cfg["clients"].get("sampling_strategy", "random")
         min_clients = cfg["clients"].get("min_clients", 1)
+        dropout_rate = cfg["clients"].get("dropout_rate", 0.0)
         battery_init = cfg["clients"].get("battery_init", {})
         battery_dist = battery_init.get("distribution", "gaussian")
         battery_params = battery_init.get("params", None)
@@ -1515,6 +1600,7 @@ Examples:
         sample_fraction = args.sample_fraction
         sampling_strategy = args.sampling_strategy
         min_clients = args.min_clients
+        dropout_rate = args.dropout_rate
         battery_dist = "gaussian"
         battery_params = None
         layer_mismatch = args.layer_mismatch
@@ -1603,6 +1689,7 @@ Examples:
         sample_fraction=sample_fraction,
         sampling_strategy=sampling_strategy,
         min_clients=min_clients,
+        dropout_rate=dropout_rate,
         battery_dist=battery_dist,
         battery_params=battery_params,
         class_arrival=class_arrival,

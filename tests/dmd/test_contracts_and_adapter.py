@@ -92,6 +92,7 @@ def test_client_applies_injected_context_and_server_builds_next_context() -> Non
         "cvar_tail_mass": 0.5,
         "min_reference_clients": 2,
         "dmd_round_context": context.to_wire(),
+        "_server_round": 2,
     }
     model = _model()
     initial = copy.deepcopy(model.state_dict())
@@ -108,5 +109,8 @@ def test_client_applies_injected_context_and_server_builds_next_context() -> Non
     result = algorithm.server_aggregate(model, updates, 2, config)
     assert result.new_weights.keys() == initial.keys()
     assert "dmd_next_round_context" in result.metrics
+    assert result.metrics["_server_state_updates"]["dmd_round_context"] == (
+        result.metrics["dmd_next_round_context"]
+    )
     assert result.metrics["dmd_reference_published_classes"] == 2
     assert len(result.metrics["dmd_tail_weights"]) == 2
