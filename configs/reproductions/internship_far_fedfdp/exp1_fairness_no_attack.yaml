@@ -1,6 +1,6 @@
 schema_version: 1
 lane: faithful
-revision: far_prox_v2
+revision: algorithm_fidelity_v3
 source: internship_report_experiment_1
 description: >-
   Reproduction de l'experience 1 du rapport de stage: fairness sur MNIST
@@ -108,12 +108,9 @@ scenarios:
             algo_config:
               q: 1.0
               lipschitz: 100.0
-              client_prior: dataset_size
+              aggregation_prior: uniform
           - id: fedfair_lambda_0p1
             algorithm: fedfair
             algo_config:
               fairness_lambda: 0.1
-              clip_norm: 1.0
-              loss_clip: 2.5
-              adaptive_loss_clip: false
-              enable_dp: false
+              fedfair_scale_policy: error

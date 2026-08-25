@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from algorithms.base import ClientState, get_algorithm
+from algorithms.reference_utils import empirical_loss
 from attacks import apply_attack
 from datasets.partitioner import matched_dirichlet_partition
 from metrics.client_fairness import (
@@ -197,9 +198,39 @@ def test_qffl_server_uses_curvature_denominator():
         ),
     ]
     result = get_algorithm("qffl").server_aggregate(
-        model, updates, round_num=0, config={"q": 0.0, "client_prior": "uniform"}
+        model,
+        updates,
+        round_num=0,
+        config={"q": 0.0, "aggregation_prior": "uniform"},
     )
     assert torch.allclose(result.new_weights["weight"], torch.tensor([[-2.0]]))
+    assert result.metrics["qffl_aggregation_prior"] == "uniform"
+
+
+def test_qffl_paper_default_does_not_reweight_selected_clients_by_dataset_size():
+    algo = get_algorithm("qffl")
+    assert algo.get_default_config()["aggregation_prior"] == "uniform"
+    model = torch.nn.Linear(1, 1, bias=False)
+    with torch.no_grad():
+        model.weight.zero_()
+    updates = [
+        (
+            {"weight": torch.tensor([[1.0]])},
+            {"qffl_h": 1.0, "qffl_loss_at_global": 1.0, "dataset_size": 1},
+            ClientState(client_id=0, battery_j=1.0),
+        ),
+        (
+            {"weight": torch.tensor([[3.0]])},
+            {"qffl_h": 1.0, "qffl_loss_at_global": 1.0, "dataset_size": 9},
+            ClientState(client_id=1, battery_j=1.0),
+        ),
+    ]
+    paper = algo.server_aggregate(model, updates, 0, algo.get_default_config())
+    extension = algo.server_aggregate(
+        model, updates, 0, {"q": 0.0, "aggregation_prior": "dataset_size"}
+    )
+    assert torch.allclose(paper.new_weights["weight"], torch.tensor([[-2.0]]))
+    assert torch.allclose(extension.new_weights["weight"], torch.tensor([[-2.8]]))
 
 
 def test_robustfedavg_is_an_executable_baseline():
@@ -342,3 +373,71 @@ def test_fedfdp_runs_true_per_example_step():
     assert metadata["model_steps"] == 1
     assert metadata["privacy_epsilon"] > 0
     assert set(state.custom["fedfdp_accountant"]["channels"]) == {"model", "loss"}
+
+
+def test_fedfair_is_dynamic_lr_without_hidden_dp_clipping():
+    torch.manual_seed(31)
+    source = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(4, 2))
+    loader = DataLoader(
+        TensorDataset(torch.randn(4, 1, 2, 2), torch.tensor([0, 1, 0, 1])),
+        batch_size=4,
+        shuffle=False,
+    )
+    algo = get_algorithm("fedfair")
+    assert "target_epsilon" not in algo.get_default_config()
+    common = {
+        **algo.get_default_config(),
+        "lr": 0.05,
+        "fairness_lambda": 0.1,
+        "fair_global_loss": 1.0,
+    }
+    tiny_clip_model = copy.deepcopy(source)
+    huge_clip_model = copy.deepcopy(source)
+    tiny_update, tiny_meta = algo.client_update(
+        tiny_clip_model,
+        loader,
+        ClientState(client_id=0, battery_j=100.0),
+        {**common, "clip_norm": 1e-12},
+    )
+    huge_update, huge_meta = algo.client_update(
+        huge_clip_model,
+        loader,
+        ClientState(client_id=1, battery_j=100.0),
+        {**common, "clip_norm": 1e12},
+    )
+    tiny_vec, _ = flatten_update(tiny_update)
+    huge_vec, _ = flatten_update(huge_update)
+    assert torch.allclose(tiny_vec, huge_vec)
+    assert tiny_meta["clip_rate"] == huge_meta["clip_rate"] == 0.0
+    assert tiny_meta["privacy_epsilon"] is None
+    assert math.isclose(
+        tiny_meta["fedfair_reported_loss"],
+        empirical_loss(tiny_clip_model, loader, "cpu"),
+        rel_tol=1e-6,
+    )
+
+
+def test_fedfdp_without_noise_remains_a_fair_clipping_ablation():
+    torch.manual_seed(37)
+    model = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(4, 2))
+    loader = DataLoader(
+        TensorDataset(torch.randn(4, 1, 2, 2), torch.tensor([0, 1, 0, 1])),
+        batch_size=4,
+        shuffle=False,
+    )
+    algo = get_algorithm("fedfdp")
+    _, metadata = algo.client_update(
+        model,
+        loader,
+        ClientState(client_id=0, battery_j=100.0),
+        {
+            **algo.get_default_config(),
+            "enable_dp": False,
+            "clip_norm": 1e-8,
+            "adaptive_loss_clip": False,
+            "batch_size": 4,
+        },
+    )
+    assert metadata["clip_rate"] == 1.0
+    assert metadata["privacy_epsilon"] is None
+    assert metadata["privacy_accounting_assumption"] == "not_applicable"

@@ -14,15 +14,29 @@ The three `exp*.yaml` files encode the internship report protocol:
 - Experiment 2: IPM and Bit/Sign Flip with two Byzantine clients;
 - Experiment 3: epsilon in `{3.56, infinity}`.
 
-The current corrected revision is stored under `faithful/far_prox_v2/` and
-uses FAR's proximal local objective with `far_prox_mu: 0.01`.  It retains the
-report's two-local-epoch protocol through
+The current corrected revision is stored under
+`faithful/algorithm_fidelity_v3/`. Previous `far_prox_v2` outputs are retained
+as an audit trail and must not be pooled with this revision. The corrected
+revision uses FAR's proximal local objective with `far_prox_mu: 0.01` and
+retains the report's two-local-epoch protocol through
 `far_update_mode: multi_epoch_delta`.  A scientifically distinct
 `single_step_gradient` mode is also implemented for paper-style analyses: it
 computes one empirical gradient at the received global model and applies the
 explicit server learning rate `far_server_lr`.  The proximal gradient is zero
 at that anchor, so `mu` has no numerical effect in that one-gradient mode;
 this is reported explicitly rather than hidden.
+
+The same revision also fixes three baseline semantics:
+
+- **FedFair** implements Algorithm 1's batch-level dynamic learning rate and
+  has no per-example clipping or Gaussian mechanism;
+- **FedFDP** implements Algorithm 2's per-example fair clipping, model-noise
+  channel and private post-update loss channel. Its epsilon-infinity ablation
+  keeps fair clipping but disables both noises, rather than being relabelled
+  FedFair;
+- **q-FedAvg** uses the unweighted numerator/denominator sums from Algorithm 2.
+  Dataset-size weighting remains available only as the explicitly named
+  `aggregation_prior: dataset_size` ablation.
 
 The exact notebook referenced by the report is not available. The matrices
 therefore use seed 28 as an explicit shared Dirichlet partition seed for all

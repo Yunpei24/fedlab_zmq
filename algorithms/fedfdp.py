@@ -1,9 +1,10 @@
-"""FedFair and FedFDP with explicit per-example clipping.
+"""Pedagogical implementations of FedFair and FedFDP.
 
-This implementation favours auditability over speed: per-example gradients
-are computed in a small loop, making the fair-clipping equation visible in
-code.  It is suitable for reference experiments and unit tests.  A vectorised
-``torch.func.vmap`` backend can be added later without changing the contract.
+FedFair follows Algorithm 1's batch-level dynamic learning rate.  FedFDP
+follows Algorithm 2's per-example fair clipping and two Gaussian release
+channels.  The FedFDP implementation favours auditability over speed:
+per-example gradients are computed in a small loop, making the fair-clipping
+equation visible in code.
 """
 
 from __future__ import annotations
@@ -20,11 +21,11 @@ from hardware.flop_cost import round_compute_flops
 from privacy.rdp import RDPAccountant, calibrate_composed_sampled_gaussian_noise
 
 from .base import AggregateResult, FLAlgorithm, register_algorithm
-from .reference_utils import common_round_metrics
+from .reference_utils import common_round_metrics, empirical_loss
 
 
 class _FedFairCore(FLAlgorithm):
-    """Shared client implementation for non-private FedFair and FedFDP."""
+    """Shared data-size-weighted server contract for FedFair and FedFDP."""
 
     def _private_enabled(self, config: dict) -> bool:
         return bool(config.get("enable_dp", True))
@@ -57,9 +58,7 @@ class _FedFairCore(FLAlgorithm):
         if max_local_batches is not None:
             batches_per_epoch = min(batches_per_epoch, int(max_local_batches))
         model_steps = (
-            int(total_rounds)
-            * int(config.get("local_epochs", 1))
-            * batches_per_epoch
+            int(total_rounds) * int(config.get("local_epochs", 1)) * batches_per_epoch
         )
         ratio = float(config.get("loss_to_model_noise_ratio", 2.5))
         model_noise = calibrate_composed_sampled_gaussian_noise(
@@ -93,13 +92,22 @@ class _FedFairCore(FLAlgorithm):
 
         fairness_lambda = float(config.get("fairness_lambda", 0.1))
         clip_norm = float(config.get("clip_norm", 1.0))
-        max_fair_scale = float(config.get("max_fair_scale", 10.0))
+        max_fair_scale = config.get("max_fair_scale")
+        max_fair_scale = float(max_fair_scale) if max_fair_scale is not None else None
+        scale_policy = str(config.get("fair_scale_policy", "error")).lower()
+        if scale_policy not in {"error", "clip_nonnegative"}:
+            raise ValueError("fair_scale_policy must be 'error' or 'clip_nonnegative'")
         noise_model, noise_loss = self._resolved_noise_multipliers(
             dataloader, state, config
         )
         local_epochs = int(config.get("local_epochs", 1))
         global_loss = float(
-            config.get("fedfdp_global_loss", config.get("initial_global_loss", 1.0))
+            config.get(
+                "fair_global_loss",
+                config.get(
+                    "fedfdp_global_loss", config.get("initial_global_loss", 1.0)
+                ),
+            )
         )
         dp_enabled = self._private_enabled(config)
 
@@ -107,8 +115,8 @@ class _FedFairCore(FLAlgorithm):
         total_examples = 0
         model_steps = 0
         clipped_examples = 0
-        last_losses = None
-        last_batch_size = 0
+        last_x = None
+        last_y = None
         max_local_batches = config.get("max_local_batches")
 
         for _ in range(local_epochs):
@@ -135,7 +143,17 @@ class _FedFairCore(FLAlgorithm):
                     fair_scale = 1.0 + fairness_lambda * (
                         float(loss.item()) - global_loss
                     )
-                    fair_scale = min(max(fair_scale, 0.0), max_fair_scale)
+                    if fair_scale < 0.0:
+                        if scale_policy == "error":
+                            raise ValueError(
+                                "FedFDP produced a negative fair-clipping scale; "
+                                "reduce fairness_lambda or use "
+                                "fair_scale_policy='clip_nonnegative' as an "
+                                "explicit stability ablation"
+                            )
+                        fair_scale = 0.0
+                    if max_fair_scale is not None:
+                        fair_scale = min(fair_scale, max_fair_scale)
                     clip_scale = clip_norm / max(grad_norm, 1e-12)
                     scale = min(fair_scale, clip_scale)
                     clipped_examples += int(scale < fair_scale)
@@ -155,25 +173,44 @@ class _FedFairCore(FLAlgorithm):
                     parameter.grad = accumulator / batch_size
                 optimizer.step()
                 model_steps += 1
-                last_losses = sample_losses
-                last_batch_size = batch_size
+                last_x = x.detach()
+                last_y = y.detach()
 
-        # A second, scalar release is needed because FedFDP uses a private loss
-        # to construct the next round's global fairness reference.
+        # Algorithm 2 releases the per-example losses of the *updated* local
+        # model.  The former implementation accidentally reused losses computed
+        # before the final optimizer step, which was a different statistic.
         loss_release = total_loss / max(total_examples, 1)
-        loss_clip = float(config.get("loss_clip", 5.0))
+        configured_loss_clip = float(config.get("loss_clip", 5.0))
+        loss_clip = configured_loss_clip
         if config.get("adaptive_loss_clip", True):
-            loss_clip = max(float(config.get("min_loss_clip", 1e-3)), abs(global_loss))
-        if last_losses:
-            clipped_loss_sum = sum(
-                min(max(value, 0.0), loss_clip) for value in last_losses
+            loss_clip = float(
+                state.custom.get("fedfdp_next_loss_clip", configured_loss_clip)
+            )
+        loss_clip = max(float(config.get("min_loss_clip", 1e-3)), loss_clip)
+        if last_x is not None and last_y is not None:
+            model.eval()
+            with torch.no_grad():
+                final_losses = nn.functional.cross_entropy(
+                    model(last_x), last_y, reduction="none"
+                )
+            model.train()
+            clipped_loss_sum = float(
+                final_losses.clamp(min=0.0, max=loss_clip).sum().item()
             )
             noise = (
                 torch.randn((), device=device).item() * noise_loss * loss_clip
                 if dp_enabled
                 else 0.0
             )
-            loss_release = (clipped_loss_sum + noise) / max(last_batch_size, 1)
+            loss_release = (clipped_loss_sum + noise) / max(int(last_y.numel()), 1)
+            # Equation (14) uses the previous DP loss mean as the next clipping
+            # bound.  Positivity is enforced by deterministic post-processing;
+            # this does not consume an additional privacy budget.
+            if config.get("adaptive_loss_clip", True):
+                state.custom["fedfdp_next_loss_clip"] = max(
+                    float(config.get("min_loss_clip", 1e-3)),
+                    float(loss_release),
+                )
 
         current = model.state_dict()
         delta = OrderedDict(
@@ -186,8 +223,9 @@ class _FedFairCore(FLAlgorithm):
             state.custom.get("fedfdp_accountant")
         )
         dataset_size = max(len(dataloader.dataset), 1)
+        realised_batch_size = int(last_y.numel()) if last_y is not None else 1
         sampling_rate = min(
-            1.0, float(config.get("batch_size", last_batch_size)) / dataset_size
+            1.0, float(config.get("batch_size", realised_batch_size)) / dataset_size
         )
         epsilon = best_order = None
         if dp_enabled:
@@ -334,6 +372,7 @@ class _FedFairCore(FLAlgorithm):
         metrics.update(
             {
                 "round": round_num,
+                "fair_global_loss": float(next_global_loss),
                 "fedfdp_global_private_loss": float(next_global_loss),
                 "fedfdp_clip_rate": sum(
                     meta["clip_rate"] for _, meta, _ in client_updates
@@ -372,7 +411,9 @@ class _FedFairCore(FLAlgorithm):
                     else "not_applicable"
                 ),
                 "_server_state_updates": {
-                    "fedfdp_global_loss": float(next_global_loss)
+                    "fair_global_loss": float(next_global_loss),
+                    # Compatibility key for previously persisted runs.
+                    "fedfdp_global_loss": float(next_global_loss),
                 },
             }
         )
@@ -388,7 +429,10 @@ class _FedFairCore(FLAlgorithm):
             "device": "cpu",
             "fairness_lambda": 0.1,
             "clip_norm": 1.0,
-            "max_fair_scale": 10.0,
+            # None follows the paper equation exactly.  A finite value is an
+            # explicit stability ablation, not part of Algorithm 2.
+            "max_fair_scale": None,
+            "fair_scale_policy": "error",
             "noise_multiplier": 2.0,
             "loss_clip": 5.0,
             "adaptive_loss_clip": True,
@@ -418,17 +462,182 @@ class FedFDP(_FedFairCore):
 
 @register_algorithm("fedfair")
 class FedFair(_FedFairCore):
-    """Non-private fair-clipping ablation of FedFDP."""
+    """FedFair Algorithm 1: non-private, batch-level dynamic learning rate.
 
-    description = "FedFair fair-clipping ablation without Gaussian noise."
+    FedFair and FedFDP share the server-side data-size-weighted aggregation,
+    but their local optimizers are *not* the same.  In particular, FedFair
+    applies ``eta_i = eta * (1 + lambda * Delta_i)`` to a batch gradient and
+    does not use the per-example norm clipping introduced later by FedFDP.
+    Keeping this implementation separate prevents the common but invalid
+    shortcut "FedFair = FedFDP with zero Gaussian noise".
+    """
+
+    description = "FedFair batch-loss dynamic learning rate without DP clipping."
+
+    def client_update(self, model, dataloader, state, config):
+        device = str(config.get("device", "cpu"))
+        model.to(device).train()
+        before = OrderedDict(
+            (key, value.detach().cpu().clone())
+            for key, value in model.state_dict().items()
+        )
+        base_lr = float(config.get("lr", 0.01))
+        optimizer = optim.SGD(
+            [parameter for parameter in model.parameters() if parameter.requires_grad],
+            lr=base_lr,
+            momentum=float(config.get("momentum", 0.0)),
+            weight_decay=float(config.get("weight_decay", 0.0)),
+        )
+        fairness_lambda = float(config.get("fairness_lambda", 0.1))
+        global_loss = float(
+            config.get(
+                "fair_global_loss",
+                config.get(
+                    "fedfdp_global_loss", config.get("initial_global_loss", 1.0)
+                ),
+            )
+        )
+        local_epochs = int(config.get("local_epochs", 1))
+        max_local_batches = config.get("max_local_batches")
+        scale_policy = str(config.get("fedfair_scale_policy", "error")).lower()
+        if scale_policy not in {"error", "clip_nonnegative"}:
+            raise ValueError(
+                "fedfair_scale_policy must be 'error' or 'clip_nonnegative'"
+            )
+
+        training_loss_sum = 0.0
+        total_examples = 0
+        model_steps = 0
+        scales: list[float] = []
+        for _ in range(local_epochs):
+            for batch_idx, (x, y) in enumerate(dataloader):
+                if max_local_batches is not None and batch_idx >= int(
+                    max_local_batches
+                ):
+                    break
+                x, y = x.to(device), y.to(device)
+                optimizer.zero_grad(set_to_none=True)
+                batch_loss = nn.functional.cross_entropy(model(x), y)
+                fair_scale = 1.0 + fairness_lambda * (
+                    float(batch_loss.detach().item()) - global_loss
+                )
+                if fair_scale < 0.0:
+                    if scale_policy == "error":
+                        raise ValueError(
+                            "FedFair produced a negative learning-rate scale; "
+                            "reduce fairness_lambda or use "
+                            "fedfair_scale_policy='clip_nonnegative' as an explicit "
+                            "stability ablation"
+                        )
+                    fair_scale = 0.0
+                # Algorithm 1 changes eta_i itself.  Updating the optimizer's
+                # learning rate (rather than multiplying only the data loss)
+                # also scales weight decay and the parameter step correctly.
+                for group in optimizer.param_groups:
+                    group["lr"] = base_lr * fair_scale
+                batch_loss.backward()
+                optimizer.step()
+                batch_examples = int(y.numel())
+                training_loss_sum += float(batch_loss.detach().item()) * batch_examples
+                total_examples += batch_examples
+                model_steps += 1
+                scales.append(float(fair_scale))
+
+        # Algorithm 1 reports F_i(w_{t+1}^i), not the last minibatch loss and
+        # not a DP-clipped proxy.  Evaluate the resulting local model over the
+        # local empirical dataset before returning it to the trusted server.
+        reported_loss = empirical_loss(
+            model,
+            dataloader,
+            device,
+            max_batches=config.get("loss_eval_max_batches"),
+        )
+        current = model.state_dict()
+        delta = OrderedDict(
+            (key, (before[key] - current[key].detach().cpu()).float()) for key in before
+        )
+
+        uplink_bytes = self.count_bytes(delta, sparse=False) + 8
+        downlink_bytes = self.count_bytes(delta, sparse=False) + 8
+        profile = config.get("device_profile")
+        if profile:
+            flops = round_compute_flops(
+                model,
+                [name for name, _ in model.named_parameters()],
+                config,
+                profile,
+                dataloader,
+                local_epochs,
+            )
+            breakdown = profile.round_energy_breakdown(
+                flops,
+                uplink_bytes,
+                downlink_bytes,
+                config.get("energy_scale_factor", 1.0),
+                config.get("alpha_applies_to", "compute"),
+            )
+        else:
+            energy = 2.5 * float(config.get("energy_scale_factor", 1.0))
+            breakdown = {
+                "compute": energy,
+                "uplink": 0.0,
+                "downlink": 0.0,
+                "total": energy,
+            }
+        state.battery_j = max(0.0, state.battery_j - breakdown["total"])
+        state.round_num += 1
+        mean_scale = sum(scales) / max(len(scales), 1)
+        metadata = {
+            "client_id": state.client_id,
+            "round_num": state.round_num,
+            "dataset_size": max(len(dataloader.dataset), 1),
+            "local_loss": training_loss_sum / max(total_examples, 1),
+            # Retain the shared server contract while naming the non-private
+            # semantics explicitly in the diagnostics below.
+            "private_loss_release": float(reported_loss),
+            "fedfair_reported_loss": float(reported_loss),
+            "fedfair_dynamic_scale_mean": float(mean_scale),
+            "fedfair_dynamic_scale_min": float(min(scales, default=1.0)),
+            "fedfair_dynamic_scale_max": float(max(scales, default=1.0)),
+            "loss_clip": 0.0,
+            "clip_rate": 0.0,
+            "model_steps": model_steps,
+            "sampling_rate": None,
+            "privacy_epsilon": None,
+            "privacy_best_order": None,
+            "privacy_delta": None,
+            "privacy_accounting_assumption": "not_applicable",
+            "privacy_model_noise_multiplier": None,
+            "privacy_loss_noise_multiplier": None,
+            "bytes_sent": uplink_bytes,
+            "bytes_received": downlink_bytes,
+            "energy_j_consumed": breakdown["total"],
+            "energy_compute_j": breakdown["compute"],
+            "energy_uplink_j": breakdown["uplink"],
+            "energy_downlink_j": breakdown["downlink"],
+            "battery_j_remaining": state.battery_j,
+            "compression_ratio": 1.0,
+            "beta_actual": 1.0,
+        }
+        del optimizer, before, current
+        gc.collect()
+        return dict(delta), metadata
 
     def get_default_config(self):
-        cfg = super().get_default_config()
-        cfg.update(
-            {
-                "enable_dp": False,
-                "noise_multiplier": 0.0,
-                "loss_noise_multiplier": 0.0,
-            }
-        )
-        return cfg
+        # Deliberately do not inherit FedFDP's clipping/noise/accounting keys:
+        # their presence used to make the non-private method look like a
+        # target-epsilon-capable mechanism to launchers and readers.
+        return {
+            "lr": 0.01,
+            "momentum": 0.0,
+            "weight_decay": 0.0,
+            "local_epochs": 1,
+            "batch_size": 32,
+            "device": "cpu",
+            "fairness_lambda": 0.1,
+            "initial_global_loss": 1.0,
+            "fedfair_scale_policy": "error",
+            "loss_eval_max_batches": None,
+            "client_metrics_every": 1,
+            "max_local_batches": None,
+        }

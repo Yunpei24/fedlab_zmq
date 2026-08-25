@@ -1,6 +1,6 @@
 schema_version: 1
 lane: faithful
-revision: far_prox_v2
+revision: algorithm_fidelity_v3
 source: internship_report_experiment_3
 description: >-
   Reproduction de l'experience 3 du rapport de stage: comparaison sans DP et
@@ -79,7 +79,7 @@ scenarios:
             algo_config:
               q: 1.0
               lipschitz: 100.0
-              client_prior: dataset_size
+              aggregation_prior: uniform
           - id: dp_far_alpha_m1p5
             algorithm: far
             algo_config: &far_no_dp_common
@@ -112,7 +112,7 @@ scenarios:
               <<: *far_no_dp_common
               far_alpha: 1.0
           - id: fedfdp
-            algorithm: fedfair
+            algorithm: fedfdp
             algo_config:
               fairness_lambda: 0.1
               clip_norm: 1.0
@@ -148,7 +148,7 @@ scenarios:
             algo_config:
               q: 1.0
               lipschitz: 100.0
-              client_prior: dataset_size
+              aggregation_prior: uniform
           - id: dp_far_alpha_m1p5
             algorithm: dpfar
             requires: [target_epsilon_calibration, per_example_dpsgd]
