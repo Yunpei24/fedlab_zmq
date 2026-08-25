@@ -6,6 +6,13 @@ sont chargées depuis le registre `algorithms/`, puis exécutées par
 `run_experiment.py`. Aucun fichier placé sous `research/` n'est nécessaire sur
 Toubkal.
 
+La campagne commence volontairement sur **CPU** avec
+`hpc/run_dmd_phase_a_cpu.slurm`. Ce choix permet de valider l'environnement,
+les données, la matrice scientifique, la reprise et les artefacts sans dépendre
+d'une allocation GPU. Le script GPU `hpc/run_dmd_phase_a.slurm` reste une
+option ultérieure; il ne doit pas être utilisé en parallèle pour écrire dans le
+même `OUTPUT_ROOT`.
+
 `run_experiment.py` simule les clients séquentiellement dans un processus. Il
 réutilise néanmoins les mêmes contrats `FLAlgorithm`, le même registre, les
 mêmes modèles, les mêmes partitions, les mêmes métriques et le même format
@@ -42,7 +49,48 @@ mesurer leur signal pré-round. TERM n'est pas le gradient central exact de
 l'objectif log-sum-exp; c'est une approximation fédérée par pondération des
 updates complets.
 
-## 1. Préparer le dépôt et les données
+## 1. Prérequis communs avec le framework
+
+Commencer par suivre [le guide CPU général de Toubkal](../hpc/SETUP_TOUKBAL_CPU.md)
+jusqu'à l'obtention d'un nœud CPU interactif. Le guide DMD réutilise sans les
+renommer les quatre variables du framework :
+
+```bash
+export FEDLAB_REPO="$HOME/fedlab_zmq"
+export FEDLAB_PROJECT="$HOME/lustre/manapy-um6p-st-msda-1wabcjwe938"
+export FEDLAB_WORK="$FEDLAB_PROJECT/users/$USER/fedlab_zmq"
+export FEDLAB_ACCOUNT="MANAPY-UM6P-ST-MSDA-1WABCJWE938-DEFAULT-CPU"
+```
+
+Les commandes de création de l'environnement, d'acceptation des conditions
+Conda, d'installation des roues CPU de PyTorch et d'installation éditable du
+dépôt restent centralisées dans `hpc/SETUP_TOUKBAL_CPU.md`. Elles ne doivent pas
+être dupliquées ou exécutées dans un job de campagne.
+
+Mettre ensuite le dépôt à jour depuis le nœud de connexion :
+
+```bash
+cd "$FEDLAB_REPO"
+git status --short
+git fetch origin
+git switch fedlab_zmq/toubkal-framework-checkpoint
+git pull --ff-only
+git log -1 --oneline
+```
+
+Si `git status --short` n'est pas vide, examiner les modifications avant le
+`pull`; ne pas les effacer automatiquement.
+
+Créer les répertoires conformément au guide général :
+
+```bash
+mkdir -p "$FEDLAB_WORK"/{datasets,results,checkpoints,cache}
+mkdir -p "$FEDLAB_REPO/slurm_logs"
+
+export DMD_DATA="$FEDLAB_WORK/datasets"
+export DMD_OUTPUT="$FEDLAB_WORK/results/toubkal_dmd_cpu"
+mkdir -p "$DMD_OUTPUT"
+```
 
 Le runner utilise `download=False`. Le répertoire désigné par `DATA_ROOT` doit
 donc déjà contenir :
@@ -52,27 +100,87 @@ DATA_ROOT/cifar-10-batches-py/data_batch_1
 DATA_ROOT/EMNIST/raw/emnist-byclass-train-images-idx3-ubyte
 ```
 
-Le lanceur reste indépendant de l'installation du cluster. Les variables
-suivantes peuvent être fournies à `sbatch` :
+Le script CPU accepte les variables suivantes via `sbatch --export`. Les
+quatre premières sont directement dérivées des variables `FEDLAB_*` :
 
 ```text
-REPO_DIR, PYTHON_BIN, DATA_ROOT, OUTPUT_ROOT,
-MODULE_SETUP, VENV_ACTIVATE, DEVICE
+REPO_DIR              clone Git du framework, par défaut $HOME/fedlab_zmq
+PROJECT_DIR           racine Lustre du projet
+WORK_ROOT             espace utilisateur sous PROJECT_DIR
+DATA_ROOT             CIFAR-10 et EMNIST déjà téléchargés
+OUTPUT_ROOT           résultats scientifiques CPU
+DASHBOARD_OUTPUT_ROOT vues dérivées pour le dashboard
+DMD_MATRIX            matrice YAML, normalement configs/dmd/toubkal_phase_a.yaml
+STAGE                 smoke, phase_a_full ou une extension partielle
+CONDA_ENV             environnement Conda, par défaut fedlab-zmq
+PYTHON_BIN            interpréteur, par défaut python
+PILOT_ROUNDS          surcharge facultative du nombre de rounds
 ```
 
-Ne pas coder en dur les modules CUDA ou le chemin du virtualenv dans le dépôt.
+Dans les commandes de soumission, utiliser donc les correspondances :
 
-## 2. Valider la matrice avant la soumission
+```text
+REPO_DIR=$FEDLAB_REPO
+PROJECT_DIR=$FEDLAB_PROJECT
+WORK_ROOT=$FEDLAB_WORK
+DATA_ROOT=$DMD_DATA
+OUTPUT_ROOT=$DMD_OUTPUT
+```
 
-Depuis la racine du dépôt :
+Le script force `--device cpu`; une variable `DEVICE=cuda` n'a donc aucun effet
+sur ce fichier SLURM. Pour utiliser un GPU plus tard, employer le script GPU
+dédié.
+
+## 2. Valider DMD sur un nœud CPU interactif
+
+Ne pas lancer les tests, la lecture des datasets ou un entraînement sur le
+nœud de connexion. Demander un nœud interactif comme dans le guide général :
 
 ```bash
-python3 scripts/run_dmd_toubkal.py \
+srun \
+  --account="$FEDLAB_ACCOUNT" \
+  --partition=compute \
+  --qos=intr \
+  --time=01:00:00 \
+  --ntasks=1 \
+  --cpus-per-task=8 \
+  --mem=16G \
+  --pty bash
+```
+
+Sur le nœud alloué :
+
+```bash
+module purge
+module load Anaconda3/2025.06-1
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate fedlab-zmq
+
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export DMD_DATA="$FEDLAB_WORK/datasets"
+export DMD_OUTPUT="$FEDLAB_WORK/results/toubkal_dmd_cpu"
+cd "$FEDLAB_REPO"
+
+python -c "import torch, yaml, zmq; print(torch.__version__, torch.cuda.is_available())"
+python run_experiment.py --list-algos | grep -E 'dmd_mean|dmd_usv|fedfair_loss|term'
+python -m pytest -q \
+  tests/test_dmd_toubkal_launcher.py \
+  tests/test_anchor_split.py \
+  tests/dmd/test_contracts_and_adapter.py
+```
+
+Dans l'environnement CPU, `torch.cuda.is_available()` doit afficher `False`.
+Valider ensuite la matrice :
+
+```bash
+python scripts/run_dmd_toubkal.py \
   --validate \
   --stage smoke \
-  --data-root /chemin/vers/data
+  --device cpu \
+  --data-root "$DMD_DATA"
 
-python3 scripts/run_dmd_toubkal.py \
+python scripts/run_dmd_toubkal.py \
   --list \
   --stage phase_a_full
 ```
@@ -80,43 +188,148 @@ python3 scripts/run_dmd_toubkal.py \
 La première commande doit afficher `VALID: 24 unique tasks`; la seconde doit
 énumérer 180 tâches compactes de 0 à 179.
 
-## 3. Exécuter le smoke CUDA
+Vérifier ensuite la commande exacte de la première tâche, sans entraînement :
 
 ```bash
-sbatch --array=0-23 \
-  --export=ALL,STAGE=smoke,REPO_DIR=/chemin/fedlab_zmq,DATA_ROOT=/chemin/data,OUTPUT_ROOT=/chemin/results/toubkal_dmd,VENV_ACTIVATE=/chemin/venv/bin/activate \
-  hpc/run_dmd_phase_a.slurm
+python scripts/run_dmd_toubkal.py \
+  --dry-run \
+  --stage smoke \
+  --job-index 0 \
+  --device cpu \
+  --data-root "$DMD_DATA" \
+  --output-root "$DMD_OUTPUT"
+```
+
+Enfin, exécuter une seule tâche, un seul round, avant tout array SLURM :
+
+```bash
+python -u scripts/run_dmd_toubkal.py \
+  --run \
+  --stage smoke \
+  --job-index 0 \
+  --device cpu \
+  --pilot-rounds 1 \
+  --data-root "$DMD_DATA" \
+  --output-root "$DMD_OUTPUT" \
+  --dashboard-output-root "$DMD_OUTPUT/dashboard_exports" \
+  --resume
+```
+
+Le pilote est écrit sous un arbre `pilots/rounds_1` distinct. Vérifier qu'il
+produit un `metrics.json` et un `manifest.json`, puis quitter le nœud interactif
+avec `exit`.
+
+## 3. Exécuter le smoke CPU
+
+Comme dans le guide général, conserver les petits logs SLURM sur le Home et les
+résultats volumineux sur Lustre :
+
+```bash
+cd "$FEDLAB_REPO/slurm_logs"
+
+sbatch \
+  --account="$FEDLAB_ACCOUNT" \
+  --array=0-23%4 \
+  --export=ALL,STAGE=smoke,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
+  ../hpc/run_dmd_phase_a_cpu.slurm
 ```
 
 Les 24 tâches doivent produire des losses finies, un modèle, un `metrics.json`
-natif et un `manifest.json`. La reprise est actuellement faite au niveau de la
-tâche : une tâche complète est ignorée, tandis qu'une tâche interrompue est
-relancée depuis son début. Le checkpoint round par round pourra être ajouté
-séparément sans changer l'algorithme.
+natif et un `manifest.json`. L'array couvre deux scénarios, deux régimes de
+participation et six méthodes. La limite `%4` autorise au maximum quatre tâches
+simultanées; elle peut être réduite si le quota CPU ou I/O du projet l'exige.
 
-## 4. Lancer Phase A, puis les extensions
+Contrôler le job avec :
+
+```bash
+squeue -u "$USER"
+sacct -j <JOB_ID> --format=JobID,State,Elapsed,ExitCode,MaxRSS
+tail -f slurm-dmd_phase_a_cpu-<JOB_ID>_0.out
+```
+
+Ne lancer Phase A que lorsque les 24 indices ont `COMPLETED` avec un code de
+sortie nul. En cas d'échec, corriger d'abord l'environnement ou les données,
+puis resoumettre le même array.
+
+La reprise est faite au niveau de la tâche : avec `--resume`, une tâche dont les
+artefacts sont complets est ignorée; une tâche interrompue est relancée depuis
+le début. Il n'y a pas encore de reprise au milieu d'une trajectoire.
+
+## 4. Lancer Phase A complète sur CPU
 
 Après validation du smoke :
 
 ```bash
-sbatch --array=0-179 \
-  --export=ALL,STAGE=phase_a_full,REPO_DIR=/chemin/fedlab_zmq,DATA_ROOT=/chemin/data,OUTPUT_ROOT=/chemin/results/toubkal_dmd,VENV_ACTIVATE=/chemin/venv/bin/activate \
-  hpc/run_dmd_phase_a.slurm
-
-sbatch --array=0-119 \
-  --export=ALL,STAGE=phase_a_partial_no_dropout,REPO_DIR=/chemin/fedlab_zmq,DATA_ROOT=/chemin/data,OUTPUT_ROOT=/chemin/results/toubkal_dmd,VENV_ACTIVATE=/chemin/venv/bin/activate \
-  hpc/run_dmd_phase_a.slurm
-
-sbatch --array=0-119 \
-  --export=ALL,STAGE=phase_a_partial_dropout,REPO_DIR=/chemin/fedlab_zmq,DATA_ROOT=/chemin/data,OUTPUT_ROOT=/chemin/results/toubkal_dmd,VENV_ACTIVATE=/chemin/venv/bin/activate \
-  hpc/run_dmd_phase_a.slurm
+sbatch \
+  --account="$FEDLAB_ACCOUNT" \
+  --array=0-179%4 \
+  --export=ALL,STAGE=phase_a_full,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
+  ../hpc/run_dmd_phase_a_cpu.slurm
 ```
 
-Il est préférable d'achever et d'analyser `phase_a_full` avant de lancer les
-extensions partielles. Le drift temporel n'est pas encore implémenté dans ce
-runner et n'est donc pas annoncé comme prêt.
+Le script demande par tâche 8 CPU, 32 Go de mémoire et 12 heures au maximum.
+L'array contient 180 tâches :
 
-## 5. Dashboard
+```text
+2 scénarios x 3 niveaux non-IID x 5 seeds x 6 méthodes = 180 tâches
+```
+
+Le plafond `%4` représente donc au plus 32 cœurs utilisés simultanément. Il
+contrôle la concurrence, pas le nombre total de tâches scientifiques.
+
+Pour un test intermédiaire moins coûteux, `PILOT_ROUNDS` écrit dans un arbre de
+pilote séparé et ne contamine pas les résultats à 150 rounds :
+
+```bash
+sbatch \
+  --account="$FEDLAB_ACCOUNT" \
+  --array=0-5%4 \
+  --export=ALL,STAGE=phase_a_full,PILOT_ROUNDS=5,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
+  ../hpc/run_dmd_phase_a_cpu.slurm
+```
+
+## 5. Lancer ensuite les extensions de participation
+
+Il est préférable d'achever et d'analyser `phase_a_full` avant de lancer les
+extensions partielles :
+
+```bash
+sbatch \
+  --account="$FEDLAB_ACCOUNT" \
+  --array=0-119%4 \
+  --export=ALL,STAGE=phase_a_partial_no_dropout,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
+  ../hpc/run_dmd_phase_a_cpu.slurm
+
+sbatch \
+  --account="$FEDLAB_ACCOUNT" \
+  --array=0-119%4 \
+  --export=ALL,STAGE=phase_a_partial_dropout,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
+  ../hpc/run_dmd_phase_a_cpu.slurm
+```
+
+Le premier stage isole l'effet d'une cohorte réduite. Le second ajoute un
+abandon avant l'envoi du profil et avant l'entraînement local. Le drift
+temporel n'est pas encore implémenté dans ce runner et n'est donc pas annoncé
+comme prêt.
+
+## 6. Option GPU ultérieure
+
+Après validation CPU, une réplication GPU peut utiliser
+`hpc/run_dmd_phase_a.slurm`. Utiliser un `OUTPUT_ROOT` distinct, par exemple
+`toubkal_dmd_gpu`, afin d'éviter toute collision avec les résultats CPU :
+
+```bash
+sbatch \
+  --array=0-23 \
+  --export=ALL,STAGE=smoke,DEVICE=cuda,REPO_DIR="$FEDLAB_REPO",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$FEDLAB_WORK/results/toubkal_dmd_gpu",VENV_ACTIVATE=/chemin/venv/bin/activate \
+  ../hpc/run_dmd_phase_a.slurm
+```
+
+Le changement CPU/GPU ne change pas la matrice scientifique. Il peut produire
+de faibles différences numériques; les comparaisons principales doivent donc
+rester appariées à l'intérieur d'un même backend.
+
+## 7. Dashboard
 
 À la fin de chaque tâche, `run_experiment.py` produit déjà le format natif du
 dashboard. Le lanceur copie une vue légère de `metrics.json` et du manifeste
@@ -138,9 +351,9 @@ variance et gap de BA, déficit DMD-CB, CVaR-20, upper-semivariance et
 diagnostics USV. Les distributions par client sont des métriques oracle de
 recherche, pas de la télémétrie destinée à un déploiement privé.
 
-## 6. Comment DMD est maintenant exécuté dans l'infrastructure native
+## 8. Comment DMD est maintenant exécuté dans l'infrastructure native
 
-### 6.1 Le contexte retardé dont DMD-CB+USV a besoin
+### 8.1 Le contexte retardé dont DMD-CB+USV a besoin
 
 Au round `t`, DMD-CB+USV utilise une statistique calculée au round précédent :
 
@@ -163,7 +376,7 @@ La quantité `bar_D_(t-1)` est appelée **contexte DMD retardé**. Elle doit êt
 Sans ce contexte, le terme d'upper-semivariance ne peut pas être calculé. Le
 client retombe alors sur la cross-entropy seule.
 
-### 6.2 Propagation causale dans `run_experiment.py`
+### 8.2 Propagation causale dans `run_experiment.py`
 
 La chaîne est maintenant explicite :
 
@@ -187,7 +400,7 @@ L'assertion `source_round=t-1` est vérifiée côté client. Une erreur de déca
 temporel arrête le run au lieu d'exécuter silencieusement une autre méthode.
 Pendant le warm-up, l'absence de contexte active uniquement la CE.
 
-### 6.3 Jeu d'ancrage et comparabilité des baselines
+### 8.3 Jeu d'ancrage et comparabilité des baselines
 
 `run_experiment.py` construit une séparation déterministe, approximativement
 stratifiée, à l'intérieur de chaque partition client. Le train et l'ancre sont
@@ -199,7 +412,7 @@ Cette séparation évite deux erreurs : utiliser le test local pour piloter
 l'entraînement, ou profiler le modèle après personnalisation locale alors que
 la question DMD porte sur la qualité du modèle collaboratif reçu.
 
-### 6.4 Ce qui reste pour le déploiement ZMQ multi-processus
+### 8.4 Ce qui reste pour le déploiement ZMQ multi-processus
 
 Le contexte lui-même est maintenant compatible avec le hook générique d'état
 serveur. La validation Toubkal demandée ici passe toutefois par
@@ -212,7 +425,7 @@ Ce travail système ne change ni la fonction objectif, ni le format du contexte,
 ni le registre de l'algorithme. Il vérifie que la réalisation distribuée
 respecte la même sémantique.
 
-## 7. Disponibilité du code après un clone Git
+## 9. Disponibilité du code après un clone Git
 
 Le dossier `research/` peut rester entièrement dans `.gitignore`. Phase A
 utilise seulement des fichiers versionnés du framework :
@@ -224,6 +437,7 @@ datasets/anchor_split.py
 run_experiment.py
 configs/dmd/toubkal_phase_a.yaml
 scripts/run_dmd_toubkal.py
+hpc/run_dmd_phase_a_cpu.slurm
 hpc/run_dmd_phase_a.slurm
 ```
 
@@ -231,12 +445,12 @@ Après un commit, un push et un `git pull` sur Toubkal, on contrôle le chemin
 natif avec :
 
 ```bash
-python3 run_experiment.py --list-algos | grep dmd
-python3 scripts/run_dmd_toubkal.py --validate --stage smoke --data-root "$DATA_ROOT"
-python3 scripts/run_dmd_toubkal.py --dry-run --stage smoke --job-index 0 --pilot-rounds 2 --skip-data-check
+python run_experiment.py --list-algos | grep dmd
+python scripts/run_dmd_toubkal.py --validate --stage smoke --device cpu --data-root "$DATA_ROOT"
+python scripts/run_dmd_toubkal.py --dry-run --stage smoke --job-index 0 --device cpu --pilot-rounds 2 --skip-data-check
 ```
 
-## 8. Passage ultérieur à DMD-DP
+## 10. Passage ultérieur à DMD-DP
 
 La confidentialité différentielle est un problème distinct de la propagation
 du contexte. Même après avoir rendu ZMQ fidèle, la future Phase C doit rester

@@ -56,6 +56,10 @@ module purge
 module load Anaconda3/2025.06-1
 source "$(conda info --base)/etc/profile.d/conda.sh"
 
+# Accepter les conditions
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
 conda create -y -n fedlab-zmq python=3.12.3 pip
 conda activate fedlab-zmq
 
