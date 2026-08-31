@@ -1,0 +1,19 @@
+schema_version: 1
+matrix_id: s4_central_dp
+common: common.yaml
+description: User-level central-DP sweep with q=1 and paired sensitivities.
+experiments:
+  - id: s4_privacy_sweep
+    expected_tasks: 720
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05, cifar10_alexnet_b01, cifar10_alexnet_b05]
+    method_ids:
+      - central_dp_fedavg_exact
+      - central_dp_far_2c
+      - scfar_dp_2c
+      - scfar_dp_certified
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100]
+    privacy_ids: [no_dp, eps1, eps3, eps6, eps10]
+    tau_over_c: [1.0]

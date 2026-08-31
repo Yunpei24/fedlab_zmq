@@ -1,0 +1,45 @@
+schema_version: 1
+matrix_id: s2_full_update_ablations
+common: common.yaml
+description: Full-update ablation chain for paper 1.
+experiments:
+  - id: s2a_non_private_chain
+    expected_tasks: 180
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05, cifar10_alexnet_b01, cifar10_alexnet_b05]
+    method_ids:
+      - fedavg
+      - fcc_reference
+      - far_original_cm_nnm
+      - far_user_clipped_fcc
+      - scfar_no_dp
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+  - id: s2b_central_dp_chain
+    expected_tasks: 144
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05, cifar10_alexnet_b01, cifar10_alexnet_b05]
+    method_ids:
+      - central_dp_fedavg_exact
+      - central_dp_far_2c
+      - scfar_dp_2c
+      - scfar_dp_certified
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100]
+    privacy_ids: [eps6]
+    tau_over_c: [1.0]
+  - id: s2c_huber_dp_ablation
+    expected_tasks: 36
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05, cifar10_alexnet_b01, cifar10_alexnet_b05]
+    method_ids:
+      - huber_dp_certified
+    reference_ids: [huber_k10]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100]
+    privacy_ids: [eps6]
+    tau_over_c: [1.0]

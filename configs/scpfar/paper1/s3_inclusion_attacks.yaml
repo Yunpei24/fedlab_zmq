@@ -1,0 +1,59 @@
+schema_version: 1
+matrix_id: s3_inclusion_attacks
+common: common.yaml
+description: Frozen inclusion, honest-outlier and Byzantine-attack study.
+experiments:
+  - id: s3a_tilt_inclusion_clean
+    expected_tasks: 540
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05, cifar10_alexnet_b01, cifar10_alexnet_b05]
+    method_ids: [scfar_no_dp]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids:
+      - k1p25_r0
+      - k1p25_r025
+      - k1p25_r050
+      - k1p25_r075
+      - k1p25_r100
+      - k2_r0
+      - k2_r025
+      - k2_r050
+      - k2_r075
+      - k2_r100
+      - k5_r0
+      - k5_r025
+      - k5_r050
+      - k5_r075
+      - k5_r100
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+  - id: s3b_attacks_and_intensity
+    expected_tasks: 684
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05, cifar10_alexnet_b01, cifar10_alexnet_b05]
+    method_ids: [scfar_no_dp]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids:
+      - clean
+      - bf_b2_canonical
+      - ipm_b2_canonical
+      - alie_b2_canonical
+      - minmax_b2_canonical
+      - minsum_b2_canonical
+      - bf_b5_weak
+      - bf_b5_canonical
+      - bf_b5_strong
+      - ipm_b5_weak
+      - ipm_b5_canonical
+      - ipm_b5_strong
+      - alie_b5_weak
+      - alie_b5_canonical
+      - alie_b5_strong
+      - minmax_b5_weak
+      - minmax_b5_canonical
+      - minsum_b5_weak
+      - minsum_b5_canonical
+    tilt_ids: [k2_r100]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]

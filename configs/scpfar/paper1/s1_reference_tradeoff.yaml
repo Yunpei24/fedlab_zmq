@@ -1,0 +1,71 @@
+schema_version: 1
+matrix_id: s1_reference_tradeoff
+common: common.yaml
+description: Frozen robustness-bias and public-anchor study for F_CC.
+experiments:
+  - id: s1a_tau_anchor_clean
+    expected_tasks: 288
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05]
+    method_ids: [fcc_reference]
+    reference_ids: [fcc]
+    anchor_ids: [fixed_zero, ema_release_0p1, ema_release_0p5, previous_release]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [0.25, 0.5, 1.0, 2.0]
+  - id: s1b_byzantine_tradeoff
+    expected_tasks: 792
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05]
+    method_ids: [fcc_reference]
+    reference_ids: [fcc]
+    anchor_ids: [ema_release_0p1, previous_release]
+    threat_ids:
+      - clean
+      - bf_b2_canonical
+      - ipm_b2_canonical
+      - alie_b2_canonical
+      - minmax_b2_canonical
+      - minsum_b2_canonical
+      - bf_b5_canonical
+      - ipm_b5_canonical
+      - alie_b5_canonical
+      - minmax_b5_canonical
+      - minsum_b5_canonical
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [0.5, 1.0]
+  - id: s1d_anchor_cadence_clean
+    expected_tasks: 36
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [fcc_reference]
+    reference_ids: [fcc]
+    anchor_ids:
+      - ema_release_0p1
+      - ema_release_0p1_every5
+      - previous_release
+      - previous_release_every5
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+  - id: s1c_huber_ablation
+    expected_tasks: 792
+    scenario_ids: [fmnist_lenet5_b01, fmnist_lenet5_b05]
+    method_ids: [huber_reference]
+    reference_ids: [huber_k10]
+    anchor_ids: [ema_release_0p1, previous_release]
+    threat_ids:
+      - clean
+      - bf_b2_canonical
+      - ipm_b2_canonical
+      - alie_b2_canonical
+      - minmax_b2_canonical
+      - minsum_b2_canonical
+      - bf_b5_canonical
+      - ipm_b5_canonical
+      - alie_b5_canonical
+      - minmax_b5_canonical
+      - minsum_b5_canonical
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [0.5, 1.0]

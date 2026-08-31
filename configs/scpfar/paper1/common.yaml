@@ -1,0 +1,375 @@
+schema_version: 1
+protocol_id: scfar_dp_paper1_full_update_v1
+description: >-
+  Frozen full-update protocol for Sensitivity-Controlled FAR under user-level
+  central differential privacy. Partial training, client dropout and privacy
+  amplification by client sampling are explicitly out of scope.
+
+invariants:
+  privacy_level: user
+  privacy_trust_model: central
+  privacy_adjacency: replace_one
+  client_sampling_rate: 1.0
+  privacy_sampling_assumption: no_amplification_q_equals_1
+  client_dropout_rate: 0.0
+  allow_client_death: false
+  primary_reference: centered_clipping
+  huber_role: ablation_only
+
+partition_seeds: [101, 102, 103]
+training_seeds: [28, 36, 54]
+
+base_config:
+  seed: 28
+  device: cuda
+  data:
+    dataset: fashionmnist
+    partition: client_dirichlet_balanced
+    alpha: 0.1
+    partition_seed: 101
+    data_root: ./data
+  model:
+    architecture: lenet5
+  training:
+    num_rounds: 100
+    algorithm: scfar_dp
+    algo_config:
+      lr: 0.01
+      momentum: 0.9
+      weight_decay: 0.0001
+      local_epochs: 2
+      batch_size: 64
+      client_metrics_every: 5
+      fairness_tail_fraction: 0.2
+      user_clip_norm: 1.0
+      distance_clip_multiple: 2.0
+      score_mode: hard_clip
+      scfar_aggregation_rule: controlled_tilt
+      far_alpha: 0.1
+      kappa_w: 2.0
+      alpha_bound_policy: error
+      robust_reference: centered_clipping
+      reference_clip_multiple: 1.0
+      anchor_mode: previous_release
+      anchor_update_rate: 1.0
+      anchor_update_every: 1
+      anchor_clip_norm: 1.0
+      huber_gamma: 1.0
+      huber_num_steps: 10
+      num_byzantine: 0
+      enable_central_dp: false
+      central_noise_multiplier: 0.0
+      target_epsilon: null
+      privacy_num_rounds: 100
+      delta: 0.00001
+      sensitivity_mode: automatic_certified
+      honest_outlier_client_ids: []
+      attack:
+        enabled: false
+        name: none
+        num_byzantine: 0
+        client_ids: []
+  clients:
+    num_clients: 25
+    sample_fraction: 1.0
+    sampling_strategy: random
+    min_clients: 25
+    dropout_rate: 0.0
+    fleet:
+      - type: jetson_nano
+        count: 25
+    battery_init:
+      distribution: uniform_soc
+      params: {min_soc: 0.95, max_soc: 1.0}
+
+scenarios:
+  fmnist_lenet5_b01:
+    data: {dataset: fashionmnist, alpha: 0.1}
+    model: {architecture: lenet5}
+  fmnist_lenet5_b05:
+    data: {dataset: fashionmnist, alpha: 0.5}
+    model: {architecture: lenet5}
+  cifar10_alexnet_b01:
+    data: {dataset: cifar10, alpha: 0.1}
+    model: {architecture: alexnet}
+  cifar10_alexnet_b05:
+    data: {dataset: cifar10, alpha: 0.5}
+    model: {architecture: alexnet}
+
+methods:
+  fedavg:
+    algorithm: fedavg
+    role: non_private_utility_baseline
+    tilt_policy: fixed
+    algo_config:
+      enable_central_dp: false
+  fcc_reference:
+    algorithm: scfar_dp
+    role: fcc_reference_only
+    tilt_policy: fixed
+    algo_config:
+      scfar_aggregation_rule: reference
+      far_alpha: 0.0
+      kappa_w: 1.0
+      enable_central_dp: false
+  huber_reference:
+    algorithm: scfar_dp
+    role: regularized_huber_reference_only_ablation
+    tilt_policy: fixed
+    algo_config:
+      scfar_aggregation_rule: reference
+      far_alpha: 0.0
+      kappa_w: 1.0
+      robust_reference: regularized_huber
+      enable_central_dp: false
+  far_original_cm_nnm:
+    algorithm: far
+    role: original_far_reference_baseline
+    tilt_policy: fixed
+    algo_config:
+      robust_reference: cm_nnm
+      far_alpha: 0.1
+      far_update_mode: multi_epoch_delta
+      far_prox_mu: 0.0
+      enable_central_dp: false
+  far_user_clipped_fcc:
+    algorithm: scfar_dp
+    role: user_clipped_raw_distance_far_ablation
+    tilt_policy: fixed
+    algo_config:
+      scfar_aggregation_rule: far_raw_distance
+      far_alpha: 0.1
+      sensitivity_mode: conservative_2C
+      enable_central_dp: false
+  scfar_no_dp:
+    algorithm: scfar_dp
+    role: sensitivity_controlled_far_without_dp
+    algo_config:
+      scfar_aggregation_rule: controlled_tilt
+      enable_central_dp: false
+  central_dp_fedavg_exact:
+    algorithm: scfar_dp
+    role: central_user_level_dp_fedavg
+    tilt_policy: fixed
+    algo_config:
+      scfar_aggregation_rule: uniform
+      far_alpha: 0.0
+      kappa_w: 1.0
+      sensitivity_mode: automatic_certified
+      enable_central_dp: true
+  central_dp_far_2c:
+    algorithm: scfar_dp
+    role: central_user_level_dp_far_conservative
+    tilt_policy: fixed
+    algo_config:
+      scfar_aggregation_rule: far_raw_distance
+      sensitivity_mode: conservative_2C
+      enable_central_dp: true
+  scfar_dp_2c:
+    algorithm: scfar_dp
+    role: scfar_dp_conservative_sensitivity
+    algo_config:
+      scfar_aggregation_rule: controlled_tilt
+      sensitivity_mode: conservative_2C
+      enable_central_dp: true
+  scfar_dp_certified:
+    algorithm: scfar_dp
+    role: primary_certified_scfar_dp
+    algo_config:
+      scfar_aggregation_rule: controlled_tilt
+      sensitivity_mode: proved_reference_bound
+      enable_central_dp: true
+  huber_dp_certified:
+    algorithm: scfar_dp
+    role: certified_regularized_huber_ablation
+    algo_config:
+      scfar_aggregation_rule: controlled_tilt
+      robust_reference: regularized_huber
+      sensitivity_mode: proved_reference_bound
+      enable_central_dp: true
+
+references:
+  fcc:
+    algo_config:
+      robust_reference: centered_clipping
+  huber_k10:
+    algo_config:
+      robust_reference: regularized_huber
+      huber_gamma: 1.0
+      huber_num_steps: 10
+
+anchors:
+  fixed_zero:
+    algo_config:
+      anchor_mode: fixed_zero
+      anchor_update_rate: 0.0
+      anchor_update_every: 1
+  ema_release_0p1:
+    algo_config:
+      anchor_mode: ema_release
+      anchor_update_rate: 0.1
+      anchor_update_every: 1
+  ema_release_0p1_every5:
+    algo_config:
+      anchor_mode: ema_release
+      anchor_update_rate: 0.1
+      anchor_update_every: 5
+  ema_release_0p5:
+    algo_config:
+      anchor_mode: ema_release
+      anchor_update_rate: 0.5
+      anchor_update_every: 1
+  previous_release:
+    algo_config:
+      anchor_mode: previous_release
+      anchor_update_rate: 1.0
+      anchor_update_every: 1
+  previous_release_every5:
+    algo_config:
+      anchor_mode: previous_release
+      anchor_update_rate: 1.0
+      anchor_update_every: 5
+
+tilts:
+  uniform_k1:
+    kappa_w: 1.0
+    alpha_fraction: 0.0
+  k1p25_r0:
+    kappa_w: 1.25
+    alpha_fraction: 0.0
+  k1p25_r025:
+    kappa_w: 1.25
+    alpha_fraction: 0.25
+  k1p25_r050:
+    kappa_w: 1.25
+    alpha_fraction: 0.5
+  k1p25_r075:
+    kappa_w: 1.25
+    alpha_fraction: 0.75
+  k1p25_r100:
+    kappa_w: 1.25
+    alpha_fraction: 1.0
+  k2_r0:
+    kappa_w: 2.0
+    alpha_fraction: 0.0
+  k2_r025:
+    kappa_w: 2.0
+    alpha_fraction: 0.25
+  k2_r050:
+    kappa_w: 2.0
+    alpha_fraction: 0.5
+  k2_r075:
+    kappa_w: 2.0
+    alpha_fraction: 0.75
+  k2_r100:
+    kappa_w: 2.0
+    alpha_fraction: 1.0
+  k5_r0:
+    kappa_w: 5.0
+    alpha_fraction: 0.0
+  k5_r025:
+    kappa_w: 5.0
+    alpha_fraction: 0.25
+  k5_r050:
+    kappa_w: 5.0
+    alpha_fraction: 0.5
+  k5_r075:
+    kappa_w: 5.0
+    alpha_fraction: 0.75
+  k5_r100:
+    kappa_w: 5.0
+    alpha_fraction: 1.0
+
+privacy_profiles:
+  no_dp:
+    algo_config:
+      enable_central_dp: false
+      central_noise_multiplier: 0.0
+      target_epsilon: null
+  eps1:
+    algo_config: {enable_central_dp: true, target_epsilon: 1.0}
+  eps3:
+    algo_config: {enable_central_dp: true, target_epsilon: 3.0}
+  eps6:
+    algo_config: {enable_central_dp: true, target_epsilon: 6.0}
+  eps10:
+    algo_config: {enable_central_dp: true, target_epsilon: 10.0}
+
+threats:
+  clean:
+    num_byzantine: 0
+    attack: {enabled: false, name: none, num_byzantine: 0, client_ids: []}
+  bf_b2_canonical:
+    num_byzantine: 2
+    attack: {enabled: true, name: bf, scale: 1.0, num_byzantine: 2, client_ids: [23, 24]}
+  ipm_b2_canonical:
+    num_byzantine: 2
+    attack: {enabled: true, name: ipm, scale: 1.0, num_byzantine: 2, client_ids: [23, 24]}
+  alie_b2_canonical:
+    num_byzantine: 2
+    attack: {enabled: true, name: alie, scale: 1.0, z: null, num_byzantine: 2, client_ids: [23, 24]}
+  minmax_b2_canonical:
+    num_byzantine: 2
+    attack: {enabled: true, name: minmax, scale: 1.0, search_steps: 40, max_scale: 10000.0, direction: negative_mean, num_byzantine: 2, client_ids: [23, 24]}
+  minsum_b2_canonical:
+    num_byzantine: 2
+    attack: {enabled: true, name: minsum, scale: 1.0, search_steps: 40, max_scale: 10000.0, direction: negative_mean, num_byzantine: 2, client_ids: [23, 24]}
+  bf_b5_canonical:
+    num_byzantine: 5
+    attack: {enabled: true, name: bf, scale: 1.0, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  ipm_b5_canonical:
+    num_byzantine: 5
+    attack: {enabled: true, name: ipm, scale: 1.0, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  alie_b5_canonical:
+    num_byzantine: 5
+    attack: {enabled: true, name: alie, scale: 1.0, z: null, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  minmax_b5_canonical:
+    num_byzantine: 5
+    attack: {enabled: true, name: minmax, scale: 1.0, search_steps: 40, max_scale: 10000.0, direction: negative_mean, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  minsum_b5_canonical:
+    num_byzantine: 5
+    attack: {enabled: true, name: minsum, scale: 1.0, search_steps: 40, max_scale: 10000.0, direction: negative_mean, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  bf_b5_weak:
+    num_byzantine: 5
+    attack: {enabled: true, name: bf, scale: 0.5, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  bf_b5_strong:
+    num_byzantine: 5
+    attack: {enabled: true, name: bf, scale: 2.0, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  ipm_b5_weak:
+    num_byzantine: 5
+    attack: {enabled: true, name: ipm, scale: 0.5, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  ipm_b5_strong:
+    num_byzantine: 5
+    attack: {enabled: true, name: ipm, scale: 2.0, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  alie_b5_weak:
+    num_byzantine: 5
+    attack: {enabled: true, name: alie, scale: 0.5, z: null, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  alie_b5_strong:
+    num_byzantine: 5
+    attack: {enabled: true, name: alie, scale: 2.0, z: null, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  minmax_b5_weak:
+    num_byzantine: 5
+    attack: {enabled: true, name: minmax, scale: 0.5, search_steps: 40, max_scale: 10000.0, direction: negative_mean, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+  minsum_b5_weak:
+    num_byzantine: 5
+    attack: {enabled: true, name: minsum, scale: 0.5, search_steps: 40, max_scale: 10000.0, direction: negative_mean, num_byzantine: 5, client_ids: [20, 21, 22, 23, 24]}
+
+honest_outliers:
+  rule: top_20_percent_honest_clients_by_js_label_divergence_before_training
+  by_scenario_and_partition_seed:
+    fmnist_lenet5_b01:
+      101: [0, 4, 19, 16]
+      102: [3, 18, 11, 13]
+      103: [9, 3, 17, 4]
+    cifar10_alexnet_b01:
+      101: [0, 4, 19, 16]
+      102: [3, 18, 11, 13]
+      103: [9, 3, 17, 4]
+    fmnist_lenet5_b05:
+      101: [3, 14, 15, 18]
+      102: [9, 11, 3, 15]
+      103: [15, 8, 19, 6]
+    cifar10_alexnet_b05:
+      101: [3, 14, 15, 18]
+      102: [9, 11, 3, 15]
+      103: [15, 8, 19, 6]
