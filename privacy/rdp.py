@@ -56,6 +56,27 @@ def sampled_gaussian_rdp(
     return log_a / (order - 1)
 
 
+def gaussian_rdp(order: float, noise_multiplier: float) -> float:
+    """Exact RDP cost of an ordinary Gaussian mechanism.
+
+    The released statistic has L2 sensitivity ``Delta`` and Gaussian standard
+    deviation ``noise_multiplier * Delta``.  Therefore the sensitivity cancels
+    from the privacy cost and the mechanism is
+
+    ``(order, order / (2 * noise_multiplier**2))-RDP``.
+
+    This explicit helper is the primary accountant primitive for full-
+    participation central SC-FAR-DP.  It avoids labelling the ``q=1`` case as
+    sampled or claiming privacy amplification that is not part of the theorem.
+    """
+
+    if order <= 1:
+        raise ValueError("Renyi order must be greater than one")
+    if noise_multiplier <= 0:
+        return math.inf
+    return float(order) / (2.0 * float(noise_multiplier) ** 2)
+
+
 def calibrate_sampled_gaussian_noise(
     *,
     target_epsilon: float,
@@ -95,6 +116,51 @@ def calibrate_sampled_gaussian_noise(
         upper *= 2.0
         if upper > 1e6:
             raise RuntimeError("Could not bracket a noise multiplier")
+    if epsilon_at(lower) < target_epsilon:
+        return lower
+    for _ in range(max_iter):
+        middle = (lower + upper) / 2.0
+        epsilon = epsilon_at(middle)
+        if abs(epsilon - target_epsilon) <= tolerance:
+            return middle
+        if epsilon > target_epsilon:
+            lower = middle
+        else:
+            upper = middle
+    return upper
+
+
+def calibrate_gaussian_noise(
+    *,
+    target_epsilon: float,
+    delta: float,
+    steps: int,
+    orders: tuple[int, ...] = (2, 3, 4, 5, 8, 10, 16, 20, 32, 64),
+    lower: float = 0.05,
+    upper: float = 100.0,
+    tolerance: float = 1e-4,
+    max_iter: int = 100,
+) -> float:
+    """Calibrate one multiplier for ``steps`` ordinary Gaussian releases."""
+
+    if target_epsilon <= 0:
+        raise ValueError("target_epsilon must be positive")
+    if steps <= 0:
+        raise ValueError("steps must be positive")
+
+    def epsilon_at(noise: float) -> float:
+        accountant = RDPAccountant(orders=orders)
+        accountant.add_gaussian(
+            channel="central_model",
+            noise_multiplier=noise,
+            steps=steps,
+        )
+        return accountant.epsilon(delta)[0]
+
+    while epsilon_at(upper) > target_epsilon:
+        upper *= 2.0
+        if upper > 1e6:
+            raise RuntimeError("Could not bracket a Gaussian noise multiplier")
     if epsilon_at(lower) < target_epsilon:
         return lower
     for _ in range(max_iter):
@@ -175,6 +241,21 @@ class RDPAccountant:
 
     orders: tuple[int, ...] = (2, 3, 4, 5, 8, 10, 16, 20, 32, 64)
     channels: dict[str, dict[int, float]] = field(default_factory=dict)
+
+    def add_gaussian(
+        self,
+        *,
+        channel: str,
+        noise_multiplier: float,
+        steps: int = 1,
+    ) -> None:
+        """Compose ordinary Gaussian releases without sampling amplification."""
+
+        if steps < 0:
+            raise ValueError("steps cannot be negative")
+        ledger = self.channels.setdefault(channel, {a: 0.0 for a in self.orders})
+        for order in self.orders:
+            ledger[order] += steps * gaussian_rdp(order, noise_multiplier)
 
     def add_sampled_gaussian(
         self,

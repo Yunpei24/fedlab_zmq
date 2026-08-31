@@ -12,6 +12,20 @@ while original updates are reintroduced with inverse-distance penalties.
 These functions implement research baselines, not a claim that any chosen
 ``f`` is valid for an unknown deployment.  Experiments must set the assumed
 number of Byzantine clients explicitly.
+
+The module also contains the two references used by the theoretical SC-FAR
+study:
+
+``centered_clipping``
+    A one-step, public-anchor centered-clipping reference.  Unlike an
+    iterative estimator whose initial point is computed from the current
+    cohort, its replace-one stability follows directly from non-expansiveness
+    of Euclidean projection.
+
+``regularized_huber_reference``
+    A deliberately finite-step ablation.  The public number of gradient
+    iterations is part of the mechanism, so the stability certificate applies
+    to the value that is actually returned, not merely to an ideal optimizer.
 """
 
 from __future__ import annotations
@@ -21,6 +35,131 @@ import math
 import torch
 
 from .tensor_ops import stack_updates, unflatten_update
+
+
+def _validate_vector_matrix(vectors: torch.Tensor) -> None:
+    if vectors.ndim != 2 or vectors.shape[0] < 1:
+        raise ValueError("vectors must have shape (n, d) with n >= 1")
+
+
+def clip_l2(vector: torch.Tensor, radius: float) -> torch.Tensor:
+    """Project one vector, or every row of a matrix, onto an L2 ball.
+
+    The origin-centred projection is
+
+    ``x * min(1, radius / ||x||_2)``.
+
+    It is 1-Lipschitz.  This elementary property is the key ingredient in the
+    replace-one stability proofs for both references below.
+    """
+
+    if radius <= 0:
+        raise ValueError("radius must be positive")
+    if vector.ndim == 1:
+        norm = torch.linalg.vector_norm(vector)
+        factor = (float(radius) / norm.clamp_min(1e-12)).clamp(max=1.0)
+        return vector * factor
+    if vector.ndim == 2:
+        norms = torch.linalg.vector_norm(vector, dim=1, keepdim=True)
+        factors = (float(radius) / norms.clamp_min(1e-12)).clamp(max=1.0)
+        return vector * factors
+    raise ValueError("clip_l2 expects a vector or a matrix of row vectors")
+
+
+def centered_clipping(
+    vectors: torch.Tensor,
+    *,
+    anchor: torch.Tensor,
+    tau: float,
+) -> torch.Tensor:
+    r"""One-step centered-clipping reference used by SC-FAR.
+
+    .. math::
+
+        F_{\mathrm{CC}}(U;r_0)
+        = r_0 + \frac1n\sum_{i=1}^n
+          \operatorname{Clip}_{\tau}(u_i-r_0).
+
+    ``anchor`` must be fixed with respect to the *current* cohort.  In the
+    SC-FAR implementation it is zero at round one and is subsequently derived
+    only from the previous released (therefore already DP) aggregate.
+    """
+
+    _validate_vector_matrix(vectors)
+    if tau <= 0:
+        raise ValueError("tau must be positive")
+    anchor = anchor.to(device=vectors.device, dtype=vectors.dtype).reshape(-1)
+    if anchor.numel() != vectors.shape[1]:
+        raise ValueError("anchor dimension must match the client vectors")
+    centered = vectors - anchor
+    return anchor + clip_l2(centered, tau).mean(dim=0)
+
+
+def regularized_huber_reference(
+    vectors: torch.Tensor,
+    *,
+    anchor: torch.Tensor,
+    tau: float,
+    gamma: float,
+    num_steps: int,
+    return_diagnostics: bool = False,
+):
+    r"""Finite-step regularized vector-Huber reference.
+
+    The ideal objective is
+
+    .. math::
+
+        \frac1n\sum_i \rho_\tau(r-u_i)
+        + \frac\gamma2\lVert r-r_0\rVert_2^2,
+
+    whose gradient is
+
+    .. math::
+
+        \frac1n\sum_i\operatorname{Clip}_\tau(r-u_i)
+        + \gamma(r-r_0).
+
+    Starting at the public anchor, we execute exactly ``num_steps`` iterations
+    with the public step size ``2 / (1 + 2*gamma)``.  For replace-one cohorts
+    whose rows satisfy ``||u_i|| <= C``, the returned iterate has certificate
+
+    ``delta_F <= 2*min(C,tau)/(gamma*n) * (1-rho**num_steps)``,
+
+    where ``rho = 1/(1+2*gamma)``.  A tolerance-based early stopping rule is
+    intentionally avoided because a fixed tolerance would add an error that
+    need not decay as ``1/n``.
+    """
+
+    _validate_vector_matrix(vectors)
+    if tau <= 0:
+        raise ValueError("tau must be positive")
+    if gamma <= 0:
+        raise ValueError("gamma must be positive")
+    if num_steps < 1:
+        raise ValueError("num_steps must be at least one")
+    anchor = anchor.to(device=vectors.device, dtype=vectors.dtype).reshape(-1)
+    if anchor.numel() != vectors.shape[1]:
+        raise ValueError("anchor dimension must match the client vectors")
+
+    point = anchor.clone()
+    step_size = 2.0 / (1.0 + 2.0 * float(gamma))
+    contraction = 1.0 / (1.0 + 2.0 * float(gamma))
+    for _ in range(int(num_steps)):
+        data_gradient = clip_l2(point[None, :] - vectors, tau).mean(dim=0)
+        gradient = data_gradient + float(gamma) * (point - anchor)
+        point = point - step_size * gradient
+
+    if not return_diagnostics:
+        return point
+    final_data_gradient = clip_l2(point[None, :] - vectors, tau).mean(dim=0)
+    final_gradient = final_data_gradient + float(gamma) * (point - anchor)
+    return point, {
+        "huber_step_size": float(step_size),
+        "huber_contraction": float(contraction),
+        "huber_gradient_residual": float(torch.linalg.vector_norm(final_gradient)),
+        "huber_num_steps": int(num_steps),
+    }
 
 
 def coordinate_median(vectors: torch.Tensor) -> torch.Tensor:
@@ -136,6 +275,10 @@ _ALIASES = {
     "cm(nnm)": "cm_nnm",
     "trmean(nnm)": "trmean_nnm",
     "cmls": "cmls",
+    "cc": "centered_clipping",
+    "f_cc": "centered_clipping",
+    "huber": "regularized_huber",
+    "huber_regularized": "regularized_huber",
 }
 
 
@@ -172,9 +315,28 @@ def aggregate_vectors(vectors: torch.Tensor, method: str, **kwargs) -> torch.Ten
             alpha_trusted=float(kwargs.get("alpha_trusted", 1.0)),
             alpha_suspected=float(kwargs.get("alpha_suspected", 1.0)),
         )
+    if method == "centered_clipping":
+        anchor = kwargs.get("anchor")
+        tau = kwargs.get("tau")
+        if anchor is None or tau is None:
+            raise ValueError("centered_clipping requires anchor and tau")
+        return centered_clipping(vectors, anchor=anchor, tau=float(tau))
+    if method == "regularized_huber":
+        anchor = kwargs.get("anchor")
+        tau = kwargs.get("tau")
+        if anchor is None or tau is None:
+            raise ValueError("regularized_huber requires anchor and tau")
+        return regularized_huber_reference(
+            vectors,
+            anchor=anchor,
+            tau=float(tau),
+            gamma=float(kwargs.get("gamma", 1.0)),
+            num_steps=int(kwargs.get("num_steps", 10)),
+        )
     raise ValueError(
         f"Unknown robust aggregator {method!r}. Available: mean, cm, trmean, "
-        "cm_nnm, trmean_nnm, rfa, nbs, cmls"
+        "cm_nnm, trmean_nnm, rfa, nbs, cmls, centered_clipping, "
+        "regularized_huber"
     )
 
 

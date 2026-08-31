@@ -3,16 +3,20 @@
 from .local_dpsgd import DPSGDStats, local_dpsgd_train, private_mean_release
 from .rdp import (
     RDPAccountant,
+    calibrate_gaussian_noise,
     calibrate_composed_sampled_gaussian_noise,
     calibrate_sampled_gaussian_noise,
+    gaussian_rdp,
     sampled_gaussian_rdp,
 )
 
 __all__ = [
     "DPSGDStats",
     "RDPAccountant",
+    "calibrate_gaussian_noise",
     "calibrate_composed_sampled_gaussian_noise",
     "calibrate_sampled_gaussian_noise",
+    "gaussian_rdp",
     "local_dpsgd_train",
     "private_mean_release",
     "sampled_gaussian_rdp",

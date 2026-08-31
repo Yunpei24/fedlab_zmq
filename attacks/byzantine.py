@@ -44,7 +44,12 @@ def _direction(vectors: torch.Tensor, mode: str) -> torch.Tensor:
     raise ValueError(f"Unknown malicious direction: {mode}")
 
 
-def _alie(vectors: torch.Tensor, num_byzantine: int, z: float | None) -> torch.Tensor:
+def _alie(
+    vectors: torch.Tensor,
+    num_byzantine: int,
+    z: float | None,
+    z_scale: float = 1.0,
+) -> torch.Tensor:
     """A Little Is Enough: shift the honest mean by coordinate-wise std.
 
     If ``z`` is omitted, use the conventional normal-quantile heuristic based
@@ -60,9 +65,16 @@ def _alie(vectors: torch.Tensor, num_byzantine: int, z: float | None) -> torch.T
             0.5, min(1.0 - 1e-6, (n - num_byzantine - s) / max(n - num_byzantine, 1))
         )
         z = NormalDist().inv_cdf(probability)
+    if z_scale < 0:
+        raise ValueError("ALIE z_scale must be non-negative")
     mean = vectors.mean(dim=0)
     std = vectors.std(dim=0, unbiased=False)
-    return mean - float(z) * std * torch.sign(mean).masked_fill(mean == 0, 1.0)
+    return mean - (
+        float(z_scale)
+        * float(z)
+        * std
+        * torch.sign(mean).masked_fill(mean == 0, 1.0)
+    )
 
 
 def _binary_search_stealth(
@@ -140,18 +152,25 @@ def apply_attack(
         for idx in bad:
             attacked[idx] = malicious
     elif normalized == "alie":
-        malicious = _alie(honest, len(bad), z)
+        malicious = _alie(honest, len(bad), z, z_scale=float(scale))
         for idx in bad:
             attacked[idx] = malicious
     elif normalized in {"minmax", "min_max", "minsum", "min_sum"}:
         criterion = "minmax" if "max" in normalized else "minsum"
-        malicious = _binary_search_stealth(
+        optimized = _binary_search_stealth(
             honest,
             criterion=criterion,
             direction_mode=direction,
             max_scale=max_scale,
             steps=search_steps,
         )
+        if float(scale) < 0.0:
+            raise ValueError("Min-Max/Min-Sum scale must be non-negative")
+        honest_mean = honest.mean(dim=0)
+        # scale=1 is the canonical optimized stealth point. Values in (0,1)
+        # provide a weaker interpolation; values above one are intentionally
+        # stronger stress tests and no longer inherit the stealth constraint.
+        malicious = honest_mean + float(scale) * (optimized - honest_mean)
         for idx in bad:
             attacked[idx] = malicious
     else:

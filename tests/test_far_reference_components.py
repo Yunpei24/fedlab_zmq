@@ -11,7 +11,10 @@ from torch.utils.data import DataLoader, TensorDataset
 from algorithms.base import ClientState, get_algorithm
 from algorithms.reference_utils import empirical_loss
 from attacks import apply_attack
-from datasets.partitioner import matched_dirichlet_partition
+from datasets.partitioner import (
+    client_dirichlet_balanced_partition,
+    matched_dirichlet_partition,
+)
 from metrics.client_fairness import (
     evaluate_client_loaders,
     summarize_client_performance,
@@ -318,6 +321,56 @@ def test_matched_dirichlet_preserves_client_class_proportions():
             train_counts / train_counts.sum(),
             test_counts / test_counts.sum(),
             atol=0.01,
+        )
+
+
+def test_client_dirichlet_balanced_controls_sizes_and_uses_every_example():
+    class LabelOnlyDataset(torch.utils.data.Dataset):
+        def __init__(self):
+            self.targets = torch.tensor([0] * 31 + [1] * 27 + [2] * 19)
+
+        def __len__(self):
+            return len(self.targets)
+
+        def __getitem__(self, index):
+            return torch.tensor([float(index)]), self.targets[index]
+
+    dataset = LabelOnlyDataset()
+    parts = client_dirichlet_balanced_partition(
+        dataset, num_clients=6, alpha=0.1, seed=28
+    )
+    sizes = [len(part) for part in parts]
+    flattened = [index for part in parts for index in part]
+    assert max(sizes) - min(sizes) <= 1
+    assert sorted(flattened) == list(range(len(dataset)))
+
+
+def test_client_dirichlet_balanced_matches_latent_train_test_profiles():
+    class LabelOnlyDataset(torch.utils.data.Dataset):
+        def __init__(self, per_class):
+            self.targets = torch.arange(4).repeat_interleave(per_class)
+
+        def __len__(self):
+            return len(self.targets)
+
+        def __getitem__(self, index):
+            return torch.tensor([float(index)]), self.targets[index]
+
+    train = LabelOnlyDataset(1000)
+    test = LabelOnlyDataset(200)
+    train_parts = client_dirichlet_balanced_partition(train, 5, alpha=0.3, seed=11)
+    test_parts = client_dirichlet_balanced_partition(test, 5, alpha=0.3, seed=11)
+    for client_id in range(5):
+        train_counts = torch.bincount(
+            train.targets[train_parts[client_id]], minlength=4
+        ).to(torch.float64)
+        test_counts = torch.bincount(
+            test.targets[test_parts[client_id]], minlength=4
+        ).to(torch.float64)
+        assert torch.allclose(
+            train_counts / train_counts.sum(),
+            test_counts / test_counts.sum(),
+            atol=0.02,
         )
 
 

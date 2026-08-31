@@ -11,12 +11,15 @@ from algorithms.base import ClientState, get_algorithm
 from algorithms.sc_partial_far_dp import (
     alpha_max_for_weight_factor,
     bounded_distance_scores,
+    softmax_weight_factor_bound,
 )
 from privacy.local_dpsgd import local_dpsgd_train
 from privacy.rdp import (
     RDPAccountant,
+    calibrate_gaussian_noise,
     calibrate_composed_sampled_gaussian_noise,
     calibrate_sampled_gaussian_noise,
+    gaussian_rdp,
 )
 
 
@@ -104,6 +107,27 @@ def test_noise_calibration_targets_same_accountant():
     assert abs(epsilon - 3.56) < 2e-3
 
 
+def test_ordinary_gaussian_rdp_and_calibration_are_explicit_q_one_lane():
+    order, multiplier, steps = 8, 1.7, 25
+    assert math.isclose(
+        gaussian_rdp(order, multiplier),
+        order / (2.0 * multiplier**2),
+        rel_tol=1e-12,
+    )
+
+    sigma = calibrate_gaussian_noise(
+        target_epsilon=3.0,
+        delta=1e-5,
+        steps=steps,
+    )
+    accountant = RDPAccountant()
+    accountant.add_gaussian(
+        channel="central_model", noise_multiplier=sigma, steps=steps
+    )
+    epsilon, _ = accountant.epsilon(1e-5)
+    assert abs(epsilon - 3.0) < 2e-3
+
+
 def test_composed_model_and_loss_calibration_targets_total_epsilon():
     ratio = 2.5
     sigma = calibrate_composed_sampled_gaussian_noise(
@@ -174,6 +198,106 @@ def test_scfar_uses_trusted_user_clipping_and_conservative_sensitivity():
     assert result.metrics["scfar_alpha_was_clipped"] is True
     assert result.metrics["max_client_weight"] <= 2.0 / 3.0 + 1e-12
     assert result.metrics["scfar_sensitivity"] == 2.0
+
+
+def test_scfar_uniform_and_reference_rules_expose_the_expected_certificates():
+    model = torch.nn.Linear(1, 1, bias=False)
+    with torch.no_grad():
+        model.weight.zero_()
+    tuples = []
+    for client_id, value in enumerate((-1.0, 0.0, 1.0, 1.0)):
+        state = ClientState(client_id=client_id, battery_j=10.0)
+        tuples.append(
+            (
+                {"weight": torch.tensor([[value]])},
+                {
+                    "client_id": client_id,
+                    "dataset_size": 1,
+                    "local_loss": 0.0,
+                    "bytes_sent": 4,
+                    "energy_j_consumed": 0.0,
+                },
+                state,
+            )
+        )
+    algo = get_algorithm("scfar_dp")
+    common = {
+        "user_clip_norm": 1.0,
+        "distance_clip": 2.0,
+        "far_alpha": 0.0,
+        "kappa_w": 1.0,
+        "alpha_bound_policy": "error",
+        "robust_reference": "centered_clipping",
+        "reference_clip_tau": 1.0,
+        "anchor_mode": "fixed_zero",
+        "enable_central_dp": False,
+        "sensitivity_mode": "automatic_certified",
+        "honest_outlier_client_ids": [0],
+    }
+    uniform = algo.server_aggregate(
+        model, tuples, round_num=0, config={**common, "scfar_aggregation_rule": "uniform"}
+    )
+    reference = algo.server_aggregate(
+        model, tuples, round_num=0, config={**common, "scfar_aggregation_rule": "reference"}
+    )
+    assert uniform.metrics["scfar_sensitivity"] == 0.5
+    assert reference.metrics["scfar_sensitivity"] == 0.5
+    assert uniform.metrics["honest_outlier_count_oracle"] == 1
+    assert math.isclose(
+        uniform.metrics["honest_outlier_weight_mass_oracle"], 0.25, rel_tol=1e-7
+    )
+
+
+def test_scfar_certified_noise_uses_public_kappa_not_observed_weights():
+    model = torch.nn.Linear(1, 1, bias=False)
+    with torch.no_grad():
+        model.weight.zero_()
+    tuples = []
+    for client_id in range(4):
+        state = ClientState(client_id=client_id, battery_j=10.0)
+        tuples.append(
+            (
+                {"weight": torch.tensor([[0.25]])},
+                {
+                    "client_id": client_id,
+                    "dataset_size": 1,
+                    "local_loss": 0.0,
+                    "bytes_sent": 4,
+                    "energy_j_consumed": 0.0,
+                },
+                state,
+            )
+        )
+    alpha = 0.5
+    result = get_algorithm("scfar_dp").server_aggregate(
+        model,
+        tuples,
+        round_num=0,
+        config={
+            "user_clip_norm": 1.0,
+            "distance_clip": 2.0,
+            "far_alpha": alpha,
+            "kappa_w": 2.0,
+            "alpha_bound_policy": "error",
+            "robust_reference": "centered_clipping",
+            "reference_clip_tau": 1.0,
+            "anchor_mode": "fixed_zero",
+            "enable_central_dp": False,
+            "sensitivity_mode": "automatic_certified",
+        },
+    )
+    public_kappa = softmax_weight_factor_bound(4, alpha)
+    assert result.metrics["scfar_analytical_kappa"] == 1.0
+    assert math.isclose(
+        result.metrics["scfar_certified_kappa"], public_kappa, rel_tol=1e-12
+    )
+    assert result.metrics["scfar_certified_kappa"] > result.metrics[
+        "scfar_analytical_kappa"
+    ]
+    assert (
+        result.metrics["scfar_certified_kappa_source"]
+        == "public_score_range_and_alpha"
+    )
 
 
 def test_partial_variant_trains_and_transmits_one_group():

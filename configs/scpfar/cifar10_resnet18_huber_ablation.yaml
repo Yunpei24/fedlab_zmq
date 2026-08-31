@@ -1,6 +1,8 @@
-# Main theory-aligned SC-Partial-FAR-DP protocol with certified F_CC.
+# Regularized-Huber reference ablation for the main SC-Partial-FAR-DP study.
+# It intentionally differs from the primary config only through F and its
+# public, fixed solver parameters.
 seed: 42
-output_dir: ./results/scpfar/cifar10_resnet18
+output_dir: ./results/scpfar/cifar10_resnet18_huber
 device: cuda
 
 data:
@@ -32,9 +34,11 @@ training:
     far_alpha: 0.1
     kappa_w: 2.0
     alpha_bound_policy: clip
-    robust_reference: centered_clipping
+    robust_reference: regularized_huber
     reference_clip_multiple: 1.0
     anchor_update_rate: 1.0
+    huber_gamma: 1.0
+    huber_num_steps: 10
     num_byzantine: 5
     sensitivity_mode: automatic_certified
     enable_central_dp: true
