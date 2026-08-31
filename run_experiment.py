@@ -181,6 +181,18 @@ def _select_clients(
         return sorted(rng.choice(num_clients, size=k, replace=False).tolist())
 
 
+def resolve_partition_seed(data_config: dict, training_seed: int) -> int:
+    """Resolve data partitioning independently from training randomness.
+
+    A declared ``data.partition_seed`` keeps the same partition across runs.
+    Without it, the historical behaviour is preserved and the training seed is
+    also used to generate the partition.
+    """
+
+    value = data_config.get("partition_seed")
+    return int(training_seed if value is None else value)
+
+
 def run_single_experiment(
     algo_name: str,
     algo_config: dict,
@@ -210,6 +222,7 @@ def run_single_experiment(
     battery_dist: str = "gaussian",
     battery_params: Optional[dict] = None,
     class_arrival: Optional[dict] = None,
+    partition_seed: Optional[int] = None,
 ) -> dict:
     """
     Run a single FL experiment in-process (no ZMQ).
@@ -227,6 +240,17 @@ def run_single_experiment(
     algo = get_algorithm(algo_name)
     default_cfg = algo.get_default_config()
     merged_config = {**default_cfg, **algo_config, "device": device}
+    # The data partition seed is distinct from the training seed.  Reproduction
+    # matrices use this separation to keep one Dirichlet partition fixed while
+    # varying model initialisation and minibatch order across training seeds.
+    # Keep the legacy algo_config location as a fallback for existing callers,
+    # but prefer the explicit argument populated from ``data.partition_seed``.
+    effective_partition_seed = int(
+        merged_config.get("partition_seed", seed)
+        if partition_seed is None
+        else partition_seed
+    )
+    merged_config["partition_seed"] = effective_partition_seed
     # Make an implicit Byzantine set persistent across sampled rounds.  FAR
     # evaluates fairness over honest clients, so the same IDs are also used as
     # an oracle exclusion mask during evaluation (never during training).
@@ -317,7 +341,7 @@ def run_single_experiment(
     # varying only optimiser/model randomness across seeds.  Separating the two
     # seeds makes that choice explicit instead of relying on hidden notebook
     # state.  Paper-grade studies should also run a partition-resampled lane.
-    partition_seed = int(merged_config.get("partition_seed", seed))
+    partition_seed = effective_partition_seed
     client_loaders = []
     for cid in range(num_clients):
         loader = get_dataloader(
@@ -352,6 +376,7 @@ def run_single_experiment(
                 loader,
                 anchor_fraction=anchor_fraction,
                 seed=partition_seed * 1009 + cid,
+                shuffle_seed=seed * 1009 + cid,
                 max_train_samples=merged_config.get("max_train_samples"),
                 max_anchor_samples=merged_config.get("max_anchor_samples"),
                 min_train_samples=int(merged_config.get("min_train_samples", 1)),
@@ -1011,6 +1036,8 @@ def run_single_experiment(
         "dropout_rate": dropout_rate,
         "sampling_strategy": sampling_strategy,
         "seed": seed,
+        "training_seed": seed,
+        "partition_seed": partition_seed,
         "best_accuracy": best_acc,
         "final_accuracy": final["test_accuracy"],
         "final_test_loss": final["test_loss"],
@@ -1404,8 +1431,15 @@ Examples:
         "--seed",
         type=int,
         default=None,
-        help="Random seed. When given, OVERRIDES the YAML 'seed' field "
+        help="Training seed. When given, OVERRIDES the YAML 'seed' field "
         "(falls back to YAML seed, then 42, if omitted).",
+    )
+    p.add_argument(
+        "--partition-seed",
+        type=int,
+        default=None,
+        help="Data-partition seed. Overrides YAML data.partition_seed while "
+        "leaving --seed responsible for training randomness.",
     )
     p.add_argument(
         "--output",
@@ -1555,6 +1589,11 @@ Examples:
         # CLI --seed (when provided) overrides the YAML seed, so a multi-seed
         # harness (--config X.yaml --seed 43) actually varies the seed.
         seed = args.seed if args.seed is not None else cfg.get("seed", 42)
+        partition_seed = (
+            int(args.partition_seed)
+            if args.partition_seed is not None
+            else resolve_partition_seed(cfg["data"], seed)
+        )
         output_dir = args.output or cfg.get("output_dir", "./results")
         fleet_raw = cfg["clients"].get("fleet", [])
         fleet_spec = [(e["type"], e["count"]) for e in fleet_raw]
@@ -1595,6 +1634,7 @@ Examples:
         partition = args.partition
         batch_size = args.batch_size
         seed = args.seed if args.seed is not None else 42
+        partition_seed = args.partition_seed
         output_dir = args.output or "./results"
         fleet_spec = DEFAULT_FLEET
         sample_fraction = args.sample_fraction
@@ -1693,6 +1733,7 @@ Examples:
         battery_dist=battery_dist,
         battery_params=battery_params,
         class_arrival=class_arrival,
+        partition_seed=partition_seed,
     )
 
     # Save results
@@ -1712,6 +1753,8 @@ Examples:
             "dataset": dataset,
             "model": model_name,
             "partition": partition,
+            "training_seed": seed,
+            "partition_seed": partition_seed,
             "num_clients": num_clients,
             "num_rounds": num_rounds,
             "device": device,
@@ -1723,7 +1766,12 @@ Examples:
             out_dir,
             _resolved,
             seed,
-            extra={"cost_model": _cost_model, "device": device},
+            extra={
+                "cost_model": _cost_model,
+                "device": device,
+                "training_seed": seed,
+                "partition_seed": partition_seed,
+            },
         )
         print(f"  Manifest: {_mpath}")
     except Exception as exc:

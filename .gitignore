@@ -73,3 +73,17 @@ AUDIT_algos_efficiency.md
 research/
 .codex/
 ZK_DDP_FL/
+TODO_experiences_SC-FAR-DP/
+
+# Paper-1 SC-FAR-DP protocol artifacts are versioned even though the broader
+# local research/TODO trees remain ignored.
+!configs/scpfar/paper1/
+!configs/scpfar/paper1/*.yaml
+!configs/scpfar/paper1/README.md
+!TODO_experiences_SC-FAR-DP/
+TODO_experiences_SC-FAR-DP/*
+!TODO_experiences_SC-FAR-DP/README.md
+!TODO_experiences_SC-FAR-DP/AUDIT_TOUKBAL_S1_S5.md
+
+# Shipped SC-FAR reference methodology.
+!docs/far_reference_suite.md

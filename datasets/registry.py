@@ -317,7 +317,8 @@ def get_dataloader(
         dataset_name: "cifar10", "cifar100", "mnist", "fashionmnist",
                       "femnist", "tiny_imagenet"
         split:        "train" or "test"
-        partition:    "iid", "dirichlet", "pathological", or "natural"
+        partition:    "iid", "dirichlet", "client_dirichlet_balanced",
+                      "pathological", or "natural"
         client_id:    Which client's shard to load. None = full dataset (for server eval)
         num_clients:  Total number of clients
         alpha:        Dirichlet alpha (non-IID degree)
@@ -328,6 +329,8 @@ def get_dataloader(
                         full server test set is unchanged.
         matched_dirichlet: Use class-proportion RNG streams shared by train and
                            test so each test shard represents the same client.
+                           ``client_dirichlet_balanced`` already shares latent
+                           client profiles across train and test by design.
 
     Returns:
         DataLoader for the specified client's local dataset.

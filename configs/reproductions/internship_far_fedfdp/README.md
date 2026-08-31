@@ -15,7 +15,9 @@ The three `exp*.yaml` files encode the internship report protocol:
 - Experiment 3: epsilon in `{3.56, infinity}`.
 
 The current corrected revision is stored under
-`faithful/algorithm_fidelity_v3/`. Previous `far_prox_v2` outputs are retained
+`faithful/algorithm_fidelity_v4/`. This revision fixes propagation of the shared
+Dirichlet `data.partition_seed`; previous `algorithm_fidelity_v3` and
+`far_prox_v2` outputs are retained
 as an audit trail and must not be pooled with this revision. The corrected
 revision uses FAR's proximal local objective with `far_prox_mu: 0.01` and
 retains the report's two-local-epoch protocol through

@@ -1,20 +1,22 @@
 schema_version: 1
 lane: faithful
-revision: algorithm_fidelity_v4
-source: internship_report_experiment_1
+revision: partition_ablation_client_dirichlet_balanced_v1
+source: internship_report_experiment_1_partition_ablation
 description: >-
-  Reproduction de l'experience 1 du rapport de stage: fairness sur MNIST
-  fortement non-IID, sans attaque active.
+  Ablation appariee de l'experience 1. Elle conserve les methodes, seeds,
+  hyperparametres et la partition partagee de la campagne algorithm_fidelity_v4,
+  mais remplace la Dirichlet par classe entre clients par une Dirichlet des
+  proportions de classes par client avec tailles locales controlees.
 expected_runs: 27
 
 scenarios:
-  - id: exp1_fairness_no_attack
+  - id: exp1_fairness_no_attack_client_dirichlet_balanced
     seeds: [28, 36, 54]
     base_config:
       device: cpu
       data:
         dataset: mnist
-        partition: dirichlet
+        partition: client_dirichlet_balanced
         alpha: 0.1
         partition_policy: shared_across_training_seeds
         partition_seed: 28
@@ -29,9 +31,6 @@ scenarios:
           momentum: 0.0
           weight_decay: 0.0
           local_epochs: 2
-          # FAR report lane: proximal multi-epoch deltas. The distinct
-          # paper-style single-gradient mode is available as
-          # far_update_mode: single_step_gradient.
           far_update_mode: multi_epoch_delta
           far_prox_mu: 0.01
           batch_size: 64
@@ -114,3 +113,4 @@ scenarios:
             algo_config:
               fairness_lambda: 0.1
               fedfair_scale_policy: error
+

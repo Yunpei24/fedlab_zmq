@@ -1,6 +1,6 @@
 schema_version: 1
 lane: faithful
-revision: algorithm_fidelity_v3
+revision: algorithm_fidelity_v4
 source: internship_report_experiment_2
 description: >-
   Reproduction de l'experience 2 du rapport de stage: deux clients Byzantins

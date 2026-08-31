@@ -1,22 +1,21 @@
 schema_version: 1
 lane: faithful
-revision: algorithm_fidelity_v4
-source: internship_report_experiment_3
+revision: partition_ablation_client_dirichlet_balanced_v1
+source: internship_report_experiment_3_partition_ablation
 description: >-
-  Reproduction de l'experience 3 du rapport de stage: comparaison sans DP et
-  a epsilon=3.56. Les runs finis exigent une calibration target-epsilon
-  implementee dans chaque algorithme; l'orchestrateur refuse sinon de les
-  presenter comme des runs DP valides.
+  Ablation appariee de l'experience 3. Elle conserve les methodes, budgets DP,
+  seeds et hyperparametres de la campagne algorithm_fidelity_v4, mais utilise
+  une Dirichlet des proportions de classes par client avec tailles controlees.
 expected_runs: 54
 
 scenarios:
-  - id: exp3_privacy_fairness
+  - id: exp3_privacy_fairness_client_dirichlet_balanced
     seeds: [28, 36, 54]
     base_config:
       device: cpu
       data:
         dataset: mnist
-        partition: dirichlet
+        partition: client_dirichlet_balanced
         alpha: 0.1
         partition_policy: shared_across_training_seeds
         partition_seed: 28
@@ -194,3 +193,4 @@ scenarios:
               loss_clip: 2.5
               adaptive_loss_clip: false
               loss_noise_calibration: compose_with_model_channel
+

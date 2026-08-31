@@ -70,6 +70,7 @@ def split_train_anchor_loader(
     *,
     anchor_fraction: float,
     seed: int,
+    shuffle_seed: int | None = None,
     max_train_samples: int | None = None,
     max_anchor_samples: int | None = None,
     min_train_samples: int = 1,
@@ -120,7 +121,12 @@ def split_train_anchor_loader(
         "num_workers": int(getattr(loader, "num_workers", 0)),
         "pin_memory": bool(getattr(loader, "pin_memory", False)),
     }
-    train_generator = torch.Generator().manual_seed(seed + 1)
+    # ``seed`` fixes which samples belong to train and anchor.  ``shuffle_seed``
+    # is intentionally separate so several training replicates can reuse the
+    # exact same client partition/split while varying mini-batch order.
+    train_generator = torch.Generator().manual_seed(
+        seed + 1 if shuffle_seed is None else int(shuffle_seed)
+    )
     train_loader = DataLoader(
         Subset(dataset, train),
         batch_size=loader.batch_size,
