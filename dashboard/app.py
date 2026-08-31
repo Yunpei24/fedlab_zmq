@@ -23,6 +23,21 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+try:
+    from dashboard.multiseed_summary import (
+        load_run_summary,
+        style_best_values,
+        summarize_runs,
+    )
+    from dashboard.home import render_home
+except ModuleNotFoundError:  # ``streamlit run dashboard/app.py`` from dashboard/
+    from multiseed_summary import (  # type: ignore[no-redef]
+        load_run_summary,
+        style_best_values,
+        summarize_runs,
+    )
+    from home import render_home  # type: ignore[no-redef]
+
 
 def ema_smooth(values, alpha: float = 0.15):
     """
@@ -51,7 +66,7 @@ def ema_smooth(values, alpha: float = 0.15):
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="FedLab ZMQ",
+    page_title="FedLab ZMQ · Research Console",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -68,336 +83,6 @@ st.markdown("""
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
-}
-
-/* ── Hero gradient header ────────────────────────────────────────────────── */
-.hero-section {
-    background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
-    border-radius: 16px;
-    padding: 48px 40px;
-    margin-bottom: 32px;
-    border: 1px solid rgba(255,255,255,0.08);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-}
-.hero-title {
-    font-size: 2.6rem;
-    font-weight: 700;
-    color: #ffffff;
-    margin: 0 0 8px 0;
-    letter-spacing: -0.5px;
-}
-.hero-accent {
-    color: #38bdf8;
-}
-.hero-tagline {
-    font-size: 1.15rem;
-    color: #94a3b8;
-    margin: 0 0 24px 0;
-    font-weight: 400;
-}
-.hero-badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-.hero-badge {
-    background: rgba(56,189,248,0.15);
-    border: 1px solid rgba(56,189,248,0.3);
-    color: #38bdf8;
-    border-radius: 20px;
-    padding: 4px 14px;
-    font-size: 0.82rem;
-    font-weight: 500;
-}
-.hero-badge-green {
-    background: rgba(52,211,153,0.15);
-    border: 1px solid rgba(52,211,153,0.3);
-    color: #34d399;
-    border-radius: 20px;
-    padding: 4px 14px;
-    font-size: 0.82rem;
-    font-weight: 500;
-}
-
-/* ── Section titles ──────────────────────────────────────────────────────── */
-.section-title {
-    font-size: 1.35rem;
-    font-weight: 600;
-    color: #1e293b;
-    margin: 0 0 4px 0;
-}
-.section-subtitle {
-    font-size: 0.9rem;
-    color: #64748b;
-    margin: 0 0 20px 0;
-}
-
-/* ── Algorithm cards ─────────────────────────────────────────────────────── */
-.algo-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 20px;
-    height: 100%;
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-}
-.algo-card:hover {
-    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-    transform: translateY(-2px);
-}
-.algo-card-proposed {
-    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-    border: 1.5px solid #f59e0b;
-    border-radius: 12px;
-    padding: 20px;
-    height: 100%;
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
-    box-shadow: 0 2px 8px rgba(245,158,11,0.15);
-}
-.algo-card-proposed:hover {
-    box-shadow: 0 8px 24px rgba(245,158,11,0.25);
-    transform: translateY(-2px);
-}
-.algo-badge-proposed {
-    display: inline-block;
-    background: linear-gradient(135deg, #f59e0b, #d97706);
-    color: white;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    padding: 3px 10px;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    text-transform: uppercase;
-}
-.algo-badge-baseline {
-    display: inline-block;
-    background: #3b82f6;
-    color: white;
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 3px 10px;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    text-transform: uppercase;
-}
-.algo-badge-energy {
-    display: inline-block;
-    background: #10b981;
-    color: white;
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 3px 10px;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    text-transform: uppercase;
-}
-.algo-badge-new-proposed {
-    display: inline-block;
-    background: linear-gradient(135deg, #7c3aed, #a855f7);
-    color: white;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    padding: 3px 10px;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    text-transform: uppercase;
-}
-.algo-card-new-proposed {
-    background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
-    border: 1.5px solid #a855f7;
-    border-radius: 12px;
-    padding: 20px;
-    height: 100%;
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
-    box-shadow: 0 2px 8px rgba(168,85,247,0.15);
-}
-.algo-card-new-proposed:hover {
-    box-shadow: 0 8px 24px rgba(168,85,247,0.25);
-    transform: translateY(-2px);
-}
-.algo-name {
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #1e293b;
-    margin: 0 0 4px 0;
-}
-.algo-ref {
-    font-size: 0.78rem;
-    color: #94a3b8;
-    margin: 0 0 10px 0;
-    font-style: italic;
-}
-.algo-desc {
-    font-size: 0.875rem;
-    color: #475569;
-    line-height: 1.5;
-    margin: 0 0 12px 0;
-}
-.algo-key {
-    font-size: 0.8rem;
-    color: #64748b;
-    background: #f1f5f9;
-    padding: 6px 10px;
-    border-radius: 6px;
-    font-family: monospace;
-}
-
-/* ── Device cards ────────────────────────────────────────────────────────── */
-.device-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 18px;
-    transition: box-shadow 0.2s ease;
-}
-.device-card:hover {
-    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-}
-.device-icon {
-    font-size: 2rem;
-    margin-bottom: 8px;
-}
-.device-name {
-    font-size: 1rem;
-    font-weight: 700;
-    color: #1e293b;
-    margin: 0 0 2px 0;
-}
-.device-category {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0 0 10px 0;
-}
-.device-spec {
-    font-size: 0.82rem;
-    color: #475569;
-    line-height: 1.7;
-}
-.device-spec strong {
-    color: #334155;
-}
-
-/* ── Skeleton placeholder cards ─────────────────────────────────────────── */
-.skeleton-card {
-    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-    border-radius: 12px;
-    padding: 24px;
-    height: 100px;
-    border: 1px solid #e2e8f0;
-}
-@keyframes shimmer {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
-}
-.skeleton-label {
-    font-size: 0.8rem;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 8px;
-    font-weight: 600;
-}
-.skeleton-value {
-    font-size: 1.6rem;
-    color: #cbd5e1;
-    font-weight: 700;
-}
-
-/* ── Getting started steps ───────────────────────────────────────────────── */
-.step-card {
-    background: #f8fafc;
-    border-left: 4px solid #38bdf8;
-    border-radius: 0 10px 10px 0;
-    padding: 14px 18px;
-    margin-bottom: 12px;
-}
-.step-number {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #38bdf8;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 4px;
-}
-.step-text {
-    font-size: 0.9rem;
-    color: #334155;
-    margin: 0;
-}
-.step-code {
-    font-family: 'Courier New', monospace;
-    background: #1e293b;
-    color: #7dd3fc;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.82rem;
-}
-
-/* ── Metric callout ──────────────────────────────────────────────────────── */
-.metric-callout {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 20px;
-    text-align: center;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-}
-.metric-callout-value {
-    font-size: 2rem;
-    font-weight: 700;
-    color: #0f172a;
-}
-.metric-callout-label {
-    font-size: 0.82rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-top: 4px;
-}
-.metric-callout-delta-pos {
-    font-size: 0.85rem;
-    color: #10b981;
-    font-weight: 600;
-    margin-top: 4px;
-}
-.metric-callout-delta-neg {
-    font-size: 0.85rem;
-    color: #f59e0b;
-    font-weight: 600;
-    margin-top: 4px;
-}
-
-/* ── About page ──────────────────────────────────────────────────────────── */
-.about-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 24px;
-    margin-bottom: 20px;
-}
-.about-title {
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #1e293b;
-    margin: 0 0 12px 0;
-}
-.bibtex-box {
-    background: #1e293b;
-    color: #7dd3fc;
-    border-radius: 8px;
-    padding: 16px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.82rem;
-    line-height: 1.7;
-    overflow-x: auto;
-    white-space: pre;
 }
 
 /* ── Sidebar styling ─────────────────────────────────────────────────────── */
@@ -456,216 +141,8 @@ html, body, [class*="css"] {
     margin: 0;
 }
 
-/* ── Divider with text ───────────────────────────────────────────────────── */
-.section-divider {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin: 32px 0 24px 0;
-}
-.section-divider-line {
-    flex: 1;
-    height: 1px;
-    background: #e2e8f0;
-}
-.section-divider-text {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    white-space: nowrap;
-}
-
-/* ── General spacing ─────────────────────────────────────────────────────── */
-.spacer-sm { height: 12px; }
-.spacer-md { height: 24px; }
-.spacer-lg { height: 40px; }
 </style>
 """, unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Constants — algorithm and device metadata
-# ─────────────────────────────────────────────────────────────────────────────
-
-ALGORITHMS = [
-    # ── Row 1 : Proposed + Level-1 baselines ────────────────────────────────
-    {
-        "name": "FedPart_BE",
-        "full_name": "Federated Partial Network Updates with Battery-Energy Stratification",
-        "ref": "Nikiema & EL Amhoud, UM6P 2026",
-        "badge": "proposed",
-        "desc": "Assigns layer groups to clients by energy tier: low-battery clients train cheap (early) layers; high-battery clients train expensive (deep) layers. Adds representation proximal regularisation and staleness-aware group priority to prevent inter-layer drift.",
-        "key": "energy tiering, rep-proximal, Gauss-Seidel agg",
-    },
-    {
-        "name": "FedAvg",
-        "full_name": "Federated Averaging",
-        "ref": "McMahan et al., AISTATS 2017",
-        "badge": "baseline",
-        "desc": "The canonical federated learning algorithm. Clients train locally for E epochs; server averages updates weighted by dataset size. No compression, full gradients.",
-        "key": "local_epochs=1, weighted average",
-    },
-    {
-        "name": "FedProx",
-        "full_name": "Federated Proximal",
-        "ref": "Li et al., MLSys 2020",
-        "badge": "baseline",
-        "desc": "Adds a proximal regularization term μ‖w − w_global‖² to the local objective to limit client drift in heterogeneous settings.",
-        "key": "mu=0.01, proximal regularization",
-    },
-    {
-        "name": "SCAFFOLD",
-        "full_name": "Stochastic Controlled Averaging",
-        "ref": "Karimireddy et al., ICML 2020",
-        "badge": "baseline",
-        "desc": "Uses client control variates to correct for client drift without requiring full device participation. Achieves linear speedup under heterogeneous data.",
-        "key": "control variates, variance reduction",
-    },
-    # ── Row 2 : Level-2 energy-aware baselines ───────────────────────────────
-    {
-        "name": "FedPart",
-        "full_name": "Federated Partial Network Updates",
-        "ref": "Wang et al., NeurIPS 2024",
-        "badge": "energy",
-        "desc": "Trains and aggregates only one layer group per round (round-robin schedule). Reduces communication by 1/M and computation by ~1/3 vs FedAvg. Fixes layer mismatch via partial frozen-anchor training.",
-        "key": "M=10 groups, rpl=2, sequential rotation",
-    },
-    {
-        "name": "LeanFed",
-        "full_name": "Lean Federated Learning",
-        "ref": "Pereira et al., 2025",
-        "badge": "energy",
-        "desc": "Battery-proportional data subsampling: devices with low battery train on fewer local samples, preserving energy without discarding updates entirely.",
-        "key": "subsample_ratio = B_t^k / B_max",
-    },
-    {
-        "name": "FedBacys",
-        "full_name": "Battery-Aware Cyclic Scheduling",
-        "ref": "Jeong et al., 2025",
-        "badge": "energy",
-        "desc": "Cyclically schedules clients based on battery state, activating only devices above an energy threshold per round. Maximizes device longevity.",
-        "key": "cyclic scheduling, threshold activation",
-    },
-    {
-        "name": "Vaishnav",
-        "full_name": "Channel-Adaptive TopK + EF",
-        "ref": "Vaishnav et al., 2024",
-        "badge": "energy",
-        "desc": "Adapts gradient sparsity based on wireless channel quality rather than battery. Devices with poor channels compress more to avoid retransmissions.",
-        "key": "channel-aware TopK, error feedback",
-    },
-    {
-        "name": "FedSparQ",
-        "full_name": "Federated Sparse Quantization",
-        "ref": "Medjadji et al., 2025",
-        "badge": "energy",
-        "desc": "Combines EMA-based dynamic sparsity threshold with FP16 quantization and error feedback. Delivers significant communication savings on bandwidth-limited devices.",
-        "key": "EMA threshold + fp16 + EF",
-    },
-    {
-        "name": "E-CEFFL",
-        "full_name": "Energy-Constrained Error-Feedback Federated Learning",
-        "ref": "Nikiema, EL Amhoud, ELHAMMOUTI & KISSAMI, UM6P 2025",
-        "badge": "energy",
-        "desc": "Adaptive sparsification driven by remaining battery: β_t^k = β_min + (β_max − β_min) · B_t^k / B_max. Combines TopK gradient compression with error feedback for convergence guarantees.",
-        "key": "beta_min=0.01, lr=0.01, TopK+EF",
-    },
-    # ── Row 3 : New proposed algorithms — UM6P 2026 ──────────────────────────
-    {
-        "name": "Fed-Resonance",
-        "full_name": "Battery-Aware Adaptive Spectral Compression",
-        "ref": "Nikiema & Amhoud, UM6P 2026",
-        "badge": "new_proposed",
-        "desc": "Per-layer adaptive switching between truncated SVD, subspace projection, and dense transmission. Rank adapts to preserve ε=90% gradient energy; battery-critical clients force SVD mode.",
-        "key": "ε=0.90, τ_rank=0.85, error feedback",
-    },
-    {
-        "name": "Fed-Osmosis",
-        "full_name": "Thermodynamic Distribution Alignment",
-        "ref": "Nikiema & Amhoud, UM6P 2026",
-        "badge": "new_proposed",
-        "desc": "Adds an osmotic pressure regularizer (KL divergence from local to global activation distribution) to the local training loss. Aligns feature representations across heterogeneous clients without extra communication.",
-        "key": "γ=0.1, dense gradients + activation stats",
-    },
-    {
-        "name": "Fed-Resonance-Osmosis",
-        "full_name": "Spectral-Thermodynamic Hybrid FL",
-        "ref": "Nikiema & Amhoud, UM6P 2026",
-        "badge": "new_proposed",
-        "desc": "Two-stage pipeline: (1) osmotic training aligns local feature distributions; (2) resonance spectral compression transmits the resulting low-rank gradients. The two stages reinforce each other.",
-        "key": "γ=0.1 + ε=0.90 + EF, adaptive rank",
-    },
-]
-
-DEVICES = [
-    {
-        "icon": "🔴",
-        "name": "Raspberry Pi 4B",
-        "category": "Edge SBC",
-        "cpu": "ARM Cortex-A72 @ 1.5 GHz (4 cores)",
-        "ram": "4 GB LPDDR4",
-        "comm": "WiFi 802.11ac / Gigabit Ethernet",
-        "battery": "10,000 mAh @ 5.1 V → 183,600 J",
-        "power": "3.5 W idle / 6.4 W compute",
-        "color": "#ef4444",
-    },
-    {
-        "icon": "🟢",
-        "name": "Jetson Nano",
-        "category": "Edge GPU",
-        "cpu": "ARM Cortex-A57 @ 1.43 GHz + Maxwell GPU",
-        "ram": "4 GB LPDDR4",
-        "comm": "WiFi 802.11ac",
-        "battery": "20,000 mAh @ 5 V → 360,000 J",
-        "power": "2.0 W idle / 10.0 W GPU compute",
-        "color": "#22c55e",
-    },
-    {
-        "icon": "🟡",
-        "name": "Raspberry Pi Zero 2W",
-        "category": "Ultra-Low Power SBC",
-        "cpu": "ARM Cortex-A53 @ 1.0 GHz (4 cores)",
-        "ram": "512 MB LPDDR2",
-        "comm": "WiFi 802.11b/g/n",
-        "battery": "5,000 mAh @ 5 V → 90,000 J",
-        "power": "0.4 W idle / 1.5 W compute",
-        "color": "#eab308",
-    },
-    {
-        "icon": "🔵",
-        "name": "ESP32",
-        "category": "Microcontroller (IoT)",
-        "cpu": "Xtensa LX6 @ 240 MHz (dual core)",
-        "ram": "520 KB SRAM",
-        "comm": "WiFi 802.11b/g/n / Bluetooth 4.2",
-        "battery": "1,000 mAh @ 3.7 V → 13,320 J",
-        "power": "0.03 W idle / 0.16 W active",
-        "color": "#3b82f6",
-    },
-    {
-        "icon": "🟣",
-        "name": "Smartphone (Mid)",
-        "category": "Mobile Device",
-        "cpu": "ARM Cortex-A75 @ 2.0 GHz (8 cores)",
-        "ram": "4 GB LPDDR4X",
-        "comm": "LTE Cat.12 / WiFi 802.11ac",
-        "battery": "3,500 mAh @ 3.85 V → 48,510 J",
-        "power": "0.3 W idle / 2.8 W compute",
-        "color": "#8b5cf6",
-    },
-    {
-        "icon": "⚫",
-        "name": "Smartphone (High)",
-        "category": "Mobile Device",
-        "cpu": "ARM Cortex-A78 @ 2.8 GHz (8 cores) + GPU",
-        "ram": "8 GB LPDDR5",
-        "comm": "5G NR / WiFi 6 (802.11ax)",
-        "battery": "5,000 mAh @ 3.85 V → 69,300 J",
-        "power": "0.5 W idle / 5.0 W compute",
-        "color": "#374151",
-    },
-]
 
 COLOR_MAP = [
     "#f59e0b",  # amber      — E-CEFFL
@@ -751,6 +228,39 @@ def _get_exp_label(d: pathlib.Path, results_dir: pathlib.Path) -> str:
                 param_parts.append(f"clip={clip}")
             param_parts.append(f"lr={lr}")
 
+        elif algo_lower in {"far", "dpfar", "dp_far"}:
+            alpha = ac.get("far_alpha")
+            E = ac.get("local_epochs", cfg.get("local_epochs", "?"))
+            lr = ac.get("lr", cfg.get("lr", "?"))
+            if alpha is not None:
+                param_parts.append(f"α={alpha:g}")
+            param_parts.append(f"E={E}")
+            param_parts.append(f"lr={lr}")
+
+            # Reproduction trees place the method variant two levels above
+            # the run directory: .../far_alpha_0p4/seed36/<run>. Showing that
+            # folder prevents distinct FAR variants from sharing a label.
+            if d.parent.name.startswith("seed") and d.parent.parent != d.parent:
+                folder_name = d.parent.parent.name
+
+        elif algo_lower == "fedfair":
+            fairness_lambda = ac.get("fairness_lambda")
+            E = ac.get("local_epochs", cfg.get("local_epochs", "?"))
+            if fairness_lambda is not None:
+                param_parts.append(f"λ={fairness_lambda:g}")
+            param_parts.append(f"E={E}")
+            if d.parent.name.startswith("seed") and d.parent.parent != d.parent:
+                folder_name = d.parent.parent.name
+
+        elif algo_lower in {"qffl", "q-ffl"}:
+            q_value = ac.get("q")
+            E = ac.get("local_epochs", cfg.get("local_epochs", "?"))
+            if q_value is not None:
+                param_parts.append(f"q={q_value:g}")
+            param_parts.append(f"E={E}")
+            if d.parent.name.startswith("seed") and d.parent.parent != d.parent:
+                folder_name = d.parent.parent.name
+
         elif "fedavg" in algo_lower:
             E  = ac.get("local_epochs", cfg.get("local_epochs", "?"))
             lr = ac.get("lr", cfg.get("lr", "?"))
@@ -799,7 +309,12 @@ def _get_exp_label(d: pathlib.Path, results_dir: pathlib.Path) -> str:
         # sidebar becomes a guessing game. Extracted from the run dir name
         # (…_s43) or the config as fallback.
         _seed_m = re.search(r"_s(\d+)$", d.name)
-        _seed = _seed_m.group(1) if _seed_m else cfg.get("seed")
+        _parent_seed_m = re.fullmatch(r"seed(\d+)", d.parent.name)
+        _seed = (
+            _seed_m.group(1)
+            if _seed_m
+            else (_parent_seed_m.group(1) if _parent_seed_m else cfg.get("seed"))
+        )
         if _seed is not None and f"s{_seed}" not in label:
             label += f" | seed {_seed}"
         return label
@@ -858,7 +373,7 @@ def _short_graph_label(full_label: str, max_len: int = 36) -> str:
 def load_experiment(exp_dir: str) -> tuple[dict, pd.DataFrame]:
     # exp_dir may be a relative name (old behaviour) or an absolute path
     p = pathlib.Path(exp_dir)
-    if p.is_absolute() and p.exists():
+    if p.exists():
         path = p if p.name == "metrics.json" else p / "metrics.json"
     else:
         path = RESULTS_DIR / exp_dir / "metrics.json"
@@ -994,10 +509,10 @@ with st.sidebar:
         '⚡ FedLab ZMQ'
         '</div>'
         '<div style="font-size:0.78rem; color:#64748b; margin-top:2px;">'
-        'Energy-Efficient FL Framework'
+        'Federated Learning Research Console'
         '</div>'
         '<div style="font-size:0.72rem; color:#475569; margin-top:6px;">'
-        'UM6P — J. Nikiema, EL Amhoud, H. ELHAMMOUTI &amp; I. KISSAMI'
+        'Fairness · Robustness · Privacy · Energy'
         '</div>'
         '</div>',
         unsafe_allow_html=True,
@@ -1069,13 +584,26 @@ with st.sidebar:
 
     # Experiment selector (shown on relevant pages)
     selected_dirs = []
+    selected_label_by_dir = {}
     if page in ("Results", "Compare Algorithms", "Survival & Fairness") and result_dirs:
-        # Build display labels: path relative to RESULTS_DIR for readability
-        # Build display labels: lookup data from metrics.json for personalisation
-        dir_labels = {
-            _get_exp_label(d, RESULTS_DIR): str(d)
-            for d in result_dirs
-        }
+        # Never construct this mapping with a dict comprehension: two runs can
+        # legitimately share most metadata. A duplicate key would silently hide
+        # one of them (this previously collapsed FAR alpha variants).
+        dir_labels = {}
+        for d in result_dirs:
+            base_label = _get_exp_label(d, RESULTS_DIR)
+            label = base_label
+            if label in dir_labels:
+                try:
+                    relative = d.relative_to(RESULTS_DIR)
+                except ValueError:
+                    relative = d
+                label = f"{base_label} | {relative}"
+            duplicate_index = 2
+            while label in dir_labels:
+                label = f"{base_label} | duplicate {duplicate_index}"
+                duplicate_index += 1
+            dir_labels[label] = str(d)
         selected_labels = st.multiselect(
             "SELECT EXPERIMENTS",
             options=list(dir_labels.keys()),
@@ -1084,6 +612,7 @@ with st.sidebar:
                  "Labels are personalized from metrics.json.",
         )
         selected_dirs = [dir_labels[lbl] for lbl in selected_labels]
+        selected_label_by_dir = {dir_labels[lbl]: lbl for lbl in selected_labels}
 
     st.markdown(
         '<div style="padding:16px 0 4px 0; font-size:0.7rem; color:#475569; line-height:1.6;">'
@@ -1097,182 +626,7 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 
 if page == "Home":
-
-    # ── Hero ────────────────────────────────────────────────────────────────
-    st.markdown("""
-    <div class="hero-section">
-      <div class="hero-title">
-        FedLab <span class="hero-accent">ZMQ</span> — Energy-Efficient Federated Learning
-      </div>
-      <div class="hero-tagline">
-        Research framework for battery-aware FL algorithms on heterogeneous IoT fleets.
-        Two papers in preparation — UM6P 2026.
-      </div>
-      <div class="hero-badges">
-        <span class="hero-badge">ZeroMQ Transport</span>
-        <span class="hero-badge">msgpack Serialization</span>
-        <span class="hero-badge">Shannon Energy Model</span>
-        <span class="hero-badge-green">CCS-EF — Paper 1</span>
-        <span class="hero-badge-green">FedStep — Paper 2</span>
-        <span class="hero-badge">Jain Fairness Index</span>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── Research context ─────────────────────────────────────────────────────
-    col_a, col_b, col_c, col_d = st.columns(4)
-    with col_a:
-        st.markdown("""
-        <div class="metric-callout">
-          <div class="metric-callout-value">2</div>
-          <div class="metric-callout-label">Papers in preparation</div>
-          <div class="metric-callout-delta-pos">CCS-EF · FedStep</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_b:
-        st.markdown("""
-        <div class="metric-callout">
-          <div class="metric-callout-value">30</div>
-          <div class="metric-callout-label">IoT clients (ESP32-S3)</div>
-          <div class="metric-callout-delta-pos">SOC [5%, 95%] — Dirichlet α=0.5</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_c:
-        st.markdown("""
-        <div class="metric-callout">
-          <div class="metric-callout-value">78.9%</div>
-          <div class="metric-callout-label">Best acc — CCS-EF Full</div>
-          <div class="metric-callout-delta-pos">T_rot=3 · CIFAR-10 · rd 165</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_d:
-        st.markdown("""
-        <div class="metric-callout">
-          <div class="metric-callout-value">−60%</div>
-          <div class="metric-callout-label">Bytes vs FedAvg</div>
-          <div class="metric-callout-delta-pos">0.61 GB vs 1.54 GB · same survival</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
-
-    # ── Two papers overview ───────────────────────────────────────────────────
-    st.markdown("""
-    <div class="section-divider">
-      <div class="section-divider-line"></div>
-      <div class="section-divider-text">Research Papers</div>
-      <div class="section-divider-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        st.markdown("""
-        <div class="algo-card-new-proposed" style="min-height:220px;">
-          <div><span class="algo-badge-new-proposed">✦ Paper 1 — In preparation</span></div>
-          <div class="algo-name">CCS-EF</div>
-          <div class="algo-ref">Complementary Cluster Split with Error Feedback</div>
-          <div class="algo-desc">
-            Splits clients into two complementary clusters (C1/C2) that alternate primary
-            layer group every T_rot rounds. Error feedback ensures convergence with biased
-            top-K compression. Partial backward option (freeze_secondary) reduces E_comp ~33%.
-          </div>
-          <div class="algo-key">
-            Best: <b>78.90%</b> (T_rot=3) · −60% bytes · 19/30 alive rd200 · Jain=0.633
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_p2:
-        st.markdown("""
-        <div class="algo-card-proposed" style="min-height:220px;">
-          <div><span class="algo-badge-proposed">⭐ Paper 2 — In preparation</span></div>
-          <div class="algo-name">FedStep</div>
-          <div class="algo-ref">Federated Partial Training with Battery-Aware Energy Tiering</div>
-          <div class="algo-desc">
-            Assigns clients to energy tiers (M=3) based on remaining battery. Low-battery
-            clients train only cheap early layers; high-battery clients train deep layers.
-            Extends device lifetime and ensures universal participation via energy-proportional
-            layer assignment.
-          </div>
-          <div class="algo-key">
-            Extends device lifetime · FedAvg baseline · Jain fairness · SOC-aware scheduling
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
-
-    # ── Current best preliminary results ─────────────────────────────────────
-    st.markdown("""
-    <div class="section-divider">
-      <div class="section-divider-line"></div>
-      <div class="section-divider-text">Preliminary Results — seed=42, CIFAR-10, ResNet-8, 30 clients</div>
-      <div class="section-divider-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    prelim_data = {
-        "Algorithm":    ["FedAvg (E=3)", "CCS-EF Full T_rot=1", "CCS-EF Frozen T_rot=1",
-                         "CCS-EF Full T_rot=3 ✦", "CCS-EF Frozen T_rot=3 ✦"],
-        "Best Acc":     ["81.63%", "76.35%", "76.07%", "78.90%", "78.63%"],
-        "Alive rd200":  ["19/30", "19/30", "22/30", "19/30", "22/30"],
-        "1st death":    ["rd 37", "rd 39", "rd 56", "rd 39", "rd 55"],
-        "Energy (kJ)":  ["155.9", "151.3", "113.2", "151.3", "113.0"],
-        "Bytes (GB)":   ["1.544", "0.613", "0.684", "0.612", "0.682"],
-        "Jain":         ["0.633", "0.633", "0.733", "0.633", "0.733"],
-    }
-    import pandas as _pd
-    st.dataframe(_pd.DataFrame(prelim_data), width="stretch", hide_index=True)
-    st.caption("✦ T_rot=3 + EF buffer flush fix + gradient clipping (max_grad_norm=10) — seed=42 only, not final.")
-
-    # ── Quick links ───────────────────────────────────────────────────────────
-    st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="section-divider">
-      <div class="section-divider-line"></div>
-      <div class="section-divider-text">Run commands</div>
-      <div class="section-divider-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
-    col_r1, col_r2 = st.columns(2)
-    with col_r1:
-        st.markdown("""
-        **CCS-EF Full (T_rot=3)**
-        ```bash
-        python run_experiment.py \\
-          --config configs/ccsEF_soc_wide.yaml \\
-          --algo ccsEF \\
-          --output results/Algorithms_fare/ccsEF_Trot3_full \\
-          --device mps
-        ```
-        **CCS-EF Frozen (T_rot=3)**
-        ```bash
-        python run_experiment.py \\
-          --config configs/ccsEF_frozen.yaml \\
-          --algo ccsEF \\
-          --output results/Algorithms_fare/ccsEF_Trot3_frozen \\
-          --device mps
-        ```
-        """)
-    with col_r2:
-        st.markdown("""
-        **FedAvg baseline**
-        ```bash
-        python run_experiment.py \\
-          --config configs/ccsEF_soc_wide.yaml \\
-          --algo fedavg \\
-          --output results/Algorithms_fare/fedavg_e3 \\
-          --device mps
-        ```
-        **FedStep**
-        ```bash
-        python run_experiment.py \\
-          --config configs/algo_comparison.yaml \\
-          --algo fedstep \\
-          --output results/Algorithms_fare/fedstep \\
-          --device mps
-        ```
-        """)
+    render_home(result_dirs, RESULTS_DIR)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page: RESULTS
@@ -1311,8 +665,10 @@ elif page == "Results":
     for name in selected_dirs:
         config, df = load_experiment(name)
         # Use personalized label from metrics.json helper
-        label = _get_exp_label(pathlib.Path(name), RESULTS_DIR)
-        experiments[label] = {"config": config, "df": df}
+        label = selected_label_by_dir.get(
+            str(name), _get_exp_label(pathlib.Path(name), RESULTS_DIR)
+        )
+        experiments[label] = {"config": config, "df": df, "run_dir": str(name)}
 
     # Summary metrics bar
     sum_cols = st.columns(len(experiments))
@@ -2681,6 +2037,82 @@ elif page == "Results":
 
     # ── Summary Table ────────────────────────────────────────────────────────
     with tab_table:
+        st.markdown("### Synthèse multi-seeds — accuracy et fairness")
+        st.caption(
+            "Chaque ligne représente une méthode avec ses hyperparamètres structurants. "
+            "Les valeurs proviennent du dernier round terminé de chaque run, puis sont "
+            "agrégées sur les seeds sélectionnés. Les variantes de FAR sont séparées par α."
+        )
+
+        try:
+            _selected_run_summaries = [load_run_summary(path) for path in selected_dirs]
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            _selected_run_summaries = []
+            st.warning(f"La synthèse multi-seeds ne peut pas être calculée : {exc}")
+
+        if _selected_run_summaries:
+            _conditions = sorted({run.condition for run in _selected_run_summaries})
+            if len(_conditions) > 1:
+                _condition = st.selectbox(
+                    "Protocole expérimental comparable",
+                    options=_conditions,
+                    help=(
+                        "Les seeds ne sont moyennés qu'à protocole identique. Cette sélection "
+                        "évite de mélanger, par exemple, R1 sans attaque et R2 avec attaque."
+                    ),
+                    key="multiseed_summary_condition",
+                )
+            else:
+                _condition = _conditions[0]
+
+            _show_seed_std = st.toggle(
+                "Afficher moyenne ± écart-type entre seeds",
+                value=True,
+                help=(
+                    "L'écart-type est l'écart-type échantillonnal (ddof=1). "
+                    "Avec un seul seed, seule la valeur observée est affichée."
+                ),
+                key="multiseed_summary_std",
+            )
+            _condition_runs = [
+                run for run in _selected_run_summaries if run.condition == _condition
+            ]
+            _multiseed_df, _method_seeds = summarize_runs(
+                _condition_runs,
+                include_std=_show_seed_std,
+                decimals=3,
+            )
+            st.dataframe(
+                style_best_values(_multiseed_df),
+                width="stretch",
+                hide_index=True,
+            )
+
+            _seed_details = "; ".join(
+                f"{method}: {', '.join(map(str, seeds)) if seeds else 'seed non identifié'}"
+                for method, seeds in _method_seeds.items()
+            )
+            st.caption(
+                f"Protocole : `{_condition}`. Seeds incluses — {_seed_details}. "
+                "Var est exprimée en points de pourcentage au carré (pp²), soit "
+                "10 000 × la variance calculée sur les accuracies dans [0,1]. "
+                "Les meilleures valeurs sont en gras : maximum pour les accuracies et "
+                "Worst-20, minimum pour Var et Gap Δk."
+            )
+            st.download_button(
+                "Télécharger la synthèse multi-seeds (CSV)",
+                _multiseed_df.to_csv(index=False),
+                "fedlab_multiseed_fairness_summary.csv",
+                "text/csv",
+                key="download_multiseed_summary",
+            )
+        else:
+            st.info(
+                "Les runs sélectionnés ne contiennent pas encore les métriques client nécessaires."
+            )
+
+        st.divider()
+        st.markdown("### Détail de chaque run sélectionné")
         rows = []
         for label, exp in experiments.items():
             df   = exp["df"]
@@ -3460,8 +2892,10 @@ elif page == "Compare Algorithms":
     experiments = {}
     for name in selected_dirs:
         config, df = load_experiment(name)
-        label = _get_exp_label(pathlib.Path(name), RESULTS_DIR)
-        experiments[label] = {"config": config, "df": df}
+        label = selected_label_by_dir.get(
+            str(name), _get_exp_label(pathlib.Path(name), RESULTS_DIR)
+        )
+        experiments[label] = {"config": config, "df": df, "run_dir": str(name)}
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
     tab_scatter, tab_bars, tab_convergence = st.tabs([
@@ -3794,8 +3228,10 @@ elif page == "Survival & Fairness":
     experiments_sf = {}
     for name in selected_dirs:
         config, df = load_experiment(name)
-        label = _get_exp_label(pathlib.Path(name), RESULTS_DIR)
-        experiments_sf[label] = {"config": config, "df": df}
+        label = selected_label_by_dir.get(
+            str(name), _get_exp_label(pathlib.Path(name), RESULTS_DIR)
+        )
+        experiments_sf[label] = {"config": config, "df": df, "run_dir": str(name)}
 
     tab_surv, tab_lifetime, tab_pareto, tab_fair = st.tabs([
         "Survival Curves",
@@ -4688,8 +4124,7 @@ st.markdown("""
 <div style="margin-top:40px; padding-top:16px; border-top:1px solid #e2e8f0;
             text-align:center; font-size:0.75rem; color:#94a3b8;">
   FedLab ZMQ &nbsp;|&nbsp;
-  Energy-Efficient Federated Learning Research &nbsp;|&nbsp;
-  J. Nikiema, EL Amhoud, ELHAMMOUTI & KISSAMI &nbsp;|&nbsp;
+  Fairness, Robustness, Privacy &amp; Energy-Efficient FL &nbsp;|&nbsp;
   Mohammed VI Polytechnic University (UM6P), Benguerir, Morocco
 </div>
 """, unsafe_allow_html=True)
