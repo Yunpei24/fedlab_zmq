@@ -1,4 +1,5 @@
 # Native DMD-CB configuration for run_experiment.py.
+# ``seed`` controls training; ``data.partition_seed`` controls client shards.
 seed: 42
 output_dir: ./results/dmd/dmd_mean_cifar10
 device: mps
@@ -9,6 +10,7 @@ data:
   dataset: cifar10
   model: resnet8
   partition: dirichlet
+  partition_seed: 101
   alpha: 0.3
   data_root: ./data
 

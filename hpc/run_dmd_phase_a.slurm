@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=dmd_phase_a
-#SBATCH --array=0-179
+#SBATCH --array=0-629
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
@@ -10,18 +10,18 @@
 #SBATCH --output=slurm-dmd-%A_%a.out
 #SBATCH --error=slurm-dmd-%A_%a.err
 
-# Default: Phase A full participation, 180 tasks (one method per task).
+# Default: Phase A full participation, 630 tasks (one method per task).
 #
 #   sbatch hpc/run_dmd_phase_a.slurm
 #
-# Smoke (24 tasks):
+# Smoke (28 tasks):
 #
-#   sbatch --array=0-23 --export=ALL,STAGE=smoke hpc/run_dmd_phase_a.slurm
+#   sbatch --array=0-27 --export=ALL,STAGE=smoke hpc/run_dmd_phase_a.slurm
 #
-# Partial follow-ups (120 tasks each):
+# Partial follow-ups (420 tasks each):
 #
-#   sbatch --array=0-119 --export=ALL,STAGE=phase_a_partial_no_dropout hpc/run_dmd_phase_a.slurm
-#   sbatch --array=0-119 --export=ALL,STAGE=phase_a_partial_dropout hpc/run_dmd_phase_a.slurm
+#   sbatch --array=0-419 --export=ALL,STAGE=phase_a_partial_no_dropout hpc/run_dmd_phase_a.slurm
+#   sbatch --array=0-419 --export=ALL,STAGE=phase_a_partial_dropout hpc/run_dmd_phase_a.slurm
 
 set -euo pipefail
 
@@ -69,4 +69,3 @@ echo "============================================================"
   --python-bin "${PYTHON_BIN}" \
   --resume \
   "${PILOT_ARGS[@]}"
-

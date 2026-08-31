@@ -125,6 +125,17 @@ srun \
   --pty bash
 ```
 
+Checker l'etat du job
+```bash
+squeue -j num_job -o "%.18i %.9P %.8T %.10M %.6D %R"
+```
+
+Arreter une demande
+```
+bash
+scancel num_job
+```
+
 Lorsque l'invite du nœud alloué apparaît :
 
 ```bash

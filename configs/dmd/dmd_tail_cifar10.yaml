@@ -1,11 +1,12 @@
 # DMD-Tail/CVaR companion to dmd_mean_cifar10.yaml; full participation is
 # intentional for the initial mechanism-isolation study, not a robustness claim.
+# ``seed`` controls training; ``data.partition_seed`` controls client shards.
 seed: 42
 output_dir: ./results/dmd/dmd_tail_cifar10
 device: mps
 cost_model: measured
 layer_mismatch: false
-data: {dataset: cifar10, model: resnet8, partition: dirichlet, alpha: 0.3, data_root: ./data}
+data: {dataset: cifar10, model: resnet8, partition: dirichlet, partition_seed: 101, alpha: 0.3, data_root: ./data}
 model: {architecture: resnet8}
 training:
   num_rounds: 150

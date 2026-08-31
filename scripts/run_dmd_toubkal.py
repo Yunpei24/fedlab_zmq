@@ -27,7 +27,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MATRIX = ROOT / "configs" / "dmd" / "toubkal_phase_a.yaml"
 DEFAULT_OUTPUT_ROOT = ROOT / "results" / "toubkal_dmd"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,8 @@ class Task:
     participation_id: str
     method_id: str
     runner_method: str
-    seed: int
+    partition_seed: int
+    training_seed: int
     alpha: float
     config: dict[str, Any]
     output_dir: Path
@@ -52,7 +53,8 @@ class Task:
                 self.scenario_id,
                 self.participation_id,
                 _alpha_slug(self.alpha),
-                f"seed{self.seed}",
+                f"partition_seed{self.partition_seed}",
+                f"training_seed{self.training_seed}",
                 self.method_id,
             )
         )
@@ -62,7 +64,7 @@ class Task:
         cfg = self.config
         name = (
             f"{self.runner_method}_{cfg['dataset']}_{cfg['model']}_dirichlet_"
-            f"ncl{cfg['clients']}_r{cfg['rounds']}_s{self.seed}"
+            f"ncl{cfg['clients']}_r{cfg['rounds']}_s{self.training_seed}"
         )
         return self.output_dir / name
 
@@ -153,11 +155,14 @@ def validate_matrix(path: Path, document: dict[str, Any]) -> list[str]:
         if stage_id in stage_ids:
             errors.append(f"{path}: duplicate stage id {stage_id}")
         stage_ids.add(stage_id)
-        seeds = stage.get("seeds")
+        partition_seeds = stage.get("partition_seeds")
+        training_seeds = stage.get("training_seeds")
         alphas = stage.get("alphas")
         participations = stage.get("participations")
-        if not isinstance(seeds, list) or not seeds:
-            errors.append(f"{path}:{stage_id}: seeds must be non-empty")
+        if not isinstance(partition_seeds, list) or not partition_seeds:
+            errors.append(f"{path}:{stage_id}: partition_seeds must be non-empty")
+        if not isinstance(training_seeds, list) or not training_seeds:
+            errors.append(f"{path}:{stage_id}: training_seeds must be non-empty")
         if not isinstance(alphas, list) or not alphas:
             errors.append(f"{path}:{stage_id}: alphas must be non-empty")
         if not isinstance(participations, list) or not participations:
@@ -180,7 +185,8 @@ def validate_matrix(path: Path, document: dict[str, Any]) -> list[str]:
             len(scenarios or [])
             * len(participations or [])
             * len(alphas or [])
-            * len(seeds or [])
+            * len(partition_seeds or [])
+            * len(training_seeds or [])
             * len(methods or [])
         )
         if expected is not None and int(expected) != actual:
@@ -197,7 +203,8 @@ def expand_tasks(
     stage_ids: set[str] | None = None,
     scenario_ids: set[str] | None = None,
     method_ids: set[str] | None = None,
-    seeds: set[int] | None = None,
+    partition_seeds: set[int] | None = None,
+    training_seeds: set[int] | None = None,
     alphas: set[float] | None = None,
     pilot_rounds: int | None = None,
 ) -> list[Task]:
@@ -220,59 +227,69 @@ def expand_tasks(
                     alpha = float(alpha_value)
                     if alphas and not any(math.isclose(alpha, item) for item in alphas):
                         continue
-                    for seed_value in stage["seeds"]:
-                        seed = int(seed_value)
-                        if seeds and seed not in seeds:
+                    for partition_seed_value in stage["partition_seeds"]:
+                        partition_seed = int(partition_seed_value)
+                        if partition_seeds and partition_seed not in partition_seeds:
                             continue
-                        for method in methods:
-                            method_id = str(method["id"])
-                            if method_ids and method_id not in method_ids:
+                        for training_seed_value in stage["training_seeds"]:
+                            training_seed = int(training_seed_value)
+                            if training_seeds and training_seed not in training_seeds:
                                 continue
-                            config = dict(defaults)
-                            config.update(
-                                {
-                                    "rounds": int(stage.get("rounds", defaults["rounds"])),
-                                    "dataset": str(scenario["dataset"]),
-                                    "model": str(scenario["model"]),
-                                    "classes": int(scenario["classes"]),
-                                    "participation_rate": float(
-                                        participation["participation_rate"]
-                                    ),
-                                    "dropout_rate": float(
-                                        participation["dropout_rate"]
-                                    ),
-                                    "method_algo_config": dict(
-                                        method.get("algo_config", {})
-                                    ),
-                                }
-                            )
-                            root = output_root / campaign
-                            if pilot_rounds is not None:
-                                config["rounds"] = int(pilot_rounds)
-                                root = root / "pilots" / f"rounds_{pilot_rounds}"
-                            output_dir = root.joinpath(
-                                _slug(stage_id),
-                                _slug(scenario_id),
-                                _slug(participation_id),
-                                _alpha_slug(alpha),
-                                f"seed{seed}",
-                                _slug(method_id),
-                            )
-                            tasks.append(
-                                Task(
-                                    index=-1,
-                                    campaign=campaign,
-                                    stage_id=stage_id,
-                                    scenario_id=scenario_id,
-                                    participation_id=participation_id,
-                                    method_id=method_id,
-                                    runner_method=str(method["runner_method"]),
-                                    seed=seed,
-                                    alpha=alpha,
-                                    config=config,
-                                    output_dir=output_dir,
+                            for method in methods:
+                                method_id = str(method["id"])
+                                if method_ids and method_id not in method_ids:
+                                    continue
+                                config = dict(defaults)
+                                config.update(
+                                    {
+                                        "rounds": int(
+                                            stage.get("rounds", defaults["rounds"])
+                                        ),
+                                        "dataset": str(scenario["dataset"]),
+                                        "model": str(scenario["model"]),
+                                        "classes": int(scenario["classes"]),
+                                        "partition_seed": partition_seed,
+                                        "training_seed": training_seed,
+                                        "participation_rate": float(
+                                            participation["participation_rate"]
+                                        ),
+                                        "dropout_rate": float(
+                                            participation["dropout_rate"]
+                                        ),
+                                        "method_algo_config": dict(
+                                            method.get("algo_config", {})
+                                        ),
+                                    }
                                 )
-                            )
+                                root = output_root / campaign
+                                if pilot_rounds is not None:
+                                    config["rounds"] = int(pilot_rounds)
+                                    root = root / "pilots" / f"rounds_{pilot_rounds}"
+                                output_dir = root.joinpath(
+                                    _slug(stage_id),
+                                    _slug(scenario_id),
+                                    _slug(participation_id),
+                                    _alpha_slug(alpha),
+                                    f"partition_seed{partition_seed}",
+                                    f"training_seed{training_seed}",
+                                    _slug(method_id),
+                                )
+                                tasks.append(
+                                    Task(
+                                        index=-1,
+                                        campaign=campaign,
+                                        stage_id=stage_id,
+                                        scenario_id=scenario_id,
+                                        participation_id=participation_id,
+                                        method_id=method_id,
+                                        runner_method=str(method["runner_method"]),
+                                        partition_seed=partition_seed,
+                                        training_seed=training_seed,
+                                        alpha=alpha,
+                                        config=config,
+                                        output_dir=output_dir,
+                                    )
+                                )
     return [replace(task, index=index) for index, task in enumerate(tasks)]
 
 
@@ -318,7 +335,7 @@ def task_command(
         "--device",
         device,
         "--seed",
-        str(task.seed),
+        str(task.training_seed),
     ]
 
 
@@ -335,7 +352,6 @@ def native_config(task: Task, *, data_root: Path, device: str) -> dict[str, Any]
         "max_grad_norm": float(cfg["gradient_clip"]),
         "client_metrics_every": int(cfg["test_eval_every"]),
         "client_eval_batch_size": int(cfg["eval_batch_size"]),
-        "partition_seed": int(task.seed),
         "anchor_fraction": float(cfg["anchor_fraction"]),
         "anchor_batch_size": int(cfg["eval_batch_size"]),
         "max_train_samples": int(cfg["max_train_samples"]),
@@ -348,7 +364,7 @@ def native_config(task: Task, *, data_root: Path, device: str) -> dict[str, Any]
     if task.runner_method.startswith("dmd_"):
         common_algo["num_classes"] = int(cfg["classes"])
     return {
-        "seed": int(task.seed),
+        "seed": int(task.training_seed),
         "output_dir": str(task.output_dir),
         "device": device,
         "cost_model": "measured",
@@ -356,6 +372,7 @@ def native_config(task: Task, *, data_root: Path, device: str) -> dict[str, Any]
             "dataset": cfg["dataset"],
             "partition": "dirichlet",
             "alpha": float(task.alpha),
+            "partition_seed": int(task.partition_seed),
             "data_root": str(data_root),
         },
         "model": {"architecture": cfg["model"]},
@@ -427,7 +444,8 @@ def _write_task_manifest(
         "participation": task.participation_id,
         "method_id": task.method_id,
         "runner_method": task.runner_method,
-        "seed": task.seed,
+        "training_seed": task.training_seed,
+        "partition_seed": task.partition_seed,
         "alpha": task.alpha,
         "config": task.config,
         "device": device,
@@ -465,7 +483,8 @@ def export_dashboard(task: Task, dashboard_root: Path, python_bin: str) -> None:
         task.scenario_id,
         task.participation_id,
         _alpha_slug(task.alpha),
-        f"seed{task.seed}",
+        f"partition_seed{task.partition_seed}",
+        f"training_seed{task.training_seed}",
         task.method_id,
     )
     destination.mkdir(parents=True, exist_ok=True)
@@ -506,7 +525,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage", default=None, help="Comma-separated stage IDs")
     parser.add_argument("--scenario", default=None, help="Comma-separated scenario IDs")
     parser.add_argument("--method", default=None, help="Comma-separated method IDs")
-    parser.add_argument("--seed", default=None, help="Comma-separated seeds")
+    parser.add_argument(
+        "--partition-seed", default=None, help="Comma-separated partition seeds"
+    )
+    parser.add_argument(
+        "--training-seed", default=None, help="Comma-separated training seeds"
+    )
+    parser.add_argument(
+        "--seed",
+        default=None,
+        help="Deprecated alias for --training-seed",
+    )
     parser.add_argument("--alpha", default=None, help="Comma-separated Dirichlet alphas")
     parser.add_argument("--job-index", type=int, default=None)
     parser.add_argument("--pilot-rounds", type=int, default=None)
@@ -536,7 +565,8 @@ def main() -> None:
         stage_ids=_parse_csv_set(args.stage, str),
         scenario_ids=_parse_csv_set(args.scenario, str),
         method_ids=_parse_csv_set(args.method, str),
-        seeds=_parse_csv_set(args.seed, int),
+        partition_seeds=_parse_csv_set(args.partition_seed, int),
+        training_seeds=_parse_csv_set(args.training_seed or args.seed, int),
         alphas=_parse_csv_set(args.alpha, float),
         pilot_rounds=args.pilot_rounds,
     )
@@ -552,6 +582,8 @@ def main() -> None:
         print(f"VALID: {len(tasks)} unique tasks")
         print(f"stages={sorted({task.stage_id for task in tasks})}")
         print(f"datasets={sorted({task.config['dataset'] for task in tasks})}")
+        print(f"partition_seeds={sorted({task.partition_seed for task in tasks})}")
+        print(f"training_seeds={sorted({task.training_seed for task in tasks})}")
         return
 
     if args.list:

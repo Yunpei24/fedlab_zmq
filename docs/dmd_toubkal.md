@@ -27,27 +27,62 @@ rapport de marge et un accountant commun aux baselines.
 ## Organisation scientifique
 
 Chaque tâche SLURM entraîne une seule méthode et écrit dans un dossier unique.
-Les méthodes d'un même couple `(dataset, alpha, seed, participation)` partagent
-les mêmes seeds de partition, d'initialisation et de participation, mais aucun
-job n'écrit dans le dossier d'un autre job.
+Les méthodes d'un même couple `(dataset, alpha, partition_seed, training_seed,
+participation)` partagent exactement les mêmes données clientes et les mêmes
+sources d'aléa d'entraînement, mais aucun job n'écrit dans le dossier d'un autre
+job.
 
-| Stage | Données et architectures | Alpha | Seeds | Tâches |
-|---|---|---|---|---:|
-| `smoke` | CIFAR-10/ResNet-18-GN et EMNIST/ByClass/CNN-GN | 0.1 | 101 | 24 |
-| `phase_a_full` | les deux scénarios, participation 10/10 | 0.1, 0.3, 1.0 | 101-105 | 180 |
-| `phase_a_partial_no_dropout` | 5/10 sélectionnés, aucun abandon | 0.1, 0.3 | 101-105 | 120 |
-| `phase_a_partial_dropout` | 5/10 sélectionnés, 1 abandon, 4 survivants | 0.1, 0.3 | 101-105 | 120 |
+| Stage | Données et architectures | Alpha | Partitions | Entraînements/partition | Tâches |
+|---|---|---|---|---:|---:|
+| `smoke` | CIFAR-10/ResNet-18-GN et EMNIST/ByClass/CNN-GN | 0.1 | 101 | 201 | 28 |
+| `phase_a_full` | les deux scénarios, participation 10/10 | 0.1, 0.3, 1.0 | 101-105 | 201-203 | 630 |
+| `phase_a_partial_no_dropout` | 5/10 sélectionnés, aucun abandon | 0.1, 0.3 | 101-105 | 201-203 | 420 |
+| `phase_a_partial_dropout` | 5/10 sélectionnés, 1 abandon, 4 survivants | 0.1, 0.3 | 101-105 | 201-203 | 420 |
 
-Les seeds 101 à 105 sont indépendantes des seeds 91, 92, 93 et 24 utilisées
-pendant la sélection exploratoire d'USV-0.25.
+`partition_seed` construit les shards Dirichlet, le split train/ancre et les
+shards de test client. `training_seed` contrôle l'initialisation, l'ordre des
+mini-batches, la sélection et les abandons. Les seeds de partition 101 à 105 et
+les seeds d'entraînement 201 à 203 sont indépendantes des seeds 91, 92, 93 et
+24 utilisées pendant la sélection exploratoire d'USV-0.25.
 
-Les six bras sont FedAvg, FedFair-loss non privé, l'approximation fédérée de
-TERM, Margin-Mean pondéré par exemples, DMD-CB et DMD-CB+USV-0.25. Tous les
-bras entraînent sur le même sous-ensemble de train. Le jeu d'ancrage local fixe
-est séparé avant le premier round. TERM et les méthodes DMD l'utilisent pour
-mesurer leur signal pré-round. TERM n'est pas le gradient central exact de
-l'objectif log-sum-exp; c'est une approximation fédérée par pondération des
-updates complets.
+Cette structure donne cinq réalisations indépendantes de la partition
+Dirichlet et trois réplications d'entraînement sur chacune :
+
+```text
+5 partition_seeds x 3 training_seeds = 15 runs par configuration
+```
+
+Les comparaisons entre algorithmes doivent d'abord être appariées sur le couple
+`(partition_seed, training_seed)`. L'analyse finale doit ensuite séparer la
+variabilité entre partitions de la variabilité d'entraînement à partition
+fixée. Un écart-type calculé sur les quinze runs sans cette décomposition reste
+descriptif, mais mélange deux sources d'incertitude.
+
+La campagne contient sept bras, avec des rôles scientifiques distincts :
+
+| Catégorie | Bras | Rôle |
+|---|---|---|
+| Baseline d'utilité | FedAvg | optimisation moyenne sans mécanisme de fairness |
+| Baseline fairness publiée | FedFair | reproduction non privée de l'Algorithme 1 de FedFDP/FedFair |
+| Baseline fairness publiée | TERM | approximation fédérée du tilting exponentiel fondé sur la loss |
+| Contrôle mécanistique | FedFair-loss | objectif quadratique explicite fondé sur l'écart de loss |
+| Ablation DMD | Margin-Mean sample | déficit de marge pondéré par la fréquence des exemples/classes |
+| Proposition | DMD-CB | déficit de marge class-balanced |
+| Proposition | DMD-CB+USV-0.25 | DMD-CB avec upper-semivariance retardée inter-clients |
+
+`fedfair` est donc la baseline principale lorsque l'on compare DMD au mécanisme
+fairness de FedFDP avant ajout de DP. Elle applique la mise à l'échelle dynamique
+du gradient décrite dans FedFair à partir de la loss locale et de la loss
+globale retardée. `fedfair_loss` n'est pas présenté comme une reproduction plus
+fidèle du papier : il reste dans la matrice comme contrôle objectif-à-objectif,
+car il optimise explicitement une pénalité quadratique de loss comparable, par
+sa structure, aux pénalités DMD.
+
+Tous les bras entraînent sur le même sous-ensemble de train. Le jeu d'ancrage
+local fixe est séparé avant le premier round. TERM et les méthodes DMD
+l'utilisent pour mesurer leur signal pré-round. TERM n'est pas le gradient
+central exact de l'objectif log-sum-exp; c'est une approximation fédérée par
+pondération des updates complets.
 
 ## 1. Prérequis communs avec le framework
 
@@ -163,7 +198,7 @@ export DMD_OUTPUT="$FEDLAB_WORK/results/toubkal_dmd_cpu"
 cd "$FEDLAB_REPO"
 
 python -c "import torch, yaml, zmq; print(torch.__version__, torch.cuda.is_available())"
-python run_experiment.py --list-algos | grep -E 'dmd_mean|dmd_usv|fedfair_loss|term'
+python run_experiment.py --list-algos | grep -E 'dmd_mean|dmd_usv|fedfair|fedfair_loss|term'
 python -m pytest -q \
   tests/test_dmd_toubkal_launcher.py \
   tests/test_anchor_split.py \
@@ -182,11 +217,15 @@ python scripts/run_dmd_toubkal.py \
 
 python scripts/run_dmd_toubkal.py \
   --list \
-  --stage phase_a_full
+  --stage phase_a_full \
+  --partition-seed 101 \
+  --training-seed 201,202,203
 ```
 
-La première commande doit afficher `VALID: 24 unique tasks`; la seconde doit
-énumérer 180 tâches compactes de 0 à 179.
+La première commande doit afficher `VALID: 28 unique tasks`; la seconde doit
+énumérer les tâches correspondant à une partition et aux trois réplications.
+Sans les deux filtres de seed, `--list --stage phase_a_full` énumère les 630
+tâches compactes de 0 à 629.
 
 Vérifier ensuite la commande exacte de la première tâche, sans entraînement :
 
@@ -229,14 +268,14 @@ cd "$FEDLAB_REPO/slurm_logs"
 
 sbatch \
   --account="$FEDLAB_ACCOUNT" \
-  --array=0-23%4 \
+  --array=0-27%4 \
   --export=ALL,STAGE=smoke,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
   ../hpc/run_dmd_phase_a_cpu.slurm
 ```
 
-Les 24 tâches doivent produire des losses finies, un modèle, un `metrics.json`
+Les 28 tâches doivent produire des losses finies, un modèle, un `metrics.json`
 natif et un `manifest.json`. L'array couvre deux scénarios, deux régimes de
-participation et six méthodes. La limite `%4` autorise au maximum quatre tâches
+participation et sept méthodes. La limite `%4` autorise au maximum quatre tâches
 simultanées; elle peut être réduite si le quota CPU ou I/O du projet l'exige.
 
 Contrôler le job avec :
@@ -247,7 +286,7 @@ sacct -j <JOB_ID> --format=JobID,State,Elapsed,ExitCode,MaxRSS
 tail -f slurm-dmd_phase_a_cpu-<JOB_ID>_0.out
 ```
 
-Ne lancer Phase A que lorsque les 24 indices ont `COMPLETED` avec un code de
+Ne lancer Phase A que lorsque les 28 indices ont `COMPLETED` avec un code de
 sortie nul. En cas d'échec, corriger d'abord l'environnement ou les données,
 puis resoumettre le même array.
 
@@ -262,16 +301,17 @@ Après validation du smoke :
 ```bash
 sbatch \
   --account="$FEDLAB_ACCOUNT" \
-  --array=0-179%4 \
+  --array=0-629%4 \
   --export=ALL,STAGE=phase_a_full,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
   ../hpc/run_dmd_phase_a_cpu.slurm
 ```
 
 Le script demande par tâche 8 CPU, 32 Go de mémoire et 12 heures au maximum.
-L'array contient 180 tâches :
+L'array contient 630 tâches :
 
 ```text
-2 scénarios x 3 niveaux non-IID x 5 seeds x 6 méthodes = 180 tâches
+2 scénarios x 3 niveaux non-IID x 5 partition_seeds
+x 3 training_seeds x 7 méthodes = 630 tâches
 ```
 
 Le plafond `%4` représente donc au plus 32 cœurs utilisés simultanément. Il
@@ -283,7 +323,7 @@ pilote séparé et ne contamine pas les résultats à 150 rounds :
 ```bash
 sbatch \
   --account="$FEDLAB_ACCOUNT" \
-  --array=0-5%4 \
+  --array=0-6%4 \
   --export=ALL,STAGE=phase_a_full,PILOT_ROUNDS=5,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
   ../hpc/run_dmd_phase_a_cpu.slurm
 ```
@@ -296,13 +336,13 @@ extensions partielles :
 ```bash
 sbatch \
   --account="$FEDLAB_ACCOUNT" \
-  --array=0-119%4 \
+  --array=0-419%4 \
   --export=ALL,STAGE=phase_a_partial_no_dropout,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
   ../hpc/run_dmd_phase_a_cpu.slurm
 
 sbatch \
   --account="$FEDLAB_ACCOUNT" \
-  --array=0-119%4 \
+  --array=0-419%4 \
   --export=ALL,STAGE=phase_a_partial_dropout,REPO_DIR="$FEDLAB_REPO",PROJECT_DIR="$FEDLAB_PROJECT",WORK_ROOT="$FEDLAB_WORK",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$DMD_OUTPUT",CONDA_ENV=fedlab-zmq \
   ../hpc/run_dmd_phase_a_cpu.slurm
 ```
@@ -320,7 +360,7 @@ Après validation CPU, une réplication GPU peut utiliser
 
 ```bash
 sbatch \
-  --array=0-23 \
+  --array=0-27 \
   --export=ALL,STAGE=smoke,DEVICE=cuda,REPO_DIR="$FEDLAB_REPO",DATA_ROOT="$DMD_DATA",OUTPUT_ROOT="$FEDLAB_WORK/results/toubkal_dmd_gpu",VENV_ACTIVATE=/chemin/venv/bin/activate \
   ../hpc/run_dmd_phase_a.slurm
 ```
@@ -432,6 +472,7 @@ utilise seulement des fichiers versionnés du framework :
 
 ```text
 algorithms/dmd/
+algorithms/fedfdp.py
 algorithms/fedfair_loss.py
 datasets/anchor_split.py
 run_experiment.py

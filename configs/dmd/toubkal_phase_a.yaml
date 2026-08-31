@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 campaign: dmd_phase_a_non_private
 description: >-
   Preregistered non-private confirmation of DMD-CB and delayed upper
@@ -26,6 +26,7 @@ defaults:
   dmd_cvar_tail_mass: 0.2
   dmd_client_weights: data
   loss_fair_mu: 0.7548875145
+  fedfair_lambda: 0.1
   term_tau: 1.0
   term_weight_cap: 1.0
   min_reference_clients: 3
@@ -36,9 +37,17 @@ methods:
   - id: fedavg
     runner_method: fedavg
     role: utility baseline
+  - id: fedfair
+    runner_method: fedfair
+    role: faithful non-private FedFair Algorithm 1 baseline
+    algo_config:
+      fairness_lambda: 0.1
+      initial_global_loss: 1.0
+      fedfair_scale_policy: error
+      loss_eval_max_batches: null
   - id: fedfair_loss
     runner_method: fedfair_loss
-    role: loss-space fairness baseline (non-private FedFair objective)
+    role: quadratic loss-space objective control
     algo_config:
       fairness_lambda: 0.7548875145
   - id: term
@@ -89,9 +98,10 @@ scenarios:
 stages:
   - id: smoke
     description: Two-round device-agnostic gate before any long array.
-    expected_tasks: 24
+    expected_tasks: 28
     rounds: 2
-    seeds: [101]
+    partition_seeds: [101]
+    training_seeds: [201]
     alphas: [0.1]
     participations:
       - id: full
@@ -102,9 +112,10 @@ stages:
         dropout_rate: 0.2
 
   - id: phase_a_full
-    description: Independent full-participation confirmation on two architectures.
-    expected_tasks: 180
-    seeds: [101, 102, 103, 104, 105]
+    description: Five Dirichlet partitions and three training seeds per partition.
+    expected_tasks: 630
+    partition_seeds: [101, 102, 103, 104, 105]
+    training_seeds: [201, 202, 203]
     alphas: [0.1, 0.3, 1.0]
     participations:
       - id: full
@@ -113,8 +124,9 @@ stages:
 
   - id: phase_a_partial_no_dropout
     description: Five selected clients without dropout; alpha=1 is omitted as a specificity regime.
-    expected_tasks: 120
-    seeds: [101, 102, 103, 104, 105]
+    expected_tasks: 420
+    partition_seeds: [101, 102, 103, 104, 105]
+    training_seeds: [201, 202, 203]
     alphas: [0.1, 0.3]
     participations:
       - id: partial_no_dropout
@@ -123,8 +135,9 @@ stages:
 
   - id: phase_a_partial_dropout
     description: Five selected clients, one dropout before profile upload and local training.
-    expected_tasks: 120
-    seeds: [101, 102, 103, 104, 105]
+    expected_tasks: 420
+    partition_seeds: [101, 102, 103, 104, 105]
+    training_seeds: [201, 202, 203]
     alphas: [0.1, 0.3]
     participations:
       - id: partial_dropout

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=dmd_phase_a_cpu
-#SBATCH --array=0-179%4
+#SBATCH --array=0-629%4
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
@@ -11,26 +11,26 @@
 
 # CPU-first DMD Phase A campaign.
 #
-# Full participation, 180 tasks:
+# Full participation, 630 tasks (5 partitions x 3 training seeds x 7 arms):
 #
-#   sbatch --account=<PROJECT>-DEFAULT-CPU hpc/run_dmd_phase_a_cpu.slurm
+#   sbatch --account="$FEDLAB_ACCOUNT" hpc/run_dmd_phase_a_cpu.slurm
 #
-# Smoke, 24 tasks:
+# Smoke, 28 tasks:
 #
-#   sbatch --account=<PROJECT>-DEFAULT-CPU \
-#     --array=0-23%4 \
+#   sbatch --account="$FEDLAB_ACCOUNT" \
+#     --array=0-27%4 \
 #     --export=ALL,STAGE=smoke \
 #     hpc/run_dmd_phase_a_cpu.slurm
 #
-# Partial follow-ups, 120 tasks each:
+# Partial follow-ups, 420 tasks each:
 #
-#   sbatch --account=<PROJECT>-DEFAULT-CPU \
-#     --array=0-119%4 \
+#   sbatch --account="$FEDLAB_ACCOUNT" \
+#     --array=0-419%4 \
 #     --export=ALL,STAGE=phase_a_partial_no_dropout \
 #     hpc/run_dmd_phase_a_cpu.slurm
 #
-#   sbatch --account=<PROJECT>-DEFAULT-CPU \
-#     --array=0-119%4 \
+#   sbatch --account="$FEDLAB_ACCOUNT" \
+#     --array=0-419%4 \
 #     --export=ALL,STAGE=phase_a_partial_dropout \
 #     hpc/run_dmd_phase_a_cpu.slurm
 
