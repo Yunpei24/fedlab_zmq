@@ -43,9 +43,18 @@ _PIN_MEMORY: bool = torch.cuda.is_available()
 # On macOS, forked DataLoader workers consume enormous virtual memory (each worker
 # inherits the full Python address space via copy-on-write).  Use 0 workers on macOS
 # to avoid 60+ forked processes with 30 clients.
+import os
 import platform as _platform
 
 _NUM_WORKERS: int = 0 if _platform.system() == "Darwin" else 2
+
+# FEDLAB_NUM_WORKERS overrides the default. Set it to 0 when running several
+# experiments in parallel on a small machine: each loader forks its own workers,
+# so a four-way campaign on four cores runs at a load average above five and the
+# processes mostly wait on each other. With the raw dataset cached in memory the
+# workers buy nothing anyway. Unset, behaviour is unchanged.
+if os.environ.get("FEDLAB_NUM_WORKERS") is not None:
+    _NUM_WORKERS = int(os.environ["FEDLAB_NUM_WORKERS"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
