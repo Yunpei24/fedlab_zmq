@@ -1,0 +1,51 @@
+campaign_id: full_population_private_risk_attacks_v30
+state_at_registration: conditional_preparation_during_v29
+parent_campaign: full_population_private_risk_confirmation_v29
+require_complete_independent_clean_pass: true
+automatic_launch: false
+device: mps
+seeds: [180701, 180702, 180703, 180704]
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+primary_method: risk_rfa
+primary_controls: [erm_mean, erm_rfa]
+batch_size: 4800
+public_train_size: 4800
+rounds: 120
+local_optimizer_steps: 0
+clip: 2.0
+risk_scale: 0.5
+epsilon: 4.0
+delta: 0.00001
+privacy_plan: inherit_exact_v29_full_population_joint_plan
+server_clip: null
+solver_iterations: 40
+solver_smoothing: 0.00001
+eta_early: 2.0
+eta_late: 0.5
+eta_switch_after_round: 60
+conditions: [none, abrupt_bf, persistent_alie, slow_ipm]
+expected_runs: 64
+clean_replays: 16
+attacked_runs: 48
+byzantine_ids: [0, 1]
+honest_ids: [2, 3, 4, 5, 6, 7, 8, 9]
+forged_risk: 1.0
+attack_start: 31
+temporary_attack_end: 90
+bf_multiplier: 10.0
+alie_population_std_multiplier: 1.5
+ipm_ramp_end: 60
+ipm_final_multiplier: 2.0
+primary_endpoints: {abrupt_bf: 90, persistent_alie: 120, slow_ipm: 90}
+test_rounds: [90, 120]
+validation_rounds: [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
+minimum_worst20_gain_per_seed_pp: 1.0
+maximum_accuracy_loss_per_seed_pp: 1.0
+maximum_own_clean_accuracy_loss_pp: 5.0
+maximum_own_clean_worst20_loss_pp: 5.0
+maximum_solver_gap_diagnostic: 0.001
+mean_gap_and_variance_must_not_increase: true
+confirmation_wave: 1
+one_sided_alpha: 0.0125
+paired_t_critical_df3: 4.176534846104499
+protocol: output/analysis/Full_Population_Private_Risk_Attacks_V30_Protocol.md

@@ -1,0 +1,49 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage0_geometry_v1
+scope: short_gate_before_25_client_promotion
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 19
+
+experiments:
+  - id: E11_geometry_gate_k10
+    scenarios: [fmnist_b01_n10_t20]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4]
+    tilts: [boundary]
+    geometries:
+      - gate_u05_d025_r025
+      - gate_u05_d025_r05
+      - gate_u05_d05_r025
+      - calibrated_d05
+      - gate_u05_d10_r025
+      - calibrated_d10
+      - gate_u10_d05_r05
+      - gate_u10_d05_r10
+      - gate_u10_d10_r05
+      - gate_u10_d10_r10
+      - gate_u10_d20_r05
+      - gate_u10_d20_r10
+      - gate_u20_d10_r10
+      - gate_u20_d10_r20
+      - gate_u20_d20_r10
+      - gate_u20_d20_r20
+      - gate_u20_d40_r10
+      - gate_u20_d40_r20
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 18
+
+  - id: E11_local_clip_oracle_diagnostic
+    scenarios: [fmnist_b01_n10_t20]
+    methods: [dt_ldp_far_oracle]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4]
+    tilts: [boundary]
+    geometries: [gate_u10_d10_r10]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 1

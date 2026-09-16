@@ -1,0 +1,36 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage20c_fmnist_mechanism_control_v1
+scope: preregistered_same_pipeline_uniform_weight_control
+common: common.yaml
+seed_pair_indices: [9]
+expected_tasks: 3
+
+requires_score_confirmation:
+  evidence: results/dt_ldp_far/score_quality_stage19_rfa_confirmatory_v1/confirmatory_decision.json
+  profile: two_logit_support_50_confirmatory
+  reference: rfa
+
+gates:
+  # Compare the Stage-19 candidate at alpha_max against the exact same
+  # DT-LDP-FAR pipeline at alpha=0. These thresholds were frozen before
+  # executing the uniform-weight control.
+  no_attack_test_accuracy_drop_vs_uniform_max_pp: 1.0
+  no_attack_worst20_drop_vs_uniform_max_pp: 3.0
+  separated_test_accuracy_gain_vs_uniform_mean_min_pp: 0.5
+  separated_byzantine_mass_not_above_uniform: true
+  separated_byzantine_mass_gain_mean_min: 0.01
+  privacy_epsilon_difference_max: 0.01
+  every_weight_cap_must_hold: true
+
+experiments:
+  - id: E30_stage20c_same_pipeline_uniform_control
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dt_ldp_far_stage19_peer_support]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 3

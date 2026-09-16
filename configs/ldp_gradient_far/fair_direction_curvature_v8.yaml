@@ -1,0 +1,16 @@
+campaign_id: fair_direction_curvature_v8
+device: mps
+calibration_seeds: [170501, 170502]
+source_arm: erm_mean_C2
+replays_per_seed: 4
+clip: 2.0
+risk_scale: 0.5
+etas: [0.5, 1.0, 2.0]
+conditions: [raw_mean, raw_risk, clipped_mean, clipped_risk, dp_mean_full, dp_mean_matched, dp_risk_mean, dp_risk_rfa]
+expected_blocks: 8
+expected_evaluations: 192
+training: false
+test_evaluated: false
+oracle_only: true
+automatic_promotion: false
+protocol: output/analysis/Fair_Direction_Curvature_V8_Protocol.md

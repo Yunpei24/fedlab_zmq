@@ -1,0 +1,26 @@
+campaign_id: aggregation_role_n10_v1
+scientific_status: exploratory_mechanism_localization_not_novel_baseline
+base_config: rcig_batch_screen_v1.yaml
+protocol: output/analysis/LDP_Aggregation_Role_N10_Protocol.md
+num_clients: 10
+num_byzantine: 2
+rounds: 40
+batch_size: 120
+public_local_size: 6000
+comparison_seeds: [920001, 920002, 920003]
+arms: [uniform, rfa_direct, far_rfa, far_midpoint]
+scenarios: [none, bf_persistent, ipm_persistent, alie_persistent]
+noise_regimes:
+  homogeneous: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  heteroscedastic: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+attack: {client_ids: [0, 1], active_round_start: 17, active_round_end: 40}
+far_alpha: 0.1
+local_clip_norm: 4.0
+server_clip_norm: 16.0
+epsilon: 4.0
+delta: 1.0e-5
+warmup_uniform_rounds: 12
+rfa_preprocessing: none
+same_cohort_diagnostics: all_four_rules_each_round
+new_threshold_calibration: false
+historical_results_read_only: true

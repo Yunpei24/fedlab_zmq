@@ -1,0 +1,23 @@
+schema_version: 1
+matrix_id: s0_step1a_fmnist_health_refine_dev
+common: common.yaml
+description: >-
+  Development-only refinement of the Fashion-MNIST user-level clipping
+  radius. The coarse screen showed that C=1 clips too frequently while C=2
+  has a zero median clip rate. These public development seeds remain disjoint
+  from the frozen confirmatory seeds.
+
+experiments:
+  - id: step1a_uniform_user_clipped_refine
+    expected_tasks: 4
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [central_dp_fedavg_exact]
+    reference_ids: [fcc]
+    anchor_ids: [fixed_zero]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.2, 1.4, 1.6, 1.8]
+    partition_seeds: [104]
+    training_seeds: [17]

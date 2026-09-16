@@ -1,0 +1,189 @@
+campaign_id: gaussian_aware_reference_g0c_mps_v1
+scope: preregistered_two_stage_development_then_locked_holdout
+
+# G0c does not read G0/G0b outputs.  Every identity previously inspected,
+# including the G0b holdout, is excluded from calibration, development and
+# final holdout.  This prevents a failed holdout from becoming a tuning set.
+excluded_prior_seeds:
+  [28, 36, 54, 107, 131, 211, 307, 401, 503, 607, 701, 809, 907, 2026091101]
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  inverse_variance_estimand_forbidden: true
+  accuracy_used_for_selection: false
+  g0b_result_files_read_by_runner: false
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, reverse]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  fcc:
+    radius: 0.13
+  fna_cc:
+    radius: 0.13
+    max_weight_ratio: 2.0
+    variance_floor: 1.0e-12
+  rfa:
+    max_iter: 80
+    tolerance: 1.0e-8
+    smoothing: 1.0e-8
+  f_sigma_huber:
+    standardized_threshold: null
+    null_tail_probability: 0.01
+    influence_cap: [0.065, 0.065, 0.065, 0.065]
+    regularization: 0.20
+    num_steps: 24
+    variance_floor: 1.0e-12
+
+  comparators:
+    - {id: uniform_mean, method: uniform_mean}
+    - {id: fcc, method: fcc}
+    - {id: fna_cc, method: fna_cc}
+    - {id: rfa, method: rfa}
+
+  # The radial threshold is c_b = radial_scale * LM(d_b, p=0.01).
+  # Scales below one deliberately audit less-conservative Huber transitions;
+  # they must not be described as retaining the original 1% LM tail bound.
+  reference_grid:
+    radial_base_tail_probability: 0.01
+    radial_scales: [0.45, 0.60, 0.75]
+    influence_cap_totals: [0.16, 0.22, 0.30, 0.42]
+    regularizations: [0.10, 0.25]
+    num_steps: 24
+
+score:
+  # G0b obtained calibrated FOR near 5% but insufficient outlier recall.
+  # G0c pre-registers a 90% null quantile before seeing any new seed.
+  false_outlier_quantile: 0.90
+  variance_floor: 1.0e-12
+  novelty_start_z: 0.5
+  novelty_full_z: 2.0
+  rejection_start_z: 3.0
+  rejection_full_z: 5.5
+  trust_floor: 0.02
+  alpha: 0.20
+  weight_modes: [reference_only, novelty_only, novelty_confidence]
+
+  # Weight profiles are evaluated only after locking the reference on a
+  # disjoint reference-development split.  The no-tilt profile is a required
+  # control, not a selectable scientific success unless all weight gates pass.
+  weight_profiles:
+    - id: no_tilt
+      mode: reference_only
+      alpha: 0.0
+      novelty_start_z: 0.5
+      novelty_full_z: 2.0
+      rejection_start_z: 3.0
+      rejection_full_z: 5.5
+      trust_floor: 0.02
+    - id: mild_wide_trust
+      mode: novelty_confidence
+      alpha: 0.15
+      novelty_start_z: 0.5
+      novelty_full_z: 2.5
+      rejection_start_z: 4.0
+      rejection_full_z: 7.0
+      trust_floor: 0.05
+    - id: mild_redescending
+      mode: novelty_confidence
+      alpha: 0.20
+      novelty_start_z: 0.5
+      novelty_full_z: 2.0
+      rejection_start_z: 2.75
+      rejection_full_z: 4.5
+      trust_floor: 0.02
+    - id: balanced_redescending
+      mode: novelty_confidence
+      alpha: 0.35
+      novelty_start_z: 0.25
+      novelty_full_z: 1.75
+      rejection_start_z: 2.5
+      rejection_full_z: 4.0
+      trust_floor: 0.01
+    - id: novelty_control
+      mode: novelty_only
+      alpha: 0.20
+      novelty_start_z: 0.5
+      novelty_full_z: 2.0
+      rejection_start_z: 3.0
+      rejection_full_z: 5.5
+      trust_floor: 0.02
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference: true
+
+threats:
+  names: [none, alie, ipm, bitflip_x10, model_replacement]
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+  separated_for_gates: [ipm, bitflip_x10, model_replacement]
+  evasive_controls: [alie]
+  reference_development_severities: [0.75, 1.0, 1.25]
+  weight_development_severities: [0.75, 1.0, 1.25]
+  holdout_severities: [0.60, 0.90, 1.10, 1.40]
+
+randomness:
+  null_calibration_seed: 2026091301
+  null_calibration_draws: 64
+  pair_noise_across_tier_permutations: true
+  null_match_regular_honest_subset: true
+  reference_development_seeds: [1009, 1103, 1201, 1301, 1409]
+  reference_development_draws_per_seed: 2
+  weight_development_seeds: [2203, 2309, 2411, 2503, 2609]
+  weight_development_draws_per_seed: 3
+  holdout_seeds: [3001, 3109, 3203, 3301, 3407, 3511, 3607]
+  holdout_draws_per_seed: 4
+
+gates:
+  clean_reference_error_ratio_to_uniform_max: 1.05
+  clean_aggregate_error_ratio_to_uniform_max: 1.05
+  separated_att_reference_error_ratio_to_uniform_max: 0.90
+  separated_aggregate_error_ratio_to_uniform_max: 1.00
+  false_outlier_rate_min: 0.06
+  false_outlier_rate_max: 0.14
+  honest_outlier_recall_min: 0.55
+  honest_outlier_weight_mass_gain_over_uniform_min: 0.01
+  separated_byzantine_weight_mass_max: 0.20
+  evasive_aggregate_error_ratio_to_uniform_max: 1.05
+  evasive_byzantine_weight_mass_max: 0.22
+  abs_correlation_null_excess_ci95_upper_max: 0.08
+  tier_range_null_excess_ci95_upper_max: 0.15
+  gaussian_candidate_fraction_covariance_limited_min: 0.20
+  gaussian_candidate_fraction_covariance_limited_and_tail_min: 0.05
+  gaussian_candidate_covariance_counterfactual_ratio_min: 0.005
+  gaussian_candidate_replace_one_bound_max: 0.12
+
+selection:
+  reference_phase: reference_development_only
+  weight_phase: weight_development_only_after_reference_lock
+  holdout_used_for_selection: false
+  if_no_candidate_passes: lock_least_normalized_gate_violation_but_forbid_promotion
+
+execution:
+  required_device: mps
+  allow_cpu_fallback: false

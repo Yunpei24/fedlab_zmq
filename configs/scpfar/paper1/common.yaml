@@ -141,6 +141,28 @@ methods:
       far_alpha: 0.1
       sensitivity_mode: conservative_2C
       enable_central_dp: false
+  far_raw_distance_fcc:
+    algorithm: scfar_dp
+    role: user_clipped_raw_distance_far_development_ablation
+    algo_config:
+      scfar_aggregation_rule: far_raw_distance
+      sensitivity_mode: conservative_2C
+      enable_central_dp: false
+  far_raw_distance_logit_matched_fcc:
+    algorithm: scfar_dp
+    role: raw_distance_matched_to_bounded_score_logits_ablation
+    algo_config:
+      scfar_aggregation_rule: far_raw_distance
+      raw_match_bounded_logits: true
+      sensitivity_mode: conservative_2C
+      enable_central_dp: false
+  scfar_raw_distance_certified_fcc:
+    algorithm: scfar_dp
+    role: raw_distance_with_public_2C_range_and_stable_reference_certificate
+    algo_config:
+      scfar_aggregation_rule: far_raw_distance
+      sensitivity_mode: proved_raw_distance_reference_bound
+      enable_central_dp: true
   scfar_no_dp:
     algorithm: scfar_dp
     role: sensitivity_controlled_far_without_dp

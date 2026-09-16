@@ -1,0 +1,22 @@
+campaign_id: private_risk_factorial_diagnostic_v26
+device: mps
+seeds: [170501, 170502]
+source_mode: fresh
+source_method: risk_rfa
+source_campaign: results/ldp_gradient_far/recursive_private_risk_calibration_v19
+source_rounds: 120
+pre_round_states: [2, 30, 60, 120]
+weights: [private, oracle, uniform]
+messages: [private, clean_clipped_oracle]
+aggregators: [mean, rfa]
+expected_states: 8
+expected_probes: 96
+population_block_size: 512
+risk_scale: 0.5
+median_iterations: 40
+median_smoothing: 0.00001
+test_evaluated: false
+privacy_protected: false
+automatic_confirmation: false
+automatic_attacks: false
+protocol: output/analysis/Private_Risk_Factorial_Diagnostic_V26_Protocol.md

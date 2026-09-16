@@ -1,0 +1,19 @@
+campaign_id: recursive_private_risk_calibration_v19
+device: mps
+seeds: [170501, 170502]
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+modes: [fresh, recursive]
+expected_runs: 16
+rounds: 120
+clip: 2.0
+public_variance_ceiling: 0.5
+numerical_margin: 1.0e-8
+epsilon: 4.0
+delta: 1.0e-5
+validation_rounds: [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
+test_evaluated: false
+automatic_confirmation: false
+automatic_attacks: false
+minimum_worst20_gain_pp: 1.0
+maximum_accuracy_loss_pp: 1.0
+protocol: output/analysis/Recursive_Private_Risk_Calibration_V19_Protocol.md

@@ -1,0 +1,52 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage11_generation4_scores_n25_screen_v2
+scope: frozen_generation4_score_end_to_end_screen
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 32
+
+# One frozen discovery seed and six rounds. Accuracy is descriptive only.
+# Promotion is based on recovery of clean score geometry, honest-outlier
+# recall proxies, public-noise-tier invariance and Byzantine mass. The same
+# partition/training seed pairs the client data, optimisation and DP noise
+# streams across methods. Each score's Monte-Carlo generator is separate and
+# deterministic, so calibration does not perturb the training RNG stream.
+experiments:
+  - id: E17_uniform_ldp_control
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dp_fedavg]
+    references: [fcc]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 4
+
+  - id: E18_generation4_primary_and_controls
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_matched_oracle
+      - dp_far_current_excess_energy_oracle
+      - dp_far_current_null_mc_robust_oracle
+    references: [fcc, rfa]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 24
+
+  - id: E19_generation4_loo_ablation
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dp_far_current_loo_excess_robust_oracle]
+    references: [fcc]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 4

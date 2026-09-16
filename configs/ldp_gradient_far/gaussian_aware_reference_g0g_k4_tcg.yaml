@@ -1,0 +1,182 @@
+campaign_id: gaussian_aware_reference_g0g_k4_tcg_mps_v1
+scope: preregistered_temporal_causal_gate_reference_screen
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  reference_only: true
+  far_weights_used: false
+  delay_weights_used: false
+  accuracy_used: false
+  persistent_authenticated_identities_required: true
+  sybil_resistance_assumed: true
+  compromise_before_enrollment_supported: false
+  base_anchor: exogenous_oracle_common_centre_with_fixed_public_error
+  anchor_is_past_measurable: true
+  covariance_role: authenticated_dp_covariance_only
+  heterogeneity_in_temporal_whitener: false
+  history_gate_uses_current_upload: false
+  history_gate_is_past_measurable: true
+  final_gate_uses_current_upload: true
+  final_gate_is_past_measurable: false
+  temporal_gate_rule: causal_window_against_fixed_clean_enrollment
+  final_gate_rule: elementwise_minimum_k2_aware_and_temporal
+  counterfactual_control_role: oracle_common_random_number_no_compromise_history
+  counterfactual_control_deployable: false
+  influence_cap_depends_on_covariance: false
+  inverse_variance_weighting: false
+  gate_sum_normalization: false
+  global_l2_cap: true
+  current_cohort_replace_one_only: true
+  user_trajectory_sensitivity_claimed: false
+  development_only_screen: true
+
+frozen_calibration:
+  path: results/ldp_gradient_far/gaussian_aware_reference_g0g_k2_mps_v1/calibration.json
+  sha256: 98a30cad8a2f92e6843346e9a9512bd321e8302b9b6e17b447b2641fffb544a5
+  source_campaign_id: gaussian_aware_reference_g0g_k2_mps_v1
+  reuse_thresholds_exactly: true
+  recalibrate: false
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, reverse, byzantine_high, byzantine_low]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  total_client_influence_cap: 0.13
+  current_gate_transition_width: 1.0
+  variance_floor: 1.0e-12
+  fcc_radius: 0.13
+
+temporal:
+  enrollment_rounds: 8
+  monitoring_rounds: 4
+  history_window: 4
+  first_temporal_gate_round: 13
+  total_rounds: 36
+  attack_start_round: 13
+  attack_end_round: 24
+  recovery_start_round: 25
+  standardized_clip_formula: 2_sqrt_dimension
+  standardized_clip_norm: 16.0
+  whitening_covariance: authenticated_dp_block_diagonal_only
+  variance_floor_role: numerical_ridge_only
+  nominal_mean_difference_scale: sqrt_1_over_L_plus_1_over_W0
+  temporal_gate_shape: linear_ramp
+  detection_gate_threshold: 0.5
+  detection_consecutive_rounds: 2
+  first_eligible_detection_round: 15
+  detection_deadline_round: 17
+  recovery_gate_threshold: 0.9
+  recovery_consecutive_rounds: 2
+  first_fully_clean_window_round: 29
+  recovery_deadline_round: 30
+
+honest_dynamics:
+  names: [stationary, bounded_drift]
+  offsets_persistent_across_rounds: true
+  drift_direction_fixed_per_identity: true
+  drift_step_mahalanobis: 0.05
+  drift_increments_have_zero_cohort_mean: true
+
+temporal_calibration:
+  roots: [2027020101, 2027020113, 2027020127, 2027020139]
+  trajectories_per_root_per_context: 64
+  expected_trajectories_per_context: 256
+  expected_contexts: 20
+  context_axes: [noise_cell, outlier_geometry, honest_dynamics]
+  clean_trajectories_only: true
+  maximum_definition: max_clients_and_rounds_13_to_36
+  c0_order_statistic_one_indexed: 232
+  c1_order_statistic_one_indexed: 255
+  deployed_threshold_rule: maximum_context_threshold
+  coverage_scope: marginal_clean_trajectory_same_synthetic_generator
+  simultaneous_future_coverage_claimed: false
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference_and_temporal_whitening: true
+
+threats:
+  names: [alie, ipm, bitflip_x10, model_replacement]
+  separated_for_primary_gate: [ipm, bitflip_x10, model_replacement]
+  schedules: [persistent, intermittent_2_on_1_off]
+  intermittent_pattern: [true, true, false]
+  severity: 1.0
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+
+no_compromise_control:
+  threat_name: none
+  schedule_name: no_compromise
+  one_trajectory_per_seed_noise_geometry_dynamics: true
+  active_history_rounds: [13, 36]
+
+randomness:
+  development_seeds: [2027021009, 2027021021, 2027021033, 2027021047, 2027021059]
+  holdout_seeds: [2027022007, 2027022019, 2027022031, 2027022043, 2027022057, 2027022069, 2027022083]
+  holdout_rule: open_only_if_all_development_gates_pass
+  replace_one_trials_per_seed_noise_cell: 4
+  pair_standard_noise_across_regimes_candidates_threats_and_schedules: true
+  counterfactual_history_rule: same_identity_offset_drift_tier_and_dp_noise_without_attack
+  counterfactual_uses_common_random_numbers: true
+  counterfactual_is_oracle_only: true
+
+candidates:
+  primary: g0g_k4_temporal_causal_gate
+  counterfactual_history_control: g0g_k4_no_compromise_counterfactual_control
+  names:
+    [fcc, g0g_k2_sigma_blind, g0g_k2, g0g_k3_dual_gate,
+     g0g_k4_temporal_causal_gate, g0g_k4_no_compromise_counterfactual_control]
+
+gates:
+  complete_fraction_min: 1.0
+  finite_metric_fraction_min: 1.0
+  production_device_required: mps
+  contribution_cap_violation_max: 0
+  replace_one_violation_max: 0
+  k4_k2_identity_when_temporal_gate_one_abs_error_max: 1.0e-6
+  regular_client_round_false_trigger_rate_max: 0.15
+  regular_trajectory_false_trigger_rate_max: 0.15
+  pooled_regular_false_trigger_tier_gap_max: 0.10
+  pooled_regular_gate_mean_tier_gap_max: 0.10
+  honest_outlier_gate_drop_vs_k2_aware_max: 0.05
+  no_compromise_post_enrollment_error_ratio_to_k2_aware_max: 1.02
+  persistent_separated_attack_auc_gain_vs_k2_aware_min: 0.05
+  persistent_separated_attack_auc_difference_ci95_high_max: 0.0
+  byzantine_high_attack_auc_gain_vs_k2_aware_min: 0.03
+  byzantine_high_attack_auc_difference_ci95_high_max: 0.0
+  persistent_separated_byzantine_mass_reduction_vs_k2_aware_min: 0.10
+  persistent_separated_detection_rate_within_deadline_min: 0.80
+  persistent_separated_recovery_rate_within_deadline_min: 0.90
+  persistent_separated_attack_auc_ratio_to_k3_max: 1.02
+  byzantine_high_attack_auc_gain_vs_counterfactual_history_min: 0.03
+  byzantine_high_attack_auc_difference_vs_counterfactual_ci95_high_max: 0.0
+  intermittent_or_alie_attack_auc_ratio_to_k2_aware_max: 1.02
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  allow_cpu_fallback: false

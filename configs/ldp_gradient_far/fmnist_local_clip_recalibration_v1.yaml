@@ -1,0 +1,68 @@
+schema_version: 1
+campaign_id: ldp_gradient_far_fmnist_local_clip_recalibration_v1
+base_config: fmnist_pilot.yaml
+output_root: ../../results/ldp_gradient_far/fmnist_local_clip_recalibration_v1
+
+# No-DP diagnostic only.  It exposes the otherwise-private realised local
+# clipping rate and isolates the bias created by C before C is reused in a DP
+# mechanism, where the same value also scales the Gaussian noise.
+jobs:
+  - id: nodp_c05_u10_lr020
+    overrides:
+      training:
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          clip_norm: 0.5
+          far_server_clip_norm: 10.0
+          far_server_lr: 0.20
+
+  - id: nodp_c1_u10_lr020
+    overrides:
+      training:
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          clip_norm: 1.0
+          far_server_clip_norm: 10.0
+          far_server_lr: 0.20
+
+  - id: nodp_c2_u10_lr020
+    overrides:
+      training:
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          clip_norm: 2.0
+          far_server_clip_norm: 10.0
+          far_server_lr: 0.20
+
+  - id: nodp_c4_u10_lr020
+    overrides:
+      training:
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          clip_norm: 4.0
+          far_server_clip_norm: 10.0
+          far_server_lr: 0.20
+
+  - id: nodp_c8_u10_lr020
+    overrides:
+      training:
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          clip_norm: 8.0
+          far_server_clip_norm: 10.0
+          far_server_lr: 0.20

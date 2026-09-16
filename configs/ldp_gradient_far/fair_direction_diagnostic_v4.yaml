@@ -1,0 +1,31 @@
+campaign_id: fair_direction_diagnostic_v4
+device: mps
+calibration_seeds: [170301, 170302]
+source_clips: [1.0, 2.0]
+source_beta: 0.0
+source_base_lr: 2.0
+source_round: 60
+batch_replays_per_state: 8
+gradient_chunk: 24
+evaluation_batch: 256
+beta: 2.0
+clip_grid: [1.0, 2.0]
+reference_horizon: 60
+epsilon: 4.0
+delta: 1.0e-5
+eta_erm: 2.0
+eta_fair: 1.0526315789473684
+conditions: [raw_erm, raw_fair, clip1_erm, clip1_fair, clip2_erm, clip2_fair, dp1_erm, dp1_fair, dp2_erm, dp2_fair]
+expected_states: 4
+expected_replay_blocks: 32
+expected_one_step_evaluations: 320
+use_test: false
+oracle_only: true
+automatic_training: false
+screen:
+  minimum_states_with_hard_loss_benefit: 3
+  minimum_seeds_with_hard_loss_benefit: 2
+  maximum_mean_accuracy_loss_pp: 0.25
+  all_seed_mean_accuracy_guard_required: true
+  minimum_hard_loss_gain: 0.0
+protocol: output/analysis/Fair_Direction_Diagnostic_V4_Protocol.md

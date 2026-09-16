@@ -1,0 +1,86 @@
+schema_version: 1
+matrix_id: s0_step1j_fmnist_joint_mask_clip_horizon
+common: common.yaml
+description: Matched no-DP/epsilon=10 horizon screen generated mechanically from the Step
+  1I clipping selection. Each task is executed at T in {5,10,20} through the runner's pilot-rounds
+  lock.
+common_overrides:
+  protocol_id: scfar_dp_joint_mask_clip_horizon_v1
+  execution_scope: public_static_mask_clip_horizon_screen
+  description: Development screen for the interaction between active update dimension, calibrated
+    clipping and number of central releases.
+  invariants:
+    parameter_mask_selection: public_architecture_only
+    clip_selection_source: results/scfar_paper1_fmnist_step1ir_mask_clip_refinement_v1/selection.json
+    clip_selection_sha256: 5eded00c86a634628c24f60c6394e92b7fb6a3a858809a69d203830fb0111787
+    frozen_coordinates_depend_on_private_data: false
+    frozen_coordinates_transmitted: false
+    frozen_coordinates_noised: false
+  base_config:
+    training:
+      num_rounds: 20
+      algo_config:
+        privacy_num_rounds: 20
+  methods:
+    joint_mask_classifier_tail:
+      algorithm: scfar_dp
+      role: joint_mask_clip_horizon_dpfedavg_screen
+      tilt_policy: fixed
+      algo_config:
+        active_parameter_mode: classifier_tail
+        scfar_aggregation_rule: uniform
+        far_alpha: 0.0
+        kappa_w: 1.0
+        sensitivity_mode: automatic_certified
+preregistration:
+  upstream_selection:
+    source: results/scfar_paper1_fmnist_step1ir_mask_clip_refinement_v1/selection.json
+    sha256: 5eded00c86a634628c24f60c6394e92b7fb6a3a858809a69d203830fb0111787
+    selected_clip_norm_by_mode:
+      classifier_tail: 1.631041
+  development_seed_only:
+    partition_seed: 104
+    training_seed: 17
+  horizon_rounds:
+  - 5
+  - 10
+  - 20
+  privacy_profiles:
+  - no_dp
+  - eps10
+  private_feasibility_gate:
+    final_test_accuracy_min: 0.5
+    final_worst20_accuracy_min: 0.2
+    median_noise_to_clean_aggregate_ratio_max: 20.0
+  matched_control_gate:
+    final_test_accuracy_min: 0.5
+    final_worst20_accuracy_min: 0.2
+    median_user_clip_rate_min_exclusive: 0.05
+    median_user_clip_rate_max_exclusive: 0.95
+  selection_rule: For each mask, select the smallest T for which both its matched no-DP arm
+    and epsilon=10 arm pass every corresponding gate. Exclude the mask if no horizon passes.
+experiments:
+- id: step1j_classifier_tail
+  expected_tasks: 2
+  scenario_ids:
+  - fmnist_lenet5_b01
+  method_ids:
+  - joint_mask_classifier_tail
+  reference_ids:
+  - fcc
+  anchor_ids:
+  - previous_release
+  threat_ids:
+  - clean
+  tilt_ids:
+  - uniform_k1
+  privacy_ids:
+  - no_dp
+  - eps10
+  tau_over_c:
+  - 1.0
+  user_clip_norms:
+  - 1.631041
+  seed_pairs:
+  - partition_seed: 104
+    training_seed: 17

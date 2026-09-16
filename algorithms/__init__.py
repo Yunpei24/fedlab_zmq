@@ -50,6 +50,8 @@ from algorithms import fedfair_loss           # Efficient loss-variance baseline
 from algorithms import robust_fedavg          # Standalone Byzantine-robust baselines
 from algorithms import dp_references          # Shared DP-SGD FedAvg / q-FFL / FAR
 from algorithms import sc_partial_far_dp      # Sensitivity-Controlled (Partial) FAR-DP
+from algorithms import dt_ldp_far             # Delayed-Tilting client-side sample-DP FAR
+from algorithms import ldp_gradient_far       # Private-gradient local-DP FAR
 
 __all__ = [
     "FLAlgorithm", "ClientState", "AggregateResult",

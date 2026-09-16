@@ -275,10 +275,13 @@ class FedLabServer:
             # Build algo config including server-level state (e.g. SCAFFOLD c_global)
             agg_config = round_algo_config
             algo_client_tuples = apply_configured_attack(
-                algo_client_tuples, agg_config.get("attack")
+                algo_client_tuples,
+                agg_config.get("attack"),
+                round_num=t,
             )
-            from metrics.robustness import attack_diagnostics
+            from metrics.robustness import attack_diagnostics, update_norm_diagnostics
             attack_metrics = attack_diagnostics(algo_client_tuples)
+            update_norm_metrics = update_norm_diagnostics(algo_client_tuples)
 
             # Use algorithm's server_aggregate() — fixes the critical bug
             # where fedavg_aggregate() was always used regardless of algorithm
@@ -325,6 +328,7 @@ class FedLabServer:
                 "elapsed_s":          elapsed,
             }
             metrics.update(attack_metrics)
+            metrics.update(update_norm_metrics)
             for key, value in agg_m.items():
                 if key.startswith("_") or key in metrics:
                     continue

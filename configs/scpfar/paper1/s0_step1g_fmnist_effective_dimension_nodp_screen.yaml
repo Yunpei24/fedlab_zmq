@@ -1,0 +1,97 @@
+schema_version: 1
+matrix_id: s0_step1g_fmnist_effective_dimension_nodp_screen
+common: common.yaml
+description: >-
+  Development-only public-mask utility screen. The experiment asks whether a
+  lower-dimensional, data-independent subset of LeNet-5 parameters can learn
+  Fashion-MNIST before central-DP noise is enabled. Frozen coordinates never
+  depend on client data and are omitted from the transmitted update vector.
+  The full model is retained as a negative control for private dimension.
+
+common_overrides:
+  protocol_id: scfar_dp_effective_private_dimension_screen_v1
+  execution_scope: public_static_parameter_mask_utility_screen
+  description: >-
+    Development screen for public, architecture-only active-parameter masks.
+    It is not a paper-1 full-update result and must not be pooled with the
+    frozen full-update matrices.
+  invariants:
+    parameter_mask_selection: public_architecture_only
+    frozen_coordinates_depend_on_private_data: false
+    frozen_coordinates_transmitted: false
+    frozen_coordinates_noised: false
+  base_config:
+    training:
+      num_rounds: 40
+      algo_config:
+        privacy_num_rounds: 40
+        active_parameter_mode: full
+  methods:
+    fedavg_mask_full:
+      algorithm: fedavg
+      role: full_dimension_negative_control
+      tilt_policy: fixed
+      algo_config:
+        active_parameter_mode: full
+        enable_central_dp: false
+    fedavg_mask_classifier_head:
+      algorithm: fedavg
+      role: public_classifier_head_utility_screen
+      tilt_policy: fixed
+      algo_config:
+        active_parameter_mode: classifier_head
+        enable_central_dp: false
+    fedavg_mask_classifier_tail:
+      algorithm: fedavg
+      role: public_last_two_linear_layers_utility_screen
+      tilt_policy: fixed
+      algo_config:
+        active_parameter_mode: classifier_tail
+        enable_central_dp: false
+    fedavg_mask_last_layer:
+      algorithm: fedavg
+      role: public_last_linear_layer_utility_screen
+      tilt_policy: fixed
+      algo_config:
+        active_parameter_mode: last_layer
+        enable_central_dp: false
+    fedavg_mask_bias_only:
+      algorithm: fedavg
+      role: public_bias_only_utility_screen
+      tilt_policy: fixed
+      algo_config:
+        active_parameter_mode: bias_only
+        enable_central_dp: false
+
+preregistration:
+  primary_question: >-
+    Which public static masks retain meaningful non-private utility when the
+    remaining coordinates are frozen at their public initialization?
+  development_seed_only: {partition_seed: 101, training_seed: 28}
+  horizon_rounds: 40
+  utility_gate:
+    final_test_accuracy_min: 0.50
+    final_worst20_accuracy_min: 0.20
+  promotion_rule: >-
+    Only a non-full mask passing both utility gates may enter the matched
+    central-DP FedAvg screen. Passing this development screen is not a final
+    paper result and requires confirmation on the three frozen seed pairs.
+
+experiments:
+  - id: step1g_public_mask_nodp_utility
+    expected_tasks: 5
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids:
+      - fedavg_mask_full
+      - fedavg_mask_classifier_head
+      - fedavg_mask_classifier_tail
+      - fedavg_mask_last_layer
+      - fedavg_mask_bias_only
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}

@@ -1,0 +1,68 @@
+schema_version: 1
+campaign_id: ldp_gradient_far_fmnist_horizon_recalibration_v1
+base_config: fmnist_pilot.yaml
+output_root: ../../results/ldp_gradient_far/fmnist_horizon_recalibration_v1
+
+# Stage B extends the horizon after Stage A showed that even the no-noise
+# gradient channel was under-trained at 40 global steps.  At fixed epsilon,
+# T=100 requires a larger per-release noise multiplier, so U is screened again.
+jobs:
+  - id: nodp_t100_u2_lr010
+    overrides:
+      training:
+        num_rounds: 100
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          far_server_clip_norm: 2.0
+          far_server_lr: 0.10
+
+  - id: nodp_t100_u2_lr020
+    overrides:
+      training:
+        num_rounds: 100
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          far_server_clip_norm: 2.0
+          far_server_lr: 0.20
+
+  - id: dp_t100_u2_lr010
+    overrides:
+      training:
+        num_rounds: 100
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 2.0
+          far_server_lr: 0.10
+
+  - id: dp_t100_u25_lr010
+    overrides:
+      training:
+        num_rounds: 100
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 2.5
+          far_server_lr: 0.10
+
+  - id: dp_t100_u25_lr020
+    overrides:
+      training:
+        num_rounds: 100
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 2.5
+          far_server_lr: 0.20
+
+  - id: dp_t100_u3_lr020
+    overrides:
+      training:
+        num_rounds: 100
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 3.0
+          far_server_lr: 0.20

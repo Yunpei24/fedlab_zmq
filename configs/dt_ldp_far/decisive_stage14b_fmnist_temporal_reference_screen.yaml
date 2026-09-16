@@ -1,0 +1,74 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage14b_fmnist_temporal_reference_screen_v1
+scope: exploratory_stage14b_transfer_and_strict_temporal_reference_screen
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 32
+
+# This screen is run because the user explicitly requested the Fashion-MNIST
+# transfer despite the frozen vector preflight having zero fully robust
+# survivor.  It is descriptive: no accuracy result may retroactively change
+# the Stage-14A/14B gates.  All arms share seed 28, six rounds, ten genuine
+# Poisson steps per round, q=0.05, C=4 and the same local-DP randomness.
+experiments:
+  - id: E22_uniform_local_dp_control
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dp_fedavg]
+    references: [fcc]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 4
+
+  - id: E23_stage14_moment_component_ablation
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dt_ldp_far_stage14_moment_current_raw
+      - dt_ldp_far_stage14_moment_current_trust_raw
+    references: [fcc]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 8
+
+  - id: E24_stage14_guard_and_reference
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dt_ldp_far_stage14_moment_current_trust_guard]
+    references: [fcc, rfa]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 8
+
+  - id: E25_stage14_quantile_control
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dt_ldp_far_stage14_quantile_current_trust_guard]
+    references: [fcc]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 4
+
+  - id: E26_strict_temporal_reference
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dt_ldp_far_stage14_moment_lagged_trust_guard]
+    references: [fcc, rfa]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 8

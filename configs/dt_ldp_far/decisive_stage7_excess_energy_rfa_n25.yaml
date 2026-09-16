@@ -1,0 +1,46 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage7_excess_energy_rfa_n25_v1
+scope: paired_excess_energy_screen_with_fcc_and_rfa
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 84
+
+# Stage 7 is a six-round mechanism screen. It does not promote a method from
+# final accuracy. The primary outcomes are noisy/clean score recovery,
+# noisy/clean weight error, residual dependence on the public noise tier,
+# honest/Byzantine weight mass and reference error. Any positive arm must be
+# confirmed for 20+ rounds in a separately frozen matrix.
+experiments:
+  - id: E14_excess_energy_clean_heteroscedastic_oracle_diagnostic
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_matched_oracle
+      - dp_far_current_covariance_proxy_oracle
+      - dp_far_current_excess_energy_oracle
+      - dt_ldp_far_oracle
+      - dt_ldp_far_covariance_proxy_oracle
+      - dt_ldp_far_excess_energy_oracle
+    references: [fcc, rfa]
+    threats: [none]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 36
+
+  - id: E15_excess_energy_stealth_attacks_oracle_diagnostic
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_matched_oracle
+      - dp_far_current_excess_energy_oracle
+      - dt_ldp_far_oracle
+      - dt_ldp_far_excess_energy_oracle
+    references: [fcc, rfa]
+    threats: [ipm20_n25, alie20_n25]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 48

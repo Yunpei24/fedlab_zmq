@@ -1,0 +1,459 @@
+schema_version: 1
+campaign_id: rcig_ldp_gradient_far_end_to_end_v1
+required_device: mps
+base_config: positioning_base.yaml
+output_root: ../../results/ldp_gradient_far/rcig_end_to_end_v1
+
+scientific_scope:
+  dataset: fashionmnist
+  model: lenet5_tanh
+  num_clients: 25
+  num_byzantine: 5
+  fixed_local_dataset_size: 2400
+  fixed_batch_size: 120
+  local_clip_norm: 4.0
+  target_privacy: {epsilon: 4.0, delta: 1.0e-5}
+  privacy_adjacency: replace_one
+  sampling: fixed_without_replacement
+  private_releases_per_client_round: 1
+  deployment_rounds: 40
+  model_replacement_status: unsupported_by_current_end_to_end_attack_api
+
+execution:
+  pytorch_device: mps
+  pytorch_enable_mps_fallback: "0"
+  resume_required: true
+  overwrite: false
+  fail_closed: true
+
+randomness:
+  calibration_seeds: &calibration_seeds
+    [7103, 7109, 7121, 7127, 7129, 7151, 7159, 7177, 7187, 7193, 7207, 7211]
+  null_validation_seeds: &null_validation_seeds
+    [
+      7307, 7309, 7321, 7331, 7333, 7349, 7351, 7369, 7393,
+      7411, 7417, 7433, 7451, 7457, 7459, 7477, 7481, 7487,
+      7489, 7499, 7507, 7517, 7523, 7529, 7537, 7541, 7547,
+      7549, 7559, 7561, 7573, 7577, 7583, 7589, 7591, 7603
+    ]
+  mechanistic_seeds: &mechanistic_seeds [7703, 7717, 7723]
+  development_seeds: &development_seeds [7801]
+  confirmation_seeds: &confirmation_seeds [7901, 7907, 7919]
+  pairing:
+    partition_initialization_batches_noise_attack_ids_and_schedule: true
+    same_seed_across_counterfactual_arms: true
+    calibration_null_mechanistic_development_confirmation_disjoint: true
+
+threshold_rule:
+  statistic: per_seed_maximum_post_warmup_innovation
+  quantile: 0.99
+  interpolation: nearest_rank
+  separate_by: [noise_regime, covariance_mode]
+  source_phase: r0_calibration_frozen
+  immutable_artifact: _gates/r0_calibration_frozen.json
+
+definitions:
+  n25_frozen: &n25_frozen
+    data:
+      dataset: fashionmnist
+      model: lenet5_tanh
+      partition: client_dirichlet_balanced
+      alpha: 0.1
+    model: {architecture: lenet5_tanh}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      sample_fraction: 1.0
+      dropout_rate: 0.0
+      fleet: [{type: raspberry_pi_4, count: 25}]
+    eval: {eval_every: 1, honest_clients_only: true}
+    training:
+      num_rounds: 20
+      algorithm: ldp_gradient_far
+      algo_config:
+        batch_size: 120
+        local_epochs: 1
+        fixed_steps_per_round: 1
+        sampling_scheme: fixed_without_replacement
+        privacy_adjacency: replace_one
+        privacy_public_dataset_size: 2400
+        privacy_sampling_rate_override: 0.05
+        fixed_batch_size: 120
+        per_sample_backend: vectorized
+        enable_dp: true
+        target_epsilon: 4.0
+        noise_multiplier: 1.0
+        privacy_num_rounds: 20
+        delta: 1.0e-5
+        clip_norm: 4.0
+        far_server_lr: 0.0
+        far_server_clip_norm: 16.0
+        far_score_mode: raw_distance
+        noise_score_standardization: none
+        noise_score_include_server_contraction: false
+        score_subspace_mode: full
+        far_alpha: 0.1
+        kappa_w: 2.0
+        tilt_bound_policy: diagnostic
+        robust_reference: rcig_temporal
+        num_byzantine: 5
+        reference_clip_radius: 4.0
+        anchor_update_rate: 0.1
+        anchor_clip_norm: 16.0
+        rfa_max_iter: 100
+        rfa_tol: 1.0e-6
+        expected_num_clients: 25
+        client_metrics_every: 1
+        fairness_tail_fraction: 0.2
+        suppress_private_client_diagnostics: true
+        enable_oracle_diagnostics: true
+        rcig_covariance_mode: full
+        rcig_calibration_mode: false
+        rcig_innovation_threshold: null
+        rcig_gate_window: 4
+        rcig_old_window: 4
+        rcig_new_window: 4
+        rcig_public_subspace_dimension: 64
+        rcig_public_subspace_seed: 20260911
+        rcig_gate_inner_mad: 2.5
+        rcig_gate_outer_mad: 4.5
+        rcig_min_accepted_mass: 0.6
+        rcig_covariance_ridge: 1.0e-6
+        rcig_process_variance: 1.0e-6
+        rcig_warmup_policy: uniform
+        rcig_reference_output_radius: 16.0
+        rcig_persistent_policy: rolling
+        rcig_recovery_threshold_ratio: 0.8
+        rcig_recovery_patience: 2
+        attack:
+          enabled: false
+          name: none
+          scale: 1.0
+          num_byzantine: 0
+          client_ids: []
+
+  n25_e2e: &n25_e2e
+    data:
+      dataset: fashionmnist
+      model: lenet5_tanh
+      partition: client_dirichlet_balanced
+      alpha: 0.1
+    model: {architecture: lenet5_tanh}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      sample_fraction: 1.0
+      dropout_rate: 0.0
+      fleet: [{type: raspberry_pi_4, count: 25}]
+    eval: {eval_every: 1, honest_clients_only: true}
+    training:
+      num_rounds: 40
+      algorithm: ldp_gradient_far
+      algo_config:
+        batch_size: 120
+        local_epochs: 1
+        fixed_steps_per_round: 1
+        sampling_scheme: fixed_without_replacement
+        privacy_adjacency: replace_one
+        privacy_public_dataset_size: 2400
+        privacy_sampling_rate_override: 0.05
+        fixed_batch_size: 120
+        per_sample_backend: vectorized
+        enable_dp: true
+        target_epsilon: 4.0
+        noise_multiplier: 1.0
+        privacy_num_rounds: 40
+        delta: 1.0e-5
+        clip_norm: 4.0
+        far_server_lr: 0.2
+        far_server_clip_norm: 16.0
+        far_score_mode: raw_distance
+        noise_score_standardization: none
+        noise_score_include_server_contraction: false
+        score_subspace_mode: full
+        far_alpha: 0.1
+        kappa_w: 2.0
+        tilt_bound_policy: diagnostic
+        robust_reference: rcig_temporal
+        num_byzantine: 5
+        reference_clip_radius: 4.0
+        anchor_update_rate: 0.1
+        anchor_clip_norm: 16.0
+        rfa_max_iter: 100
+        rfa_tol: 1.0e-6
+        expected_num_clients: 25
+        client_metrics_every: 1
+        fairness_tail_fraction: 0.2
+        suppress_private_client_diagnostics: true
+        enable_oracle_diagnostics: true
+        rcig_covariance_mode: full
+        rcig_calibration_mode: false
+        rcig_innovation_threshold: null
+        rcig_gate_window: 4
+        rcig_old_window: 4
+        rcig_new_window: 4
+        rcig_public_subspace_dimension: 64
+        rcig_public_subspace_seed: 20260911
+        rcig_gate_inner_mad: 2.5
+        rcig_gate_outer_mad: 4.5
+        rcig_min_accepted_mass: 0.6
+        rcig_covariance_ridge: 1.0e-6
+        rcig_process_variance: 1.0e-6
+        rcig_warmup_policy: uniform
+        rcig_reference_output_radius: 16.0
+        rcig_persistent_policy: rolling
+        rcig_recovery_threshold_ratio: 0.8
+        rcig_recovery_patience: 2
+        attack:
+          enabled: false
+          name: none
+          scale: 1.0
+          num_byzantine: 0
+          client_ids: []
+
+  homogeneous: &homogeneous
+    training:
+      algo_config:
+        privacy_noise_multiplier_scale_by_client: null
+
+  heteroscedastic: &heteroscedastic
+    training:
+      algo_config:
+        privacy_noise_multiplier_scale_by_client:
+          [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1]
+
+  attack_none: &attack_none
+    training:
+      algo_config:
+        attack: {enabled: false, name: none, scale: 1.0}
+
+  attack_bf_onset_t20: &attack_bf_onset_t20
+    training:
+      algo_config:
+        attack: {enabled: true, name: bf, scale: 10.0, active_round_start: 11, active_round_end: 20}
+
+  attack_ipm_onset_t20: &attack_ipm_onset_t20
+    training:
+      algo_config:
+        attack: {enabled: true, name: ipm, scale: 1.0, active_round_start: 11, active_round_end: 20}
+
+  attack_alie_onset_t20: &attack_alie_onset_t20
+    training:
+      algo_config:
+        attack: {enabled: true, name: alie, scale: 1.0, active_round_start: 11, active_round_end: 20}
+
+  attack_bf_persistent: &attack_bf_persistent
+    training:
+      algo_config:
+        attack: {enabled: true, name: bf, scale: 10.0}
+
+  attack_ipm_persistent: &attack_ipm_persistent
+    training:
+      algo_config:
+        attack: {enabled: true, name: ipm, scale: 1.0}
+
+  attack_alie_persistent: &attack_alie_persistent
+    training:
+      algo_config:
+        attack: {enabled: true, name: alie, scale: 1.0}
+
+  attack_bf_onset_t40: &attack_bf_onset_t40
+    training:
+      algo_config:
+        attack: {enabled: true, name: bf, scale: 10.0, active_round_start: 21, active_round_end: 40}
+
+  attack_ipm_onset_t40: &attack_ipm_onset_t40
+    training:
+      algo_config:
+        attack: {enabled: true, name: ipm, scale: 1.0, active_round_start: 21, active_round_end: 40}
+
+  attack_alie_onset_t40: &attack_alie_onset_t40
+    training:
+      algo_config:
+        attack: {enabled: true, name: alie, scale: 1.0, active_round_start: 21, active_round_end: 40}
+
+  attack_bf_recovery_t40: &attack_bf_recovery_t40
+    training:
+      algo_config:
+        attack: {enabled: true, name: bf, scale: 10.0, active_round_start: 11, active_round_end: 25}
+
+  attack_ipm_recovery_t40: &attack_ipm_recovery_t40
+    training:
+      algo_config:
+        attack: {enabled: true, name: ipm, scale: 1.0, active_round_start: 11, active_round_end: 25}
+
+  attack_alie_recovery_t40: &attack_alie_recovery_t40
+    training:
+      algo_config:
+        attack: {enabled: true, name: alie, scale: 1.0, active_round_start: 11, active_round_end: 25}
+
+expected_task_counts:
+  r0_calibration_frozen: 24
+  r1_null_validation_frozen: 72
+  r2_attack_mechanism_frozen: 36
+  r3_end_to_end_development: 80
+  r4_end_to_end_confirmation: 210
+
+phases:
+  - id: r0_calibration_frozen
+    role: calibration
+    seed_registry: calibration_seeds
+    description: Calibrate q0.99 RCIG innovation thresholds on real private Fashion-MNIST gradients with a frozen model and no attack.
+    depends_on: []
+    gate_required: true
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0}
+      - {id: invalid_runs, op: "==", threshold: 0}
+      - {id: mps_fraction, op: "==", threshold: 1.0}
+      - {id: private_gradient_protocol_fraction, op: "==", threshold: 1.0}
+      - {id: strict_past_fraction, op: "==", threshold: 1.0}
+      - {id: covariance_psd_fraction, op: "==", threshold: 1.0}
+      - {id: finite_threshold_fraction, op: "==", threshold: 1.0}
+    seeds: *calibration_seeds
+    common_overrides: *n25_frozen
+    axes:
+      - name: noise_regime
+        values:
+          - {id: homogeneous, overrides: *homogeneous}
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: reference
+        values:
+          - id: rcig_calibration
+            overrides:
+              training:
+                algo_config:
+                  robust_reference: rcig_temporal
+                  rcig_covariance_mode: full
+                  rcig_calibration_mode: true
+                  rcig_innovation_threshold: 1.0e30
+
+  - id: r1_null_validation_frozen
+    role: null_validation
+    seed_registry: null_validation_seeds
+    description: Independent real-gradient null validation of false activation and no-attack reference loss.
+    depends_on: [r0_calibration_frozen]
+    gate_required: true
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0}
+      - {id: invalid_runs, op: "==", threshold: 0}
+      - {id: max_cp97_5_false_activation_upper, op: "<=", threshold: 0.10}
+      - {id: max_no_attack_reference_loss_one_sided_upper, op: "<=", threshold: 0.02}
+      - {id: strict_past_fraction, op: "==", threshold: 1.0}
+      - {id: covariance_psd_fraction, op: "==", threshold: 1.0}
+    seeds: *null_validation_seeds
+    common_overrides: *n25_frozen
+    axes:
+      - name: noise_regime
+        values:
+          - {id: homogeneous, overrides: *homogeneous}
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: reference
+        values:
+          - {id: rcig_full, overrides: {training: {algo_config: {robust_reference: rcig_temporal, rcig_covariance_mode: full}}}}
+
+  - id: r2_attack_mechanism_frozen
+    role: mechanistic_validation
+    seed_registry: mechanistic_seeds
+    description: Validate attacked reference MSE, innovation activation and Gaussian specificity on real private gradients with a frozen model.
+    depends_on: [r1_null_validation_frozen]
+    gate_required: true
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0}
+      - {id: invalid_runs, op: "==", threshold: 0}
+      - {id: attacked_mse_gain_vs_identity_new_one_sided_low, op: ">=", threshold: 0.10}
+      - {id: attack_gate_activation_rate, op: ">=", threshold: 0.50}
+      - {id: full_gain_vs_isotropic_one_sided_low, op: ">=", threshold: 0.0}
+      - {id: full_gain_vs_euclidean_one_sided_low, op: ">=", threshold: -0.02}
+      - {id: strict_past_fraction, op: "==", threshold: 1.0}
+      - {id: covariance_psd_fraction, op: "==", threshold: 1.0}
+    seeds: *mechanistic_seeds
+    common_overrides: *n25_frozen
+    axes:
+      - name: noise_regime
+        values:
+          - {id: homogeneous, overrides: *homogeneous}
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: attack_schedule
+        values:
+          - {id: bf_x10_onset, overrides: *attack_bf_onset_t20}
+          - {id: ipm_onset, overrides: *attack_ipm_onset_t20}
+          - {id: alie_onset, overrides: *attack_alie_onset_t20}
+          - {id: bf_x10_persistent, overrides: *attack_bf_persistent}
+          - {id: ipm_persistent, overrides: *attack_ipm_persistent}
+          - {id: alie_persistent, overrides: *attack_alie_persistent}
+      - name: reference
+        values:
+          - {id: rcig_full, overrides: {training: {algo_config: {robust_reference: rcig_temporal, rcig_covariance_mode: full}}}}
+
+  - id: r3_end_to_end_development
+    role: end_to_end_development
+    seed_registry: development_seeds
+    description: Development comparison of all deployment references and attack schedules under heteroscedastic private gradients.
+    depends_on: [r2_attack_mechanism_frozen]
+    gate_required: true
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0}
+      - {id: invalid_runs, op: "==", threshold: 0}
+      - {id: max_abs_epsilon_error, op: "<=", threshold: 0.05}
+      - {id: rcig_full_no_attack_accuracy_deficit_vs_best_baseline_pp, op: "<=", threshold: 3.0}
+      - {id: rcig_full_attacked_worst20_delta_vs_fcc_pp, op: ">=", threshold: 0.0}
+      - {id: rcig_full_attacked_gap_reduction_vs_fcc_pp, op: ">=", threshold: 0.0}
+      - {id: rcig_full_persistent_accuracy_delta_vs_fcc_pp, op: ">=", threshold: 0.0}
+    seeds: *development_seeds
+    common_overrides: *n25_e2e
+    axes:
+      - name: noise_regime
+        values:
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: reference
+        values:
+          - {id: uniform, overrides: {training: {algo_config: {far_alpha: 0.0, robust_reference: centered_clipping}}}}
+          - {id: fcc, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: centered_clipping}}}}
+          - {id: rfa, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: rfa}}}}
+          - {id: trmean, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: trimmed_mean}}}}
+          - {id: rcig_alpha0, overrides: {training: {algo_config: {far_alpha: 0.0, robust_reference: rcig_temporal, rcig_covariance_mode: full}}}}
+          - {id: rcig_full, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: rcig_temporal, rcig_covariance_mode: full}}}}
+          - {id: rcig_isotropic, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: rcig_temporal, rcig_covariance_mode: isotropic}}}}
+          - {id: rcig_euclidean, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: rcig_temporal, rcig_covariance_mode: euclidean}}}}
+      - name: attack_schedule
+        values:
+          - {id: none, overrides: *attack_none}
+          - {id: bf_x10_onset, overrides: *attack_bf_onset_t40}
+          - {id: ipm_onset, overrides: *attack_ipm_onset_t40}
+          - {id: alie_onset, overrides: *attack_alie_onset_t40}
+          - {id: bf_x10_persistent, overrides: *attack_bf_persistent}
+          - {id: ipm_persistent, overrides: *attack_ipm_persistent}
+          - {id: alie_persistent, overrides: *attack_alie_persistent}
+          - {id: bf_x10_recovery, overrides: *attack_bf_recovery_t40}
+          - {id: ipm_recovery, overrides: *attack_ipm_recovery_t40}
+          - {id: alie_recovery, overrides: *attack_alie_recovery_t40}
+
+  - id: r4_end_to_end_confirmation
+    role: confirmation
+    seed_registry: confirmation_seeds
+    description: Multi-seed paired confirmation on homogeneous and heteroscedastic noise, emphasizing persistent attacks and recovery.
+    depends_on: [r3_end_to_end_development]
+    gate_required: false
+    seeds: *confirmation_seeds
+    common_overrides: *n25_e2e
+    axes:
+      - name: noise_regime
+        values:
+          - {id: homogeneous, overrides: *homogeneous}
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: reference
+        values:
+          - {id: uniform, overrides: {training: {algo_config: {far_alpha: 0.0, robust_reference: centered_clipping}}}}
+          - {id: fcc, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: centered_clipping}}}}
+          - {id: rfa, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: rfa}}}}
+          - {id: trmean, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: trimmed_mean}}}}
+          - {id: rcig_full, overrides: {training: {algo_config: {far_alpha: 0.1, robust_reference: rcig_temporal, rcig_covariance_mode: full}}}}
+      - name: attack_schedule
+        values:
+          - {id: none, overrides: *attack_none}
+          - {id: bf_x10_persistent, overrides: *attack_bf_persistent}
+          - {id: ipm_persistent, overrides: *attack_ipm_persistent}
+          - {id: alie_persistent, overrides: *attack_alie_persistent}
+          - {id: bf_x10_recovery, overrides: *attack_bf_recovery_t40}
+          - {id: ipm_recovery, overrides: *attack_ipm_recovery_t40}
+          - {id: alie_recovery, overrides: *attack_alie_recovery_t40}

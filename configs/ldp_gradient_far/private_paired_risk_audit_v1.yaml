@@ -1,0 +1,24 @@
+campaign_id: private_paired_risk_audit_v1
+source_campaign: results/ldp_gradient_far/private_risk_feasibility_n10_v1
+expected_source_runs: 6
+expected_source_probes: 54
+device: mps
+purpose: offline_report_mechanism_audit_not_training
+candidates: [uniform, rfa_direct, far_rfa]
+validation_size: 1200
+max_releases_per_hypothetical_run: 9
+component_epsilon_target: 0.999
+component_delta: 0.000005
+confidence_failure_probability: 0.05
+fairness_mix: 0.5
+tail_fraction: 0.2
+byzantine_bound: 2
+report_modes: [truthful, veto, endorse_far]
+diagnostic_noise_replicates: 32
+diagnostic_rng_seed: 617421
+damage_tolerances: [0.0, 0.001, 0.005, 0.01]
+retain_original_four_coordinate_confidence_family: true
+release_unclipped_contrasts_only: true
+exact_loss_difference_not_CVaR_identity: true
+automatic_training: false
+privacy_scope: distributional_counterfactuals_with_oracles_and_public_rng_not_DP_outputs

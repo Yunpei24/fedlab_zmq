@@ -2,12 +2,44 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from statistics import NormalDist
 
 import torch
 
 from robustness.tensor_ops import stack_updates, unflatten_update
+
+
+def scheduled_attack_phase(config: dict | None, round_num: int | None) -> str:
+    """Return ``clean``, ``attack`` or ``recovery`` for a scheduled threat.
+
+    Schedule bounds are public, one-indexed and inclusive.  An attack without
+    bounds retains the historical behaviour and is active at every round.
+    ``round_num`` is zero-indexed internally, matching the algorithm API.
+    """
+
+    if not config or not config.get("enabled", True):
+        return "clean"
+    start = config.get("active_round_start")
+    end = config.get("active_round_end")
+    if start is None and end is None:
+        return "attack"
+    if start is None or end is None:
+        raise ValueError(
+            "Scheduled attacks require both active_round_start and "
+            "active_round_end"
+        )
+    start = int(start)
+    end = int(end)
+    if start < 1 or end < start:
+        raise ValueError("Need 1 <= active_round_start <= active_round_end")
+    if round_num is None:
+        raise ValueError("A scheduled attack requires round_num")
+    public_round = int(round_num) + 1
+    if public_round < start:
+        return "clean"
+    if public_round <= end:
+        return "attack"
+    return "recovery"
 
 
 def _malicious_ids(
@@ -186,13 +218,32 @@ def apply_attack(
 
 
 def apply_configured_attack(
-    client_updates: list[tuple[dict, dict, object]], config: dict | None
+    client_updates: list[tuple[dict, dict, object]],
+    config: dict | None,
+    *,
+    round_num: int | None = None,
 ) -> list[tuple[dict, dict, object]]:
     """Apply an attack config while preserving metadata and client states."""
 
     if not config or not config.get("enabled", True):
         return client_updates
+    phase = scheduled_attack_phase(config, round_num)
     name = str(config.get("name", "none"))
+    if phase != "attack":
+        result = []
+        for update, metadata, state in client_updates:
+            new_meta = dict(metadata)
+            new_meta.update(
+                {
+                    "is_byzantine": False,
+                    "attack_name": "none",
+                    "attack_scheduled_name": name,
+                    "attack_schedule_phase": phase,
+                    "attack_window_active": False,
+                }
+            )
+            result.append((update, new_meta, state))
+        return result
     positions = _malicious_ids(client_updates, config)
     attacked_dicts = apply_attack(
         [update for update, _, _ in client_updates],
@@ -212,5 +263,8 @@ def apply_configured_attack(
         new_meta = dict(metadata)
         new_meta["is_byzantine"] = pos in bad
         new_meta["attack_name"] = name if pos in bad else "none"
+        new_meta["attack_scheduled_name"] = name
+        new_meta["attack_schedule_phase"] = phase
+        new_meta["attack_window_active"] = True
         result.append((attacked, new_meta, state))
     return result

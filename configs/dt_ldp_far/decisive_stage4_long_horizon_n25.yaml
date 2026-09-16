@@ -1,0 +1,31 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage4_long_horizon_n25_v1
+scope: long_horizon_current_delay_after_mechanistic_transfer_screen
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 162
+
+experiments:
+  - id: E11_uniform_same_path_t80_t120_n25
+    scenarios: [fmnist_b01_n25_t80, fmnist_b01_n25_t120]
+    methods: [dp_far_current_matched]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [uniform]
+    geometries: [n25_u42_d294_r210, n25_u42_d350_r210, n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 18
+
+  - id: E11_alpha_stress_long_current_delay_n25
+    scenarios: [fmnist_b01_n25_t80, fmnist_b01_n25_t120]
+    methods: [dp_far_current_matched, dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary, boundary_k10, stress8_uncertified, stress12_uncertified]
+    geometries: [n25_u42_d294_r210, n25_u42_d350_r210, n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 144

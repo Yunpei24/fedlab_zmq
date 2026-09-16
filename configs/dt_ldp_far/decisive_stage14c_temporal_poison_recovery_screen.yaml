@@ -1,0 +1,28 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage14c_temporal_poison_recovery_screen_v1
+scope: strict_causal_reference_clean_attack_recovery_screen
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 9
+
+# Exploratory paired screen: rounds 1--6 clean, 7--12 attacked and 13--20
+# recovery.  Accuracy is descriptive.  Promotion requires consistent temporal
+# reference and recovery diagnostics before a three-seed confirmation.
+experiments:
+  - id: E27_temporal_reference_poison_recovery
+    scenarios: [fmnist_b01_n25_t20]
+    methods:
+      - dt_ldp_far_stage14_moment_current_trust_guard
+      - dt_ldp_far_stage14_moment_lagged_trust_guard
+      - dt_ldp_far_stage14_moment_lagged_frozen_attack_trust_guard
+    references: [fcc]
+    threats:
+      - ipm20_n25_phase_7_12
+      - alie20_n25_phase_7_12
+      - bf20_n25_s10_phase_7_12
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 9

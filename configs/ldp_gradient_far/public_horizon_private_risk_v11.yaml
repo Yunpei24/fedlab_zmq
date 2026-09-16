@@ -1,0 +1,21 @@
+campaign_id: public_horizon_private_risk_v11
+device: mps
+calibration_seeds: [170501, 170502]
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+rounds: 120
+clip: 2.0
+risk_scale: 0.5
+evaluation_rounds: [1, 5, 10, 20, 30, 40, 50, 60, 80, 100, 120]
+expected_runs: 8
+epsilon: 4.0
+delta: 1.0e-5
+minimum_worst20_advantage_pp: 1.0
+maximum_accuracy_loss_pp: 1.0
+new_controls: [erm_mean, erm_rfa]
+historical_controls: [v7_erm_mean_C1, v7_erm_mean_C2, v7_erm_rfa_C1, v7_erm_rfa_C2, v9_erm_mean, v9_erm_rfa]
+reserved_confirmation_seeds: [170601, 170602, 170603, 170604]
+test_evaluated: false
+attacks: none
+automatic_confirmation: false
+automatic_attacks: false
+protocol: output/analysis/Public_Horizon_Private_Risk_V11_Protocol.md

@@ -1,0 +1,25 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage1_alpha_delay_n25_v1
+scope: falsify_delay_advantage_and_alpha_control_before_long_runs
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 12
+
+experiments:
+  - id: E11_alpha_stress_delay_n25_screen
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dp_far_current_matched, dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts:
+      - uniform
+      - medium
+      - boundary
+      - boundary_k5
+      - stress2_uncertified
+      - stress4_uncertified
+    geometries: [c4_u28_d240_r120]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12

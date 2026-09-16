@@ -1,0 +1,98 @@
+schema_version: 1
+matrix_id: s0_step1i_fmnist_mask_clip_calibration
+common: common.yaml
+description: >-
+  Preregistered no-DP calibration of the user-level clipping threshold for the
+  classifier-tail and last-layer public masks. The grid is fixed before these
+  runs are observed. For each mask, the smallest threshold passing every
+  utility and clipping-health gate is selected for the subsequent matched
+  horizon/privacy screen.
+
+common_overrides:
+  protocol_id: scfar_dp_mask_clip_calibration_v1
+  execution_scope: public_static_parameter_mask_clip_calibration
+  description: >-
+    Development-only calibration of C for reduced-dimensional central-DP
+    candidates. These results tune a public benchmark protocol and are not an
+    end-to-end differentially private model-selection claim.
+  invariants:
+    parameter_mask_selection: public_architecture_only
+    clipping_grid_selection: preregistered_before_execution
+    frozen_coordinates_depend_on_private_data: false
+    frozen_coordinates_transmitted: false
+    frozen_coordinates_noised: false
+  base_config:
+    training:
+      num_rounds: 20
+      algo_config:
+        privacy_num_rounds: 20
+  methods:
+    clipcal_mask_classifier_tail:
+      algorithm: scfar_dp
+      role: masked_nodp_clipping_calibration
+      tilt_policy: fixed
+      algo_config:
+        active_parameter_mode: classifier_tail
+        scfar_aggregation_rule: uniform
+        far_alpha: 0.0
+        kappa_w: 1.0
+        sensitivity_mode: automatic_certified
+    clipcal_mask_last_layer:
+      algorithm: scfar_dp
+      role: masked_nodp_clipping_calibration
+      tilt_policy: fixed
+      algo_config:
+        active_parameter_mode: last_layer
+        scfar_aggregation_rule: uniform
+        far_alpha: 0.0
+        kappa_w: 1.0
+        sensitivity_mode: automatic_certified
+
+preregistration:
+  primary_question: >-
+    For each promoted reduced-dimensional mask, what is the smallest clipping
+    threshold that preserves learning without an always-clipped or
+    never-clipped aggregate-update regime?
+  development_seed_only: {partition_seed: 104, training_seed: 17}
+  horizon_rounds: 20
+  public_grid:
+    user_clip_norm: [0.7, 1.4, 2.8, 5.6]
+    derivation: >-
+      Multiplicative factors {1/2, 1, 2, 4} around the previously frozen
+      full-update threshold C=1.4, shared by both masks.
+  feasibility_gate:
+    final_test_accuracy_min: 0.50
+    final_worst20_accuracy_min: 0.20
+    median_user_clip_rate_min_exclusive: 0.05
+    median_user_clip_rate_max_exclusive: 0.95
+  selection_rule: >-
+    Select independently for each mask the smallest C passing all gates. If no
+    C passes, exclude the mask. Ties cannot occur because C is strictly ordered.
+
+experiments:
+  - id: step1i_classifier_tail
+    expected_tasks: 4
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [clipcal_mask_classifier_tail]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [0.7, 1.4, 2.8, 5.6]
+    seed_pairs:
+      - {partition_seed: 104, training_seed: 17}
+  - id: step1i_last_layer
+    expected_tasks: 4
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [clipcal_mask_last_layer]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [0.7, 1.4, 2.8, 5.6]
+    seed_pairs:
+      - {partition_seed: 104, training_seed: 17}

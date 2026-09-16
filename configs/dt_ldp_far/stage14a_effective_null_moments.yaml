@@ -1,0 +1,58 @@
+campaign_id: dt_ldp_far_stage14a_effective_null_moments_v1
+scope: synthetic_mechanism_audit_without_accuracy_selection
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  ambient_dimension: 256
+  honest_outliers: 5
+  noise_std: 0.012
+  public_noise_scales: [1.0, 1.5, 2.0]
+  noise_permutations: [identity, rotate7, reverse]
+  outlier_geometries: [aligned, orthogonal]
+  threats: [none, ipm, alie, bitflip_x10]
+
+geometry:
+  server_clip_norm: 0.42
+  fcc_radius_at_full_dimension: 0.13
+  fcc_anchor: zero_public
+  score_subspace_mode: public_coordinates
+  score_subspace_dimensions: [32, 64, 128, 256]
+  score_subspace_seeds: [1701, 1709, 1723]
+
+scores:
+  families: [effective_moment, empirical_quantile]
+  individual_calibration_weights: [0.0, 0.25, 0.5, 0.75, 1.0]
+  # Explicit convention: 0 = one pooled calibration; 1 = fully client-specific.
+  moment_z_clip: 4.0
+  quantile_tail_probability: 0.90
+  variance_ridge: 1.0e-12
+
+weights:
+  kappa_w: 2.0
+
+randomness:
+  calibration_seed: 2026091401
+  null_holdout_seed: 2026091402
+  signal_seeds: [28, 36, 54]
+  calibration_draws: 512
+  null_holdout_draws: 512
+  signal_draws: 30
+
+gates:
+  null_abs_score_noise_correlation_max: 0.10
+  null_noise_tier_score_range_max: 0.05
+  null_pairwise_ks_max: 0.10
+  clean_geometry_correlation_min: 0.50
+  honest_outlier_recall_at_5_min: 0.60
+  honest_outlier_weight_mass_min_exclusive: 0.20
+  score_degenerate_rate_max: 0.10
+  max_individual_weight: 0.08
+  attacked_byzantine_weight_mass_max: 0.20
+  attacked_global_honest_outlier_recall_at_5_min: 0.35
+
+decision:
+  accuracy_must_not_be_used: true
+  statistical_gate_required_before_end_to_end: true
+  robustness_gate_required_for_direct_promotion: true
+  if_no_statistical_survivor: stop_radial_energy_corrections

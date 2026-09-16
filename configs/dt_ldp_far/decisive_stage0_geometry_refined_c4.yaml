@@ -1,0 +1,43 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage0_geometry_refined_c4_v1
+scope: public_refined_geometry_gate_after_local_clip_calibration
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 24
+
+experiments:
+  - id: E11_refined_public_geometry_gate_c4
+    scenarios: [fmnist_b01_n10_t20]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries:
+      - c4_u18_d135_r090
+      - c4_u18_d135_r180
+      - c4_u18_d180_r090
+      - c4_u18_d180_r180
+      - c4_u18_d225_r090
+      - c4_u18_d225_r180
+      - c4_u20_d150_r100
+      - c4_u20_d150_r200
+      - c4_u20_d200_r100
+      - c4_u20_d200_r200
+      - c4_u20_d250_r100
+      - c4_u20_d250_r200
+      - c4_u22_d165_r110
+      - c4_u22_d165_r220
+      - c4_u22_d220_r110
+      - c4_u22_d220_r220
+      - c4_u22_d275_r110
+      - c4_u22_d275_r220
+      - c4_u24_d180_r120
+      - c4_u24_d180_r240
+      - c4_u24_d240_r120
+      - c4_u24_d240_r240
+      - c4_u24_d300_r120
+      - c4_u24_d300_r240
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 24

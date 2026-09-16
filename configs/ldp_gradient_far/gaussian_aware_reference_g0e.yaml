@@ -1,0 +1,152 @@
+campaign_id: gaussian_aware_reference_g0e_mps_v1
+scope: preregistered_reference_only_crossfit_fcc_bounded_correction
+
+# G0e is a new confirmatory attempt.  No identity inspected by G0--G0d is
+# reused in calibration, development or holdout.
+excluded_prior_seeds:
+  [28, 36, 54, 107, 131, 211, 307, 401, 503, 607, 701, 809, 907,
+   1009, 1103, 1201, 1301, 1409, 2203, 2309, 2411, 2503, 2609,
+   3001, 3109, 3203, 3301, 3407, 3511, 3607,
+   4001, 4103, 4201, 4303, 4409,
+   5003, 5101, 5209, 5303, 5407, 5501, 5609,
+   2026090901, 2026091101, 2026091301,
+   2026091701, 2026091703]
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  reference_only: true
+  far_weights_used: false
+  accuracy_used: false
+  inverse_variance_estimand_forbidden: true
+  base_reference: fcc
+  correction_is_bounded_around_fcc: true
+  calibration_chain: server_clip_then_leave_one_out_fcc
+  calibration_centre_law: same_preregistered_population_centre_law_and_public_anchor_rule
+  calibration_is_offline_and_cross_fitted: true
+  crossfit_references_are_not_online_solver_inputs: true
+  parameters_are_derived_from_public_budgets: true
+  holdout_used_for_selection: false
+  holdout_blocked_until_development_passes: true
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, reverse]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  fcc:
+    radius: 0.13
+  rfa:
+    max_iter: 80
+    tolerance: 1.0e-8
+    smoothing: 1.0e-8
+  trimmed_mean:
+    trim_count: 5
+
+  # None of these are tuned against reference error or accuracy.  The
+  # executable derives gamma, G, beta and K deterministically from the public
+  # budgets below and records the derivation in derived_parameters.json.
+  g0e_public_budgets:
+    regular_honest_false_tail_rate: 0.10
+    # Both scales are tied to the already public FCC radius rather than chosen
+    # from development accuracy.  The raw correction may add at most the FCC
+    # contamination bound, and its final displacement is at most 20% of tau.
+    correction_contamination_budget_fraction_of_fcc: 1.0
+    correction_radius_budget_fraction_of_fcc_radius: 0.20
+    target_solver_contraction: 0.3333333333333333
+    solver_error_tolerance: 1.0e-6
+    replace_one_bound_max: 0.030
+    variance_floor: 1.0e-12
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference: true
+
+threats:
+  names: [none, alie, ipm, bitflip_x10, model_replacement]
+  separated_for_gates: [ipm, bitflip_x10, model_replacement]
+  evasive_controls: [alie]
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+  development_severities: [0.75, 1.0, 1.25]
+  holdout_severities: [0.60, 0.90, 1.10, 1.40]
+
+randomness:
+  # The two folds exchange the roles ``variance-fit`` and ``quantile-score``.
+  # Therefore no residual is standardized by a reference-variance estimate
+  # fitted with the same calibration seed.
+  calibration_folds:
+    - [2026092301, 2026092309]
+    - [2026092411, 2026092423]
+  calibration_draws_per_seed: 32
+  calibration_contexts:
+    - name: regular_only
+      include_outliers: false
+      geometry: orthogonal
+    - name: bounded_outliers_aligned
+      include_outliers: true
+      geometry: aligned
+    - name: bounded_outliers_orthogonal
+      include_outliers: true
+      geometry: orthogonal
+  pair_noise_across_tier_permutations: true
+  development_seeds: [6007, 6101, 6203, 6301, 6407]
+  development_draws_per_seed: 1
+  holdout_seeds: [7001, 7103, 7207, 7307, 7411, 7507, 7603]
+  holdout_draws_per_seed: 2
+  replace_one_trials_per_seed_cell: 4
+
+gates:
+  complete_fraction_min: 1.0
+  stability_complete_fraction_min: 1.0
+  finite_primary_metric_fraction_min: 1.0
+  clean_reference_error_ratio_to_uniform_max: 1.0
+  attacked_reference_error_ratio_to_fcc_max: 1.05
+  evasive_reference_error_ratio_to_fcc_max: 1.05
+  heteroscedastic_attacked_error_difference_to_fcc_ci95_high_max: 0.0
+  # Conservatism is allowed: only excess false-tail above eta is gated.
+  regular_honest_statistical_tail_rate_upper_excess_max: 0.05
+  regular_honest_influence_cap_activation_rate_max: 0.20
+  honest_outlier_not_cap_limited_rate_min: 0.50
+  diagnostic_group_observations_min: 5
+  diagnostic_group_seed_clusters_min: 5
+  regular_tier_clients_per_observation_min: 2
+  separated_byzantine_influence_share_max: 0.25
+  replace_one_bound_max: 0.030
+  empirical_replace_one_violation_max: 0
+  solver_gradient_residual_max: 1.0e-6
+  correction_radius_violation_max: 0
+
+selection:
+  phase: development_gate_only
+  candidate_grid: forbidden
+  holdout_used_for_selection: false
+  if_development_fails: stop_without_reading_or_generating_holdout
+  promotion_rule: all_preregistered_development_and_holdout_gates_pass
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  allow_cpu_fallback: false

@@ -1,0 +1,70 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage25_robust_anchor_containment_validation_v1
+scope: preregistered_rfa_anchor_bounded_far_correction_end_to_end_holdout
+common: common.yaml
+seed_pair_indices: [27, 28, 29, 30]
+expected_tasks: 36
+
+analysis_split:
+  integration_screen_seed: 331
+  confirmatory_seeds: [337, 347, 349]
+  screen_must_not_change_confirmatory_gates: true
+
+analysis:
+  control_method: dt_ldp_far_stage19_peer_support
+  candidate_method: dt_ldp_far_stage25_robust_anchor_far
+
+gates:
+  # RFA anchor alone (alpha=0) versus the all-client uniform mean.
+  anchor_no_attack_accuracy_mean_min_pp: -1.5
+  anchor_no_attack_accuracy_each_min_pp: -4.0
+  anchor_attacked_accuracy_gain_mean_min_pp: 0.5
+  anchor_attacked_accuracy_gain_each_attack_mean_min_pp: 0.25
+  anchor_attacked_positive_gain_rate_min: 0.6666666666666666
+  anchor_attacked_worst20_difference_mean_min_pp: -1.0
+
+  # Bounded FAR correction versus the exact same RFA anchor at alpha=0.
+  correction_no_attack_accuracy_mean_min_pp: -1.0
+  correction_attacked_accuracy_gain_mean_min_pp: 0.0
+  correction_attacked_positive_gain_rate_min: 0.5
+  correction_attacked_worst20_difference_mean_min_pp: -1.0
+  candidate_concentration_median_min: 1.002
+  candidate_correction_norm_median_min: 0.0001
+
+  # End-to-end candidate versus the all-client uniform mean.
+  candidate_no_attack_accuracy_mean_min_pp: -1.5
+  candidate_no_attack_accuracy_each_min_pp: -4.0
+  candidate_attacked_accuracy_gain_mean_min_pp: 0.5
+  candidate_attacked_accuracy_gain_each_attack_mean_min_pp: 0.25
+  candidate_attacked_positive_gain_rate_min: 0.6666666666666666
+  candidate_attacked_worst20_difference_mean_min_pp: -1.0
+
+  privacy_epsilon_difference_max: 0.01
+  every_weight_cap_must_hold: true
+  every_correction_certificate_must_hold: true
+  strict_randomness_pair_key_required: true
+
+experiments:
+  - id: E38_stage25_unfiltered_uniform_control
+    scenarios: [fmnist_b01_n25_t12]
+    methods: [dt_ldp_far_stage19_peer_support]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12
+
+  - id: E39_stage25_rfa_anchor_and_bounded_far
+    scenarios: [fmnist_b01_n25_t12]
+    methods: [dt_ldp_far_stage25_robust_anchor_far]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform, boundary]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 24

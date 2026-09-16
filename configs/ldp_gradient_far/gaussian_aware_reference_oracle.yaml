@@ -1,0 +1,109 @@
+campaign_id: gaussian_aware_reference_oracle_v1
+scope: preregistered_synthetic_reference_and_score_audit
+
+# This audit is deliberately synthetic.  It is run before Fashion-MNIST so
+# the reference and score cannot be selected after inspecting test accuracy.
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, rotate7, reverse]
+
+references:
+  candidates: [uniform_mean, fcc, fna_cc, rfa, f_sigma_huber]
+  # Proxy for the preceding released reference: independent of the current
+  # cohort, close to (but not equal to) the population centre.
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  fcc:
+    radius: 0.13
+  fna_cc:
+    radius: 0.13
+    max_weight_ratio: 2.0
+    variance_floor: 1.0e-12
+  rfa:
+    max_iter: 80
+    tolerance: 1.0e-8
+    smoothing: 1.0e-8
+  f_sigma_huber:
+    # Null selects a Laurent--Massart chi-square radius separately for each
+    # block; it is dimension-aware (a block contains 16 coordinates).
+    standardized_threshold: null
+    null_tail_probability: 0.01
+    # Match the total public influence radius of the FCC comparator:
+    # 0.13/sqrt(4)=0.065 per block and sqrt(sum_b rho_b^2)=0.13.
+    influence_cap: [0.065, 0.065, 0.065, 0.065]
+    regularization: 0.20
+    num_steps: 20
+    variance_floor: 1.0e-12
+
+# All methods are scored through an exact leave-one-out reference.  The
+# reference variance is calibrated on independent public-null simulations.
+score:
+  false_outlier_quantile: 0.95
+  variance_floor: 1.0e-12
+  novelty_start_z: 1.0
+  novelty_full_z: 2.5
+  rejection_start_z: 3.0
+  rejection_full_z: 5.0
+  trust_floor: 0.02
+  alpha: 0.80
+
+aggregation:
+  server_clip_norm: 0.42
+
+threats:
+  names: [none, alie, ipm, bitflip_x10, model_replacement]
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+  severities: [0.75, 1.0, 1.25]
+  # ALIE is treated as an evasive control.  It is reported but excluded from
+  # the separated-attack promotion gate.
+  separated_for_gates: [ipm, bitflip_x10, model_replacement]
+  evasive_controls: [alie]
+
+randomness:
+  calibration_seed: 2026090901
+  evaluation_seeds: [28, 36, 54, 107, 131]
+  calibration_draws: 96
+  draws_per_seed: 8
+
+# These gates are frozen before the full oracle campaign is run.  Passing is
+# necessary, not sufficient, for promotion to an end-to-end benchmark.
+gates:
+  clean_reference_error_ratio_to_uniform_max: 1.05
+  attacked_reference_error_ratio_to_uniform_max: 0.80
+  false_outlier_rate_min: 0.02
+  false_outlier_rate_max: 0.10
+  abs_score_noise_std_correlation_max: 0.15
+  noise_tier_mean_score_range_max: 0.25
+  honest_outlier_recall_min: 0.60
+  honest_outlier_weight_mass_gain_over_uniform_min: 0.01
+  separated_byzantine_weight_mass_max: 0.20
+  separated_aggregate_error_ratio_to_uniform_max: 1.00
+
+decision:
+  accuracy_must_not_be_used: true
+  primary_candidate: f_sigma_huber
+  pass_is_necessary_not_sufficient: true
+  if_primary_passes: authorize_held_out_fashion_mnist_confirmation
+  if_primary_fails: retain_negative_result_and_do_not_tune_on_evaluation_draws

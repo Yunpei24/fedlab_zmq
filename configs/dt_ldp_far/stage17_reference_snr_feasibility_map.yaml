@@ -1,0 +1,49 @@
+campaign_id: dt_ldp_far_stage17_reference_snr_feasibility_v1
+scope: preregistered_synthetic_reference_snr_and_clean_signal_map
+
+grid:
+  total_clients: [25, 50, 100]
+  byzantine_fraction: 0.20
+  effective_score_dimensions: [32, 64, 128, 256]
+  upload_noise_stds: [0.006, 0.009, 0.012]
+  public_noise_scales: [1.0, 1.5, 2.0]
+  noise_permutations: [identity, reverse]
+  outlier_geometries: [aligned, orthogonal]
+  honest_outlier_fraction_of_total: 0.20
+
+geometry:
+  server_clip_norm: 0.42
+  fcc_radius: 0.13
+  moment_z_clip: 4.0
+  individual_calibration_weight: 1.0
+  variance_ridge: 1.0e-12
+
+randomness:
+  calibration_seed: 2026091701
+  null_holdout_seed: 2026091702
+  signal_seeds: [211, 223, 239, 251, 269]
+  calibration_draws: 96
+  null_holdout_draws: 96
+  signal_draws: 12
+
+gates:
+  null_abs_score_noise_correlation_max: 0.10
+  null_noise_tier_score_range_max: 0.05
+  membership_oracle_fcc_error_ratio_mean_max: 1.00
+  membership_oracle_fcc_error_ratio_p90_max: 1.25
+  public_preclip_noise_floor_ratio_mean_max: 1.00
+  clean_geometry_correlation_mean_min: 0.50
+  honest_outlier_recall_mean_min: 0.60
+  minimum_group_pass_rate: 0.80
+
+decision:
+  accuracy_must_not_be_used: true
+  effective_dimension_is_a_structural_assumption: true
+  blind_projection_is_not_claimed_to_improve_snr: true
+  canonical_noise_std: 0.012
+  selection_order:
+    - highest_upload_noise_std
+    - smallest_total_clients
+    - largest_effective_score_dimension
+  if_no_cell_passes: do_not_run_stage18
+

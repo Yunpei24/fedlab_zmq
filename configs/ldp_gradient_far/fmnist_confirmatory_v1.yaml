@@ -1,0 +1,81 @@
+schema_version: 1
+campaign_id: ldp_gradient_far_fmnist_confirmatory_v1
+base_config: fmnist_pilot.yaml
+output_root: ../../results/ldp_gradient_far/fmnist_confirmatory_v1
+seeds: [28, 36, 54]
+
+# The public calibration gate selected C=8, U=16 and server_lr=0.2 at T=40.
+# All DP arms keep the same fixed-WOR sampler and target (epsilon,delta).
+jobs:
+  - id: hom_uniform
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 0.0
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+
+  - id: hom_fcc_alpha1
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 1.0
+          robust_reference: centered_clipping
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+
+  - id: hom_fna_alpha1
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 1.0
+          robust_reference: noise_aware_centered_clipping
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+
+  - id: hetero_uniform
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 0.0
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+          privacy_noise_multiplier_scale_by_client: [1, 1, 1, 1, 1, 2, 2, 2, 2, 2]
+
+  - id: hetero_fcc_alpha1
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 1.0
+          robust_reference: centered_clipping
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+          privacy_noise_multiplier_scale_by_client: [1, 1, 1, 1, 1, 2, 2, 2, 2, 2]
+
+  - id: hetero_fna_alpha1
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 1.0
+          robust_reference: noise_aware_centered_clipping
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+          privacy_noise_multiplier_scale_by_client: [1, 1, 1, 1, 1, 2, 2, 2, 2, 2]

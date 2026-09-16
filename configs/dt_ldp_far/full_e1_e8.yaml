@@ -1,0 +1,20 @@
+schema_version: 1
+campaign_id: dt_ldp_far_full_e0_e8_v2
+scope: full
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 318
+
+experiments:
+  - {id: E0_public_geometry_calibration, scenarios: [fmnist_b01, fmnist_b05], methods: [dt_ldp_far], references: [fcc], threats: [none], privacy: [eps4], tilts: [medium, boundary], geometries: [calibrated_d02, calibrated_d05, calibrated_d10], local_epochs: [5], delays: [1], expected_tasks: 36}
+  - {id: E1_native_non_private, scenarios: [fmnist_b01, fmnist_b05], methods: [fedavg_no_dp, far_no_dp], references: [fcc], threats: [none], privacy: [none], tilts: [mild], geometries: [legacy_d2], local_epochs: [1], delays: [1], expected_tasks: 12}
+  - {id: E1_clipping_matched_no_noise, scenarios: [fmnist_b01, fmnist_b05], methods: [clipped_fedavg_no_dp, clipped_far_no_dp, dt_no_dp], references: [fcc], threats: [none], privacy: [none_poisson], tilts: [uniform, mild, medium, boundary], geometries: [calibrated_d05], local_epochs: [5], delays: [1], expected_tasks: 72}
+  - {id: E2_noise_decoupling, scenarios: [fmnist_b01, fmnist_b05], methods: [dp_far_current_matched, dt_ldp_far_oracle], references: [cm_nnm], threats: [none], privacy: [eps4], tilts: [boundary], geometries: [calibrated_d05], local_epochs: [5], delays: [1], expected_tasks: 12}
+  - {id: E3_privacy_utility, scenarios: [fmnist_b01, fmnist_b05], methods: [dp_fedavg, dt_ldp_far], references: [fcc], threats: [none], privacy: [eps1, eps2, eps4, eps8], tilts: [boundary], geometries: [calibrated_d05], local_epochs: [5], delays: [1], expected_tasks: 48}
+  - {id: E4_byzantine, scenarios: [fmnist_b01, fmnist_b05], methods: [dt_ldp_far], references: [fcc], threats: [none, bf20, ipm20, alie20, minmax20, minsum20], privacy: [eps4], tilts: [boundary], geometries: [calibrated_d05], local_epochs: [5], delays: [1], expected_tasks: 36}
+  - {id: E5_reference, scenarios: [fmnist_b01, fmnist_b05], methods: [dt_ldp_far], references: [fcc, huber, cm_nnm, trmean_nnm, rfa], threats: [alie20], privacy: [eps4], tilts: [boundary], geometries: [calibrated_d05], local_epochs: [5], delays: [1], expected_tasks: 30}
+  - {id: E6_staleness, scenarios: [fmnist_b01, fmnist_b05], methods: [dt_ldp_far], references: [fcc], threats: [none], privacy: [eps4], tilts: [boundary], geometries: [calibrated_d05], local_epochs: [5], delays: [1, 2, 3], expected_tasks: 18}
+  - {id: E7_poisson_steps, scenarios: [fmnist_b01, fmnist_b05], methods: [dt_ldp_far], references: [fcc], threats: [none], privacy: [eps4], tilts: [boundary], geometries: [calibrated_d05], local_epochs: [1, 2, 5], delays: [1], expected_tasks: 18}
+  - {id: E8_common_poisson, scenarios: [fmnist_b01, fmnist_b05], methods: [dp_fedavg, dp_qffl, dp_far_current_matched, dt_ldp_far], references: [cm_nnm], threats: [none], privacy: [eps4], tilts: [boundary], geometries: [calibrated_d05], local_epochs: [5], delays: [1], expected_tasks: 24}
+  - {id: E8_fedfdp_native, scenarios: [fmnist_b01, fmnist_b05], methods: [fedfdp_native], references: [cm_nnm], threats: [none], privacy: [fedfdp_native_eps4], tilts: [uniform], geometries: [legacy_d2], local_epochs: [1], delays: [1], expected_tasks: 6}
+  - {id: E8_fedfdp_compute_matched, scenarios: [fmnist_b01, fmnist_b05], methods: [fedfdp_compute_matched], references: [cm_nnm], threats: [none], privacy: [fedfdp_compute_matched_eps4], tilts: [uniform], geometries: [legacy_d2], local_epochs: [1], delays: [1], expected_tasks: 6}

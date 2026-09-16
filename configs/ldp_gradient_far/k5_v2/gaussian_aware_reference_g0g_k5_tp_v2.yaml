@@ -1,0 +1,167 @@
+campaign_id: gaussian_aware_reference_g0g_k5_tp_v2_mps_v2
+scope: preregistered_development_only_five_feature_transcript_predictor
+
+base_protocol:
+  config_path: configs/ldp_gradient_far/gaussian_aware_reference_g0g_k5_transcript_predictor.yaml
+  config_sha256: 3bec4dea583c7aeb41895d250b46f6a1873b6585bf7715f1b0f75f349b858990
+  inherit_all_unlisted_fields_exactly: true
+
+v1_pre_evaluation_provenance:
+  campaign_id: gaussian_aware_reference_g0g_k5_transcript_predictor_mps_v1
+  lock_path: configs/ldp_gradient_far/gaussian_aware_reference_g0g_k5_transcript_predictor.lock.json
+  lock_sha256: 0bb1250e5b0e822cf986bef4aa046ce71aa67ad20f9af2de48074aae5e60e44a
+  results_directory: results/ldp_gradient_far/gaussian_aware_reference_g0g_k5_transcript_predictor_mps_v1
+  required_artifact_sha256:
+    manifest.json: c257b1502f834659969c256e59b874ba39638cc89fb4725fd4b610510b600d8f
+    fit_decision.json: fffcd4fce246d9525d3ef64b8887cc5c735296847b83cc46ea3522fcedd9435f
+    feature_design_diagnostics.json: 21832a8b842d143e5e8a245d00700093ad0548e3457c47007093c01dd81e0613
+    fit_rng_registry.json: f88a48d1ec7a5904ba588d050b179300fb97761f6d1f54b94e4214b59894876d
+    frozen_predictor.json: cd7bcced96cd9700f6e9f3173c3eeb79f714ff92f9f391c138ccf499e9bb80ac
+    lambda_calibration.json: b5319939b0c58eb7c7f83473c32f94b48ce5b9d53adcfd3666a0a47bf8ed4ec6
+    fit_history_rows.csv: a648fa365599d7daf470aec32f332f2901cb08c12782679a6006c7e0e7b1105b
+    independent_fit_audit.json: 1915fa573516468d6551a44737eb906c40319535bddde0d653c1a2e7704f6962
+  expected_v1_invalid_checks:
+    [fit_device_equals_runtime, feature_rank_train_exact, feature_rank_refit_exact]
+  v1_effective_rank_train: 5
+  v1_effective_rank_refit: 5
+  v1_fit_device_string: mps:0
+  v1_evaluation_trajectory_count_exact: 0
+  v1_holdout_opened: false
+  v1_frozen_predictor_reused: false
+  rationale_only_no_v1_evaluation_observed: true
+
+technical_v2_mps_v1_failure_provenance:
+  campaign_id: gaussian_aware_reference_g0g_k5_tp_v2_mps_v1
+  lock_path: configs/ldp_gradient_far/k5_v2/gaussian_aware_reference_g0g_k5_tp_v2.lock.json
+  lock_sha256: e96669612ff7aec599f6199bd841ca16a5a3aa8cb1526551ea6e2b810cc330e2
+  locked_runner_sha256: ee3e4fe2b17fb0fc7c9fca24f2c32f5414f534477607801338235da6de6c62ab
+  results_directory: results/ldp_gradient_far/gaussian_aware_reference_g0g_k5_tp_v2_mps_v1
+  manifest_sha256: 26a310935e01bf4ded252c7a700b3f47780276b8c6f03d8d04ac6af1cfa98415
+  resolved_config_sha256: 3bd9d41522551f2a4cb6ef9c6ad6683ad9adbc6fea79839c536a897f2e42c215
+  artifact_inventory_exact: [manifest.json, resolved_config.json]
+  manifest_status: fit_running_evaluation_forbidden
+  evaluation_trajectory_count_exact: 0
+  fit_history_row_count_exact: 0
+  holdout_opened: false
+  failure_boundary: after_manifest_before_any_fit_or_evaluation_data
+  failure_boundary_machine_verified: true
+  failure_exception_attested: AttributeError
+  missing_symbol_attested: v1._read_csv
+  persistent_traceback_available: false
+  failure_cause_attested_not_machine_verified: true
+  failure_cause_is_scientific_gate: false
+  cause_attestation_source: contemporaneous_runtime_observation_and_code_review
+  scientific_design_changed_before_rerun: false
+  train_seeds_changed_before_rerun: false
+  calibration_seeds_changed_before_rerun: false
+  evaluation_seeds_changed_before_rerun: false
+  scientific_gates_changed_before_rerun: false
+
+structural_amendment:
+  timing: post_v1_fit_pre_any_evaluation
+  reason: remove_a_numerically_redundant_feature_before_evaluation
+  relation_before_projection: u_r_equals_D_r_over_n_times_m_r_unprojected
+  denominator: D_r_equals_max_m_min_and_sum_i_g_i_r
+  removed_feature: fixed_denominator_direction_t_minus_1
+  decision_source: algebra_and_v1_rank_diagnostic_not_evaluation_performance
+  claim_status: development_amendment_not_confirmatory
+
+features:
+  order:
+    - rolling_accepted_mean
+    - accepted_mean_t_minus_1
+    - accepted_mean_delta_t_minus_1_t_minus_2
+    - fixed_denominator_delta_t_minus_1_t_minus_2
+    - rolling_fixed_denominator_direction
+  feature_count_exact: 5
+  flattened_feature_rank_exact: 5
+  history_length: 4
+  normalization_formula: sqrt_sum_h_norm_V_j_h_squared_over_H_times_dimension
+  rms_floor: 1.0e-8
+  every_feature_l2_cap: 0.13
+  rank_diagnostic: two_pass_modified_gram_schmidt_on_unit_norm_columns
+  rank_relative_tolerance: max_H_times_d_and_J_times_float32_epsilon
+
+randomness:
+  train_outer_seeds:
+    [2027043003, 2027043017, 2027043029, 2027043041,
+     2027043053, 2027043067, 2027043079, 2027043091,
+     2027043107, 2027043121, 2027043133, 2027043149]
+  calibration_outer_seeds:
+    [2027051001, 2027051017, 2027051033, 2027051049,
+     2027051065, 2027051081, 2027051097, 2027051113]
+  evaluation_outer_seeds:
+    [2027050201, 2027050217, 2027050233, 2027050249,
+     2027050265, 2027050281, 2027050297, 2027050313,
+     2027050329, 2027050345, 2027050361, 2027050377]
+  reserved_holdout_seeds:
+    [2027044009, 2027044021, 2027044033, 2027044047,
+     2027044059, 2027044071, 2027044087]
+  train_role: exact_v1_outer_seed_reuse
+  calibration_role: new_after_v1_fit_disjoint_from_every_prior_registry
+  evaluation_role: exact_v1_unopened_seed_registry
+  holdout_rule: registry_metadata_only_never_generate
+
+prior_registry_snapshot:
+  timing: before_k5_v2_preregistration
+  scanner: k4b_seed_values_over_ldp_gradient_far_and_dt_ldp_far_yaml_excluding_this_file
+  distinct_integer_count: 271
+  canonical_sorted_integer_sha256: 2abf8caaa27f55b23e73527126d207db6a3b3e4da255584bcc8007e85af0a4b0
+  new_calibration_seed_overlap: []
+
+nested_monte_carlo_streams:
+  train_target_stream_tag: k5_tp_train_target_construction
+  calibration_target_stream_tag: k5_tp_v2_calibration_target_construction
+  calibration_evaluation_stream_tag: k5_tp_v2_calibration_lambda_evaluation
+  evaluation_target_stream_tag: k5_tp_evaluation_privileged_target_construction
+  evaluation_stream_tag: k5_tp_final_evaluation
+  train_stream_reused_exactly_from_v1: true
+  calibration_streams_new: true
+  evaluation_streams_equal_unopened_v1_plan: true
+
+scientific_gates_must_equal_v1:
+  primary_gain_vs_k4b_mean_min: 0.10
+  primary_gain_vs_k4b_ci95_low_strictly_greater_than: 0.0
+  primary_gain_vs_k4_mean_min: 0.30
+  primary_gain_vs_k4_ci95_low_strictly_greater_than: 0.20
+  primary_gain_vs_one_dimensional_mean_min: 0.05
+  primary_gain_vs_one_dimensional_ci95_low_strictly_greater_than: 0.0
+  ch_capture_fraction_mean_min: 0.40
+  ch_capture_fraction_ci95_low_strictly_greater_than: 0.30
+  homogeneous_gain_vs_k4b_ci95_low_strictly_greater_than: 0.0
+  heteroscedastic_gain_vs_k4b_ci95_low_strictly_greater_than: 0.0
+
+mandatory_headroom_diagnostics_no_new_gate:
+  per_seed_relative_headroom: (M_K4_minus_M_K4c)_over_M_K4
+  publish_minimum_across_evaluation_seeds: true
+  publish_median_across_evaluation_seeds: true
+  per_seed_split_mc_over_headroom: split_target_disagreement_mse_over_(M_K4_minus_M_K4c)
+  publish_split_mc_over_headroom_minimum_and_median_and_maximum: true
+  warning_if_denominator_near_zero_required: true
+  numerical_near_zero_rule: headroom_le_1e_minus_12_times_max_1_abs_M_K4
+  small_relative_headroom_warning_threshold: 0.05
+  changes_scientific_decision_gate: false
+
+preregistration_lock:
+  path: configs/ldp_gradient_far/k5_v2/gaussian_aware_reference_g0g_k5_tp_v2_mps_v2.lock.json
+  publication_requirement: publish_lock_sha256_before_fit_and_frozen_predictor_sha256_and_independent_fit_audit_sha256_before_evaluation
+  publish_lock_sha256_before_fit: true
+  evaluation_requires_published_frozen_predictor_sha256: true
+  evaluation_requires_published_fit_audit_sha256: true
+  lock_absent_during_review: true
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  device_identity_check: torch_device_type_equals_mps
+  allow_cpu_fallback: false
+  output_directory: results/ldp_gradient_far/gaussian_aware_reference_g0g_k5_tp_v2_mps_v2
+  phases: [validate, fit_freeze, evaluate_frozen]
+  evaluation_generation_before_valid_fit_and_hash_publication_forbidden: true
+  holdout_code_path_present: false
+
+decision_scope:
+  pass_authorizes: end_to_end_development_screen_only
+  pass_does_not_authorize: [holdout, promotion, confirmatory_claim]
+  valid_scientific_failure: stop_five_feature_linear_predictor_instance
+  validity_failure: invalid_or_inconclusive

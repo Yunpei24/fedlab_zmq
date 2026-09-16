@@ -1,0 +1,125 @@
+schema_version: 1
+campaign_id: rcig_batch_screen_v1
+scientific_status: exploratory_screen_not_confirmatory
+output_root: ../../results/ldp_gradient_far/rcig_batch_screen_v1
+protocol: output/analysis/RCIG_Batch_Screen_216_Protocol.md
+required_device: mps
+expected_runs: 216
+batch_sizes: [120, 240, 480]
+seeds: [24, 42, 72, 121]
+references: [uniform, rfa, recent]
+recent_oracle_diagnostics: offline_evaluation_only_not_released_or_used_for_updates
+scenarios: [none, bf_x10_persistent, ipm_persistent]
+noise_regimes:
+  homogeneous: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  heteroscedastic: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1]
+privacy:
+  epsilon: 4.0
+  delta: 1.0e-5
+  epsilon_tolerance: 1.0e-4
+  orders: [2, 3, 4, 5, 8, 10, 16, 20, 32, 64]
+  sigma_calibration: fixed_wor_replace_one_per_B_frozen_across_references
+  interpretation: per_client_per_run_not_composed_across_experiments
+execution:
+  resume_only_valid_complete: true
+  partial_or_invalid: stop_never_overwrite_or_restart
+  sequential: true
+  pytorch_enable_mps_fallback: "0"
+  private_cpu_forbidden: true
+  require_25_live_participating_clients_every_round: true
+  scientific_degradation_is_a_valid_negative_result: true
+  old_campaign_sources_results_and_gates_are_read_only: true
+  no_threshold_calibration_phase: true
+  no_4302_run_extension_launch: true
+pairing:
+  unit: batch_noise_seed_scenario
+  adjacent_references: true
+  same_partition_initialization_batches_noise_and_attack_random_streams: true
+  stochastic_design_not_bitwise_MPS_determinism_claim: true
+  reference_comparison_includes_the_different_warmup_policies: true
+base:
+  device: mps
+  data:
+    dataset: fashionmnist
+    model: lenet5_tanh
+    partition: client_dirichlet_balanced
+    alpha: 0.1
+    data_root: ./data
+  model: {architecture: lenet5_tanh}
+  clients:
+    num_clients: 25
+    min_clients: 25
+    sample_fraction: 1.0
+    sampling_strategy: random
+    dropout_rate: 0.0
+    fleet: [{type: raspberry_pi_4, count: 25}]
+    battery_init:
+      distribution: uniform_soc
+      params: {min_soc: 1.0, max_soc: 1.0}
+  eval: {eval_every: 1, honest_clients_only: true}
+  training:
+    num_rounds: 40
+    cost_model: measured
+    algorithm: ldp_gradient_far
+    algo_config:
+      batch_size: 120
+      fixed_batch_size: 120
+      local_epochs: 1
+      fixed_steps_per_round: 1
+      sampling_scheme: fixed_without_replacement
+      privacy_adjacency: replace_one
+      privacy_public_dataset_size: 2400
+      privacy_sampling_rate_override: 0.05
+      per_sample_backend: vectorized
+      enable_dp: true
+      target_epsilon: 4.0
+      noise_multiplier: 1.0  # Replaced by frozen per-B fixed-WOR calibration.
+      privacy_num_rounds: 40
+      delta: 1.0e-5
+      clip_norm: 4.0
+      far_server_lr: 0.2
+      far_server_clip_norm: 16.0
+      far_score_mode: raw_distance
+      noise_score_standardization: none
+      noise_score_include_server_contraction: false
+      score_subspace_mode: full
+      far_alpha: 0.1
+      kappa_w: 2.0
+      tilt_bound_policy: diagnostic
+      robust_reference: centered_clipping
+      num_byzantine: 5
+      reference_clip_radius: 4.0
+      anchor_update_rate: 0.1
+      anchor_clip_norm: 16.0
+      rfa_max_iter: 100
+      rfa_tol: 1.0e-6
+      expected_num_clients: 25
+      client_metrics_every: 1
+      fairness_tail_fraction: 0.2
+      suppress_private_client_diagnostics: true
+      external_attack_diagnostics: true
+      enable_oracle_diagnostics: false  # Enabled only for recent by resolution.
+      rcig_oracle_evaluation_only: false
+      rcig_oracle_metrics_are_not_release: false
+      rcig_oracle_separation_required: false
+      rcig_covariance_mode: full
+      rcig_calibration_mode: false
+      rcig_gate_window: 4
+      rcig_old_window: 4
+      rcig_new_window: 4
+      rcig_public_subspace_dimension: 64
+      rcig_public_subspace_seed: 20260911
+      rcig_gate_inner_mad: 2.5
+      rcig_gate_outer_mad: 4.5
+      rcig_min_accepted_mass: 0.6
+      rcig_covariance_ridge: 1.0e-6
+      rcig_process_variance: 1.0e-6
+      rcig_warmup_policy: uniform
+      rcig_reference_output_radius: 16.0
+      rcig_persistent_policy: recent_only
+      rcig_required_private_device: mps
+      rcig_required_server_postprocess_device: cpu
+      rcig_required_server_postprocess_dtype: torch.float64
+      rcig_mps_fallback: 0
+      rcig_covariance_registry: authenticated_public_mechanism
+      attack: {enabled: false, name: none, scale: 1.0, num_byzantine: 0, client_ids: []}

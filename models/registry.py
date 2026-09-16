@@ -5,7 +5,9 @@ Model zoo for FedLab.
 
 Available:
   mlp          — Multi-Layer Perceptron (MNIST, FashionMNIST)
-  lenet5       — LeNet-5 (MNIST, FashionMNIST, CIFAR-10)
+  lenet5       — LeNet-5 with historical Tanh activations
+  lenet5_tanh  — explicit alias for the historical LeNet-5
+  lenet5_relu  — LeNet-5 with ReLU activations and Kaiming initialization
   resnet8      — ResNet-8 (CIFAR-10, constrained devices, ~78K params)
   resnet18     — ResNet-18 (CIFAR-10/100, TinyImageNet)
   resnet50     — ResNet-50 (CIFAR-100, TinyImageNet)
@@ -74,16 +76,36 @@ class LeNet5(nn.Module):
     Examples:
       H=28 → flat_dim = 16 * 5 * 5 = 400
       H=32 → flat_dim = 16 * 6 * 6 = 576
+
+    ``activation='tanh'`` preserves the historical implementation used by
+    existing experiments.  ``activation='relu'`` exposes a controlled
+    architecture ablation without silently changing old ``lenet5`` configs.
     """
+
     def __init__(self, in_channels: int = 1, num_classes: int = 10,
-                 img_size: int = 28):
+                 img_size: int = 28, activation: str = "tanh"):
         super().__init__()
+        activation = activation.lower()
+        if activation not in {"tanh", "relu"}:
+            raise ValueError(
+                f"Unsupported LeNet-5 activation: {activation!r}. "
+                "Expected one of: 'tanh', 'relu'."
+            )
+        self.activation_name = activation
+
+        def make_activation() -> nn.Module:
+            if activation == "tanh":
+                return nn.Tanh()
+            # Avoid an in-place operation so per-sample-gradient and vmap
+            # tooling can use the ReLU variant safely.
+            return nn.ReLU(inplace=False)
+
         self.features = nn.Sequential(
             nn.Conv2d(in_channels, 6, kernel_size=5, padding=2),
-            nn.Tanh(),
+            make_activation(),
             nn.AvgPool2d(2, 2),
             nn.Conv2d(6, 16, kernel_size=5),
-            nn.Tanh(),
+            make_activation(),
             nn.AvgPool2d(2, 2),
         )
         # Compute the flattened feature size analytically from img_size.
@@ -92,11 +114,38 @@ class LeNet5(nn.Module):
         flat_dim = 16 * after_pool2 * after_pool2
         self.classifier = nn.Sequential(
             nn.Linear(flat_dim, 120),
-            nn.Tanh(),
+            make_activation(),
             nn.Linear(120, 84),
-            nn.Tanh(),
+            make_activation(),
             nn.Linear(84, num_classes),
         )
+
+        if activation == "relu":
+            self._reset_relu_parameters()
+
+    def _reset_relu_parameters(self) -> None:
+        """Initialize the ReLU ablation consistently with its nonlinearity.
+
+        The Tanh path deliberately retains PyTorch's historical defaults so
+        existing ``lenet5`` experiments remain reproducible.
+        """
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(
+                    module.weight, mode="fan_out", nonlinearity="relu"
+                )
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.Linear):
+                if module is self.classifier[-1]:
+                    # The output layer is linear (there is no following ReLU).
+                    nn.init.xavier_uniform_(module.weight)
+                else:
+                    nn.init.kaiming_uniform_(
+                        module.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
     def forward(self, x):
         x = self.features(x)
@@ -747,6 +796,8 @@ class EarlyExitViTTiny(ViTTiny):
 _MODEL_REGISTRY = {
     "mlp":          MLP,
     "lenet5":       LeNet5,
+    "lenet5_tanh":  LeNet5,
+    "lenet5_relu":  LeNet5,
     "resnet8":      ResNet8,
     "resnet8_ee":   EarlyExitResNet8,   # FedStep early-exit variant
     "resnet8_ee_gn": EarlyExitResNet8,  # early-exit + GroupNorm (BN-free, non-IID fix)
@@ -780,8 +831,9 @@ def get_model(model_name: str, dataset_name: str) -> nn.Module:
     Instantiate a model configured for the given dataset.
 
     Args:
-        model_name:   "mlp", "lenet5", "alexnet", "resnet8", "resnet18",
-                      "resnet50", "mobilenet_v3", "vit_tiny"
+        model_name:   "mlp", "lenet5", "lenet5_tanh", "lenet5_relu",
+                      "alexnet", "resnet8", "resnet18", "resnet50",
+                      "mobilenet_v3", "vit_tiny"
         dataset_name: "mnist", "cifar10", etc.
 
     Returns:
@@ -805,8 +857,14 @@ def get_model(model_name: str, dataset_name: str) -> nn.Module:
 
     if model_name == "mlp":
         return MLP(input_dim=in_c * img_size * img_size, num_classes=nc)
-    elif model_name == "lenet5":
-        return LeNet5(in_channels=in_c, num_classes=nc, img_size=img_size)
+    elif model_name in {"lenet5", "lenet5_tanh", "lenet5_relu"}:
+        activation = "relu" if model_name == "lenet5_relu" else "tanh"
+        return LeNet5(
+            in_channels=in_c,
+            num_classes=nc,
+            img_size=img_size,
+            activation=activation,
+        )
     elif model_name == "alexnet":
         return AlexNetCIFAR(in_channels=in_c, num_classes=nc)
     elif model_name == "alexnet_gn":

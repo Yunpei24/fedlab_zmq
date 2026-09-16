@@ -15,6 +15,7 @@ import torch.optim as optim
 from hardware.flop_cost import round_compute_flops
 
 from .base import AggregateResult, FLAlgorithm, register_algorithm
+from .parameter_masks import active_parameters, configure_active_parameters
 
 
 @register_algorithm("fedavg")
@@ -33,20 +34,42 @@ class FedAvg(FLAlgorithm):
         local_epochs = config.get("local_epochs", 1)
         max_grad_norm = config.get("max_grad_norm", None)
 
-        w_before = OrderedDict(
-            {k: v.clone().cpu() for k, v in model.state_dict().items()}
-        )
-
         model.train()
         model.to(device)
+        selection = configure_active_parameters(model, config)
+        trainable_parameters = active_parameters(model, selection)
+        active_names = set(selection.names)
+        state_dict = model.state_dict()
+        if selection.mode == "full":
+            # Preserve the historical full-update behavior, including floating
+            # buffers for architectures that have them.
+            w_before = OrderedDict(
+                {key: value.clone().cpu() for key, value in state_dict.items()}
+            )
+        else:
+            # A frozen coordinate must neither be transmitted nor receive
+            # central noise.  Only named parameters in the public mask enter
+            # the update vector.
+            w_before = OrderedDict(
+                {
+                    key: value.clone().cpu()
+                    for key, value in state_dict.items()
+                    if key in active_names
+                }
+            )
         optimizer_type = config.get("optimizer", "sgd").lower()
         momentum = config.get("momentum", 0.9)
         weight_decay = config.get("weight_decay", 1e-4)
         if optimizer_type == "adam":
-            optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+            optimizer = optim.Adam(
+                trainable_parameters, lr=lr, weight_decay=weight_decay
+            )
         else:
             optimizer = optim.SGD(
-                model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
+                trainable_parameters,
+                lr=lr,
+                momentum=momentum,
+                weight_decay=weight_decay,
             )
         criterion = nn.CrossEntropyLoss()
 
@@ -61,14 +84,19 @@ class FedAvg(FLAlgorithm):
                 loss = criterion(model(x), y)
                 loss.backward()
                 if max_grad_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    torch.nn.utils.clip_grad_norm_(
+                        trainable_parameters, max_grad_norm
+                    )
                 optimizer.step()
                 total_loss += loss.item()
                 num_batches += 1
 
         current_sd = model.state_dict()
         delta = OrderedDict(
-            {k: (w_before[k] - current_sd[k].cpu()).float() for k in w_before}
+            {
+                key: (w_before[key] - current_sd[key].cpu()).float()
+                for key in w_before
+            }
         )
         del w_before
         del current_sd
@@ -76,15 +104,18 @@ class FedAvg(FLAlgorithm):
 
         profile = config.get("device_profile")
         uplink_bytes = self.count_bytes(delta, sparse=False)
-        downlink_bytes = self.count_bytes(
-            delta, sparse=False
-        )  # same size as uplink for FedAvg (full model)
+        # The current protocol broadcasts a full model every round.  Frozen
+        # weights could be cached in a separate communication study, but doing
+        # so is not silently assumed by this utility screen.
+        downlink_bytes = (
+            uplink_bytes
+            if selection.mode == "full"
+            else self.compute_model_size_bytes(model)
+        )
         if profile:
-            # FedAvg trains every parameter — the trainable set is the full model.
-            trainable_names = [n for n, _ in model.named_parameters()]
             flops = round_compute_flops(
                 model,
-                trainable_names,
+                list(selection.names),
                 config,
                 profile,
                 dataloader,
@@ -118,8 +149,13 @@ class FedAvg(FLAlgorithm):
             "bytes_sent": uplink_bytes,
             "bytes_received": downlink_bytes,
             "local_loss": total_loss / max(num_batches, 1),
-            "compression_ratio": 1.0,
+            "compression_ratio": selection.fraction,
             "dataset_size": len(dataloader.dataset),
+            "active_parameter_mode": selection.mode,
+            "active_parameter_count": selection.active_count,
+            "full_parameter_count": selection.full_count,
+            "active_parameter_fraction": selection.fraction,
+            "active_parameter_names": list(selection.names),
         }
         return dict(delta), metadata
 
@@ -142,12 +178,12 @@ class FedAvg(FLAlgorithm):
                 for k in agg:
                     agg[k] += update[k].float() * w_k
 
-        new_weights = OrderedDict(
-            {
-                k: global_sd[k].float() - agg[k].to(global_sd[k].device)
-                for k in global_sd
-            }
-        )
+        new_weights = OrderedDict()
+        for key, value in global_sd.items():
+            if key in agg:
+                new_weights[key] = value.float() - agg[key].to(value.device)
+            else:
+                new_weights[key] = value.clone()
         del agg
         gc.collect()
         total_bytes = sum(m["bytes_sent"] for _, m, _ in client_updates)
@@ -161,6 +197,17 @@ class FedAvg(FLAlgorithm):
             else 0.0
         )
 
+        mask_metrics = {
+            key: client_updates[0][1][key]
+            for key in (
+                "active_parameter_mode",
+                "active_parameter_count",
+                "full_parameter_count",
+                "active_parameter_fraction",
+                "active_parameter_names",
+            )
+            if key in client_updates[0][1]
+        }
         return AggregateResult(
             new_weights=new_weights,
             metrics={
@@ -174,6 +221,7 @@ class FedAvg(FLAlgorithm):
                 "participation_rate": sum(participations) / K,
                 "jain_index": jain,
                 "num_clients": K,
+                **mask_metrics,
             },
         )
 
@@ -184,6 +232,10 @@ class FedAvg(FLAlgorithm):
             "batch_size": 32,
             "device": "cpu",
             "device_profile": None,
+            # Public, architecture-only selector.  ``full`` preserves the
+            # original FedAvg behavior.
+            "active_parameter_mode": "full",
+            "active_parameter_prefixes": None,
             # Diagnostic/smoke-test limit. Leave None for real experiments.
             "max_local_batches": None,
         }

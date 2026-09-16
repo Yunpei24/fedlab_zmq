@@ -1,0 +1,62 @@
+schema_version: 1
+campaign_id: dmd_cb_full_budget_v1
+output_root: results/ldp_gradient_far/dmd_cb_full_budget_v1
+protocol: output/analysis/DMD_CB_Full_Budget_Followup_Protocol.md
+base_matrix: configs/ldp_gradient_far/dmd_cb_private_v1.yaml
+pilot_root: results/ldp_gradient_far/dmd_cb_private_v1
+required_device: mps
+phases:
+  ce_full_budget_screen:
+    expected: 18
+    seeds: [24, 42, 72]
+    objectives: [ce]
+    modes: [uniform, direct_rfa, far_rfa]
+    scenarios: [none]
+  confirmation:
+    expected: 48
+    seeds: [101, 202, 303, 404]
+    objectives: [ce, dmd]
+    modes: [uniform, direct_rfa, far_rfa]
+    scenarios: [none]
+  attacks:
+    expected: 96
+    seeds: [101, 202, 303, 404]
+    objectives: [ce, dmd]
+    modes: [direct_rfa, far_rfa]
+    scenarios: [bf, ipm, alie]
+noise_regimes:
+  homogeneous: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  heteroscedastic: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1]
+attacks:
+  fraction: 0.2
+  client_ids: [0, 1, 2, 3, 4]
+  active_round_start: 17
+  active_round_end: 40
+  scales: {bf: 10.0, ipm: 1.0, alie: 1.0}
+gates:
+  screen:
+    primary_mode: uniform
+    accuracy_noninferiority_pp: 0.25
+    balanced_accuracy_noninferiority_pp: 0.25
+    homogeneous_worst20_noninferiority_pp: 0.25
+    heteroscedastic_worst20_min_gain_pp: 0.25
+    heteroscedastic_balanced_accuracy_min_gain_pp: 0.0
+    heteroscedastic_positive_worst20_seeds: 2
+    gap_max_increase_pp: 0.5
+    loss_max_increase: 0.01
+  confirmation:
+    required_modes: [uniform, direct_rfa]
+    accuracy_noninferiority_pp: 0.25
+    balanced_accuracy_noninferiority_pp: 0.25
+    homogeneous_worst20_noninferiority_pp: 0.5
+    heteroscedastic_worst20_min_gain_pp: 0.25
+    heteroscedastic_positive_worst20_seeds: 3
+    gap_max_increase_pp: 0.5
+    loss_max_increase: 0.01
+    confidence: two_sided_student_95_df3
+execution:
+  private_compute: mps
+  fallback: 0
+  sequential: true
+  partial_or_invalid: stop_do_not_overwrite
+  next_phase: only_after_all_preregistered_criteria_pass

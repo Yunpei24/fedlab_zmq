@@ -1,0 +1,19 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage2_seed_hierarchy_n25_v1
+scope: disentangle_partition_and_training_randomness
+common: common.yaml
+seed_pair_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+expected_tasks: 9
+
+experiments:
+  - id: E11_seed_hierarchy_n25
+    scenarios: [fmnist_b01_n25_t80]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4]
+    tilts: [boundary]
+    geometries: [gate_u10_d10_r10]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 9

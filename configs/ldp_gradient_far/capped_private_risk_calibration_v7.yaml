@@ -1,0 +1,36 @@
+campaign_id: capped_private_risk_calibration_v7
+device: mps
+dataset: fashionmnist
+model: lenet5_tanh
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+num_clients: 10
+public_train_size: 4800
+validation_size: 1200
+batch_size: 240
+rounds: 60
+local_optimizer_steps: 0
+calibration_seeds: [170501, 170502]
+reserved_confirmation_seeds: [170601, 170602, 170603, 170604]
+clips: [1.0, 2.0]
+risk_scales: [0.5, 0.25]
+epsilon: 4.0
+epsilon_risk: 0.25
+delta: 1.0e-5
+eta: 2.0
+evaluation_rounds: [1, 5, 10, 20, 30, 40, 50, 60]
+attacks: none
+server_clip: null
+test_evaluated: false
+expected_runs: 24
+screen:
+  minimum_worst20_advantage_pp: 1.0
+  maximum_accuracy_loss_pp: 1.0
+  all_seeds_required: true
+  controls: [erm_mean_C1, erm_mean_C2, erm_rfa_C1, erm_rfa_C2]
+  robust_selection_order: [risk_rfa_C1_scale0.5, risk_rfa_C1_scale0.25, risk_rfa_C2_scale0.5, risk_rfa_C2_scale0.25]
+automatic_confirmation: false
+automatic_attacks: false
+parent_campaign: split_risk_gradient_fixed_step_v6
+paired_randomness_source: results/ldp_gradient_far/split_risk_gradient_v5/simulator_secret.json
+protocol: output/analysis/Capped_Private_Risk_Calibration_V7_Protocol.md

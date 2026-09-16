@@ -1,0 +1,40 @@
+schema_version: 1
+matrix_id: s0_step1f_fmnist_dpfedavg_privacy_feasibility
+common: common.yaml
+description: >-
+  Development-only DP-FedAvg feasibility screen executed separately with
+  pilot_rounds in {5,10,20,40}. It brackets the privacy-utility transition
+  before any further SC-FAR comparison. The screen uses one paired seed and
+  varies epsilon in {3,6,10}, with a no-DP control at every horizon. No method
+  is selected from final accuracy and then reported on these same runs: any
+  feasible cell must be confirmed on the three frozen seed pairs.
+
+preregistration:
+  primary_question: >-
+    Is there a horizon and conventional epsilon in which user-level central
+    DP-FedAvg learns above chance for n=25 and full-dimensional LeNet-5 updates?
+  pilot_rounds: [5, 10, 20, 40]
+  privacy_budgets: [no_dp, eps3, eps6, eps10]
+  development_seed_only: {partition_seed: 101, training_seed: 28}
+  feasibility_gate:
+    final_test_accuracy_min: 0.50
+    final_worst20_accuracy_min: 0.20
+    median_noise_to_clean_aggregate_ratio_max: 20.0
+  confirmation_rule: >-
+    A cell passing every gate is only a candidate; rerun it on seed pairs
+    (101,28), (102,36), and (103,54) before comparing SC-FAR.
+
+experiments:
+  - id: step1f_dpfedavg_feasibility
+    expected_tasks: 4
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [central_dp_fedavg_exact]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp, eps3, eps6, eps10]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}

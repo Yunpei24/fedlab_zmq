@@ -1,0 +1,35 @@
+schema_version: 1
+campaign_id: ldp_gradient_far_fmnist_dp_clip_recalibration_v1
+base_config: fmnist_pilot.yaml
+output_root: ../../results/ldp_gradient_far/fmnist_dp_clip_recalibration_v1
+
+# DP follow-up to the no-noise C screen.  U is scaled conservatively with C
+# because the L2 norm of the Gaussian component is proportional to C.  Alpha
+# remains zero so this stage estimates the privacy/optimisation trade-off only.
+jobs:
+  - id: dp_c2_u4_lr020
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 2.0
+          far_alpha: 0.0
+          far_server_clip_norm: 4.0
+          far_server_lr: 0.20
+
+  - id: dp_c4_u8_lr020
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 4.0
+          far_alpha: 0.0
+          far_server_clip_norm: 8.0
+          far_server_lr: 0.20
+
+  - id: dp_c8_u16_lr020
+    overrides:
+      training:
+        algo_config:
+          clip_norm: 8.0
+          far_alpha: 0.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20

@@ -1,0 +1,132 @@
+campaign_id: gaussian_aware_reference_g0g_k2_mps_v1
+scope: preregistered_reference_only_scalar_gate_global_influence_screen
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  reference_only: true
+  far_weights_used: false
+  accuracy_used: false
+  base_anchor: fixed_public_or_prior_transcript
+  covariance_role: statistical_tolerance_only
+  influence_cap_depends_on_covariance: false
+  inverse_variance_weighting: false
+  gate_sum_normalization: false
+  global_l2_cap: true
+  no_gate_is_exactly_fcc: true
+  covariance_provenance: public_authenticated
+  client_declared_covariance_forbidden: true
+  calibration_is_offline: true
+  development_only_screen: true
+
+excluded_prior_seeds:
+  [28, 36, 54, 107, 131, 211, 307, 401, 503, 607, 701, 809, 907,
+   1009, 1103, 1201, 1301, 1409, 2203, 2309, 2411, 2503, 2609,
+   3001, 3109, 3203, 3301, 3407, 3511, 3607, 4001, 4103, 4201,
+   4303, 4409, 5003, 5101, 5209, 5303, 5407, 5501, 5609, 6007,
+   6101, 6203, 6301, 6407, 7001, 7103, 7207, 7307, 7411, 7507,
+   7603, 2026092701, 2026092711, 2026092803, 2026092817,
+   2026101001, 2026101013, 2026101027, 2026101039, 2026101051,
+   2026110101, 2026110113, 2026110203, 2026110217,
+   2026111009, 2026111021, 2026111033, 2026111047, 2026111059]
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, reverse, byzantine_high, byzantine_low]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  total_client_influence_cap: 0.13
+  gate_transition_width: 1.0
+  statistical_false_tail_rate: 0.10
+  variance_floor: 1.0e-12
+  fcc_radius: 0.13
+  rfa:
+    max_iter: 80
+    tolerance: 1.0e-8
+    smoothing: 1.0e-8
+  trimmed_mean:
+    trim_count: 5
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference: true
+
+threats:
+  names: [none, alie, ipm, bitflip_x10, model_replacement]
+  separated_for_primary_gate: [ipm, bitflip_x10, model_replacement]
+  evasive_control: alie
+  severity: 1.0
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+
+randomness:
+  calibration_probe_rule: dedicated_public_rng_one_regular_probe_per_independent_stratum_cohort
+  calibration_deployed_threshold_rule: max_stratum_quantile_within_mode_and_noise_regime
+  calibration_seeds: [2026120107, 2026120119, 2026120209, 2026120221]
+  calibration_draws_per_seed: 32
+  calibration_contexts:
+    - name: regular_only
+      include_outliers: false
+      geometry: orthogonal
+    - name: bounded_outliers_aligned
+      include_outliers: true
+      geometry: aligned
+    - name: bounded_outliers_orthogonal
+      include_outliers: true
+      geometry: orthogonal
+  development_seeds: [2026121001, 2026121013, 2026121029, 2026121041, 2026121057]
+  replace_one_trials_per_seed_cell: 4
+  pair_standard_noise_across_regimes: true
+
+candidates:
+  primary: g0g_k2
+  names:
+    [uniform_mean, fcc, rfa, trimmed_mean, coordinate_median,
+     fixed_global_cap_no_gate, g0g_k2_sigma_blind, g0g_k2]
+
+gates:
+  complete_fraction_min: 1.0
+  finite_metric_fraction_min: 1.0
+  fixed_global_cap_identity_abs_error_max: 1.0e-6
+  contribution_cap_violation_max: 0
+  replace_one_violation_max: 0
+  regular_false_tail_rate_max: 0.15
+  pooled_false_tail_tier_gap_max: 0.10
+  pooled_gate_mean_tier_gap_max: 0.10
+  homogeneous_clean_error_ratio_to_fcc_max: 1.02
+  heteroscedastic_clean_error_ratio_to_fcc_max: 1.02
+  heteroscedastic_attacked_difference_ci95_high_max: 0.0
+  heteroscedastic_attacked_relative_gain_vs_fcc_min: 0.05
+  heteroscedastic_attacked_sigma_blind_difference_ci95_high_max: 0.0
+  heteroscedastic_attacked_relative_gain_vs_sigma_blind_min: 0.03
+  byzantine_high_error_ratio_to_sigma_blind_max: 1.0
+  attacked_error_ratio_to_fcc_max: 1.05
+  alie_error_ratio_to_fcc_max: 1.05
+  byzantine_realized_contribution_share_max: 0.25
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  allow_cpu_fallback: false

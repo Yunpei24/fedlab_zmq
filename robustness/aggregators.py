@@ -66,6 +66,33 @@ def clip_l2(vector: torch.Tensor, radius: float) -> torch.Tensor:
     raise ValueError("clip_l2 expects a vector or a matrix of row vectors")
 
 
+def guarded_aggregate(
+    aggregate: torch.Tensor,
+    reference: torch.Tensor,
+    *,
+    radius: float,
+) -> torch.Tensor:
+    r"""Project an aggregate into a public ball around a robust reference.
+
+    .. math::
+
+        A_G = F + \operatorname{Clip}_{R_G}(A-F).
+
+    If the reference obeys ``||F-theta|| <= B_F``, the triangle inequality
+    gives the conditional certificate ``||A_G-theta|| <= B_F + R_G``.  A zero
+    radius returns the reference exactly.  This operation is deterministic
+    post-processing when both inputs were built from already-private uploads.
+    """
+
+    if aggregate.ndim != 1 or reference.shape != aggregate.shape:
+        raise ValueError("aggregate and reference must be aligned vectors")
+    if radius < 0.0 or not math.isfinite(float(radius)):
+        raise ValueError("guard radius must be finite and non-negative")
+    if radius == 0.0:
+        return reference.clone()
+    return reference + clip_l2(aggregate - reference, float(radius))
+
+
 def centered_clipping(
     vectors: torch.Tensor,
     *,
@@ -93,6 +120,191 @@ def centered_clipping(
         raise ValueError("anchor dimension must match the client vectors")
     centered = vectors - anchor
     return anchor + clip_l2(centered, tau).mean(dim=0)
+
+
+def capped_inverse_variance_weights(
+    noise_variances: torch.Tensor,
+    *,
+    max_weight_ratio: float,
+    variance_floor: float = 1e-12,
+) -> torch.Tensor:
+    r"""Return inverse-variance weights projected onto a capped simplex.
+
+    The public cap is ``pi_i <= max_weight_ratio / n``.  It prevents a client
+    with an unusually small advertised DP variance from dominating the
+    reference.  The projection is the monotone water-filling solution
+
+    .. math::
+
+        \pi_i = \min\{\kappa_F/n,\; c/(v_i+v_0)\},
+        \qquad \sum_i \pi_i=1,
+
+    where ``c`` is the unique normalising constant.  Noise variances must be
+    public/authenticated mechanism parameters; accepting values chosen by an
+    untrusted client would let a Byzantine client claim zero variance and buy
+    excessive weight.
+    """
+
+    if noise_variances.ndim != 1 or noise_variances.numel() < 1:
+        raise ValueError("noise_variances must be a non-empty vector")
+    if not bool(torch.isfinite(noise_variances).all()) or bool(
+        (noise_variances < 0.0).any()
+    ):
+        raise ValueError("noise variances must be finite and non-negative")
+    if variance_floor <= 0.0 or not math.isfinite(float(variance_floor)):
+        raise ValueError("variance_floor must be finite and positive")
+    n = int(noise_variances.numel())
+    kappa = float(max_weight_ratio)
+    if not 1.0 <= kappa <= float(n):
+        raise ValueError("max_weight_ratio must lie in [1,n]")
+    cap = kappa / float(n)
+    raw = (noise_variances + float(variance_floor)).reciprocal()
+
+    weights = torch.zeros_like(raw)
+    active = torch.ones(n, dtype=torch.bool, device=raw.device)
+    remaining_mass = torch.ones((), dtype=raw.dtype, device=raw.device)
+    # At least one active index is fixed on every non-terminal iteration, so
+    # this loop executes at most n times.
+    while bool(active.any()):
+        active_raw = raw[active]
+        candidate = remaining_mass * active_raw / active_raw.sum()
+        over = candidate > cap + 1e-12
+        if not bool(over.any()):
+            weights[active] = candidate
+            break
+        active_indices = torch.nonzero(active, as_tuple=False).flatten()
+        capped_indices = active_indices[over]
+        weights[capped_indices] = cap
+        active[capped_indices] = False
+        remaining_mass = 1.0 - weights.sum()
+
+    # Remove harmless floating-point drift without violating the cap.
+    residual = 1.0 - weights.sum()
+    if abs(float(residual.item())) > 1e-10:
+        slack = (cap - weights).clamp_min(0.0)
+        if float(slack.sum().item()) <= 0.0:
+            raise RuntimeError("capped-simplex projection lost unit mass")
+        weights = weights + residual * slack / slack.sum()
+    return weights
+
+
+def noise_aware_centered_clipping(
+    vectors: torch.Tensor,
+    *,
+    anchor: torch.Tensor,
+    tau: float,
+    noise_variances: torch.Tensor,
+    max_weight_ratio: float = 2.0,
+    variance_floor: float = 1e-12,
+    output_radius: float | None = None,
+    return_diagnostics: bool = False,
+):
+    r"""Noise-aware, Byzantine-influence-bounded reference candidate.
+
+    .. math::
+
+        F_{\mathrm{NA\text{-}CC}}
+        = \Pi_{B(0,U)}\!\left[
+          a + \sum_i \pi_i\operatorname{Clip}_{\rho}(x_i-a)
+        \right].
+
+    ``pi`` is the capped inverse-variance vector returned above.  With public
+    fixed weights, replacing client ``k`` changes the unprojected reference by
+    at most ``2*pi_k*tau <= 2*kappa_F*tau/n``.  Euclidean projection is
+    non-expansive, so the optional output projection preserves this bound.
+    Replacing ``b`` Byzantine uploads by arbitrary alternatives consequently
+    changes the reference by at most ``2*b*kappa_F*tau/n``.
+
+    This is an influence certificate, not by itself a universal statistical
+    Byzantine-error theorem.  In the homoscedastic case the weights are
+    exactly uniform and the construction reduces to one-step centered
+    clipping.
+    """
+
+    _validate_vector_matrix(vectors)
+    if tau <= 0.0:
+        raise ValueError("tau must be positive")
+    anchor = anchor.to(device=vectors.device, dtype=vectors.dtype).reshape(-1)
+    if anchor.numel() != vectors.shape[1]:
+        raise ValueError("anchor dimension must match the client vectors")
+    variances = noise_variances.to(device=vectors.device, dtype=vectors.dtype)
+    if variances.shape != (vectors.shape[0],):
+        raise ValueError("one public noise variance is required per client")
+    weights = capped_inverse_variance_weights(
+        variances,
+        max_weight_ratio=float(max_weight_ratio),
+        variance_floor=float(variance_floor),
+    )
+    clipped = clip_l2(vectors - anchor, float(tau))
+    reference = anchor + (weights[:, None] * clipped).sum(dim=0)
+    if output_radius is not None:
+        if float(output_radius) <= 0.0:
+            raise ValueError("output_radius must be positive when provided")
+        reference = clip_l2(reference, float(output_radius))
+    if not return_diagnostics:
+        return reference
+    n = vectors.shape[0]
+    uniform_variance = float(variances.sum().item()) / float(n * n)
+    weighted_variance = float((weights.square() * variances).sum().item())
+    return reference, {
+        "noise_aware_reference_weight_min": float(weights.min().item()),
+        "noise_aware_reference_weight_max": float(weights.max().item()),
+        "noise_aware_reference_weight_l2_squared": float(
+            weights.square().sum().item()
+        ),
+        "noise_aware_reference_weight_cap": float(max_weight_ratio) / float(n),
+        "noise_aware_reference_weight_cap_respected": bool(
+            float(weights.max().item())
+            <= float(max_weight_ratio) / float(n) + 1e-10
+        ),
+        "noise_aware_reference_replace_one_bound": (
+            2.0 * float(max_weight_ratio) * float(tau) / float(n)
+        ),
+        "noise_aware_reference_linear_noise_variance": weighted_variance,
+        "noise_aware_reference_uniform_linear_noise_variance": uniform_variance,
+        "noise_aware_reference_linear_variance_ratio": (
+            weighted_variance / uniform_variance
+            if uniform_variance > 0.0
+            else 1.0
+        ),
+        "noise_aware_reference_output_radius": (
+            float(output_radius) if output_radius is not None else None
+        ),
+        "noise_aware_reference_is_influence_certificate_only": True,
+    }
+
+
+def centered_clipping_leave_one_out(
+    vectors: torch.Tensor,
+    *,
+    anchor: torch.Tensor,
+    tau: float,
+) -> torch.Tensor:
+    r"""All exact leave-one-out one-step centered-clipping references.
+
+    Row ``i`` of the result is
+
+    .. math::
+
+        r_0 + \frac{1}{n-1}\sum_{j\ne i}
+        \operatorname{Clip}_{\tau}(u_j-r_0).
+
+    The computation reuses one total sum and therefore does not execute the
+    robust solver ``n`` separate times.
+    """
+
+    _validate_vector_matrix(vectors)
+    if vectors.shape[0] < 2:
+        raise ValueError("leave-one-out centered clipping requires n >= 2")
+    if tau <= 0:
+        raise ValueError("tau must be positive")
+    anchor = anchor.to(device=vectors.device, dtype=vectors.dtype).reshape(-1)
+    if anchor.numel() != vectors.shape[1]:
+        raise ValueError("anchor dimension must match the client vectors")
+    clipped = clip_l2(vectors - anchor, tau)
+    return anchor + (clipped.sum(dim=0, keepdim=True) - clipped) / (
+        vectors.shape[0] - 1
+    )
 
 
 def regularized_huber_reference(
@@ -277,6 +489,9 @@ _ALIASES = {
     "cmls": "cmls",
     "cc": "centered_clipping",
     "f_cc": "centered_clipping",
+    "na_cc": "noise_aware_centered_clipping",
+    "f_na_cc": "noise_aware_centered_clipping",
+    "noise_aware_cc": "noise_aware_centered_clipping",
     "huber": "regularized_huber",
     "huber_regularized": "regularized_huber",
 }
@@ -321,6 +536,24 @@ def aggregate_vectors(vectors: torch.Tensor, method: str, **kwargs) -> torch.Ten
         if anchor is None or tau is None:
             raise ValueError("centered_clipping requires anchor and tau")
         return centered_clipping(vectors, anchor=anchor, tau=float(tau))
+    if method == "noise_aware_centered_clipping":
+        anchor = kwargs.get("anchor")
+        tau = kwargs.get("tau")
+        noise_variances = kwargs.get("noise_variances")
+        if anchor is None or tau is None or noise_variances is None:
+            raise ValueError(
+                "noise_aware_centered_clipping requires anchor, tau and "
+                "noise_variances"
+            )
+        return noise_aware_centered_clipping(
+            vectors,
+            anchor=anchor,
+            tau=float(tau),
+            noise_variances=noise_variances,
+            max_weight_ratio=float(kwargs.get("max_weight_ratio", 2.0)),
+            variance_floor=float(kwargs.get("variance_floor", 1e-12)),
+            output_radius=kwargs.get("output_radius"),
+        )
     if method == "regularized_huber":
         anchor = kwargs.get("anchor")
         tau = kwargs.get("tau")
@@ -336,7 +569,7 @@ def aggregate_vectors(vectors: torch.Tensor, method: str, **kwargs) -> torch.Ten
     raise ValueError(
         f"Unknown robust aggregator {method!r}. Available: mean, cm, trmean, "
         "cm_nnm, trmean_nnm, rfa, nbs, cmls, centered_clipping, "
-        "regularized_huber"
+        "noise_aware_centered_clipping, regularized_huber"
     )
 
 

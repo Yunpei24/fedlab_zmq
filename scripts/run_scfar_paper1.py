@@ -23,10 +23,9 @@ import sys
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import yaml
-
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MATRIX = ROOT / "configs" / "scpfar" / "paper1" / "s1_reference_tradeoff.yaml"
@@ -82,6 +81,8 @@ class Task:
     tilt_id: str
     privacy_id: str
     tau_over_c: float
+    user_clip_norm: float | None
+    distance_score_over_c: float | None
     partition_seed: int
     training_seed: int
     config: dict[str, Any]
@@ -89,21 +90,25 @@ class Task:
 
     @property
     def task_id(self) -> str:
-        return "__".join(
-            (
-                self.experiment_id,
-                self.scenario_id,
-                self.method_id,
-                self.reference_id,
-                self.anchor_id,
-                self.threat_id,
-                self.tilt_id,
-                self.privacy_id,
-                f"tau_{self.tau_over_c:g}",
-                f"pseed_{self.partition_seed}",
-                f"tseed_{self.training_seed}",
-            )
+        parts = [
+            self.experiment_id,
+            self.scenario_id,
+            self.method_id,
+            self.reference_id,
+            self.anchor_id,
+            self.threat_id,
+            self.tilt_id,
+            self.privacy_id,
+            f"tau_{self.tau_over_c:g}",
+        ]
+        if self.user_clip_norm is not None:
+            parts.append(f"clip_{self.user_clip_norm:g}")
+        if self.distance_score_over_c is not None:
+            parts.append(f"dscore_{self.distance_score_over_c:g}c")
+        parts.extend(
+            (f"pseed_{self.partition_seed}", f"tseed_{self.training_seed}")
         )
+        return "__".join(parts)
 
     @property
     def resolved_config_path(self) -> Path:
@@ -122,6 +127,11 @@ def load_matrix(path: Path) -> dict[str, Any]:
     common = yaml.safe_load(common_path.read_text(encoding="utf-8"))
     if not isinstance(common, dict):
         raise ValueError(f"Common protocol must contain a mapping: {common_path}")
+    overrides = matrix.get("common_overrides")
+    if overrides is not None:
+        if not isinstance(overrides, dict):
+            raise TypeError("common_overrides must be a mapping")
+        common = _deep_merge(common, overrides)
     return {"matrix": matrix, "common": common, "matrix_path": path, "common_path": common_path}
 
 
@@ -155,6 +165,8 @@ def _resolved_config(
     tilt_id: str,
     privacy_id: str,
     tau_over_c: float,
+    user_clip_norm: float | None,
+    distance_score_over_c: float | None,
     partition_seed: int,
     training_seed: int,
     output_dir: Path,
@@ -179,12 +191,47 @@ def _resolved_config(
         n = int(config["clients"]["num_clients"])
         kappa_w = float(tilt["kappa_w"])
         ratio = float(tilt["alpha_fraction"])
+        effective_clip_norm = float(
+            user_clip_norm
+            if user_clip_norm is not None
+            else algo["user_clip_norm"]
+        )
         algo["kappa_w"] = kappa_w
-        algo["far_alpha"] = ratio * alpha_max(n, kappa_w)
+        unit_score_alpha = ratio * alpha_max(n, kappa_w)
+        raw_rule = str(algo.get("scfar_aggregation_rule", "")) == "far_raw_distance"
+        raw_certified = (
+            str(algo.get("sensitivity_mode", ""))
+            == "proved_raw_distance_reference_bound"
+        )
+        raw_logit_match = bool(algo.get("raw_match_bounded_logits", False))
+        if raw_certified:
+            algo["far_alpha"] = unit_score_alpha / (2.0 * effective_clip_norm)
+            algo["raw_alpha_scaling"] = "public_2C_range"
+        elif raw_rule and raw_logit_match:
+            if distance_score_over_c is None:
+                raise ValueError(
+                    "raw_match_bounded_logits requires distance_score_over_c"
+                )
+            matched_scale = float(distance_score_over_c) * effective_clip_norm
+            algo["far_alpha"] = unit_score_alpha / matched_scale
+            algo["raw_alpha_scaling"] = "matched_bounded_D_score"
+        else:
+            algo["far_alpha"] = unit_score_alpha
         algo["alpha_fraction_of_max"] = ratio
     algo = _deep_merge(algo, privacy.get("algo_config"))
 
+    if user_clip_norm is not None:
+        if not math.isfinite(float(user_clip_norm)) or float(user_clip_norm) <= 0.0:
+            raise ValueError("user_clip_norm overrides must be finite and positive")
+        algo["user_clip_norm"] = float(user_clip_norm)
+
     clip_norm = float(algo["user_clip_norm"])
+    if distance_score_over_c is not None:
+        ratio = float(distance_score_over_c)
+        if not math.isfinite(ratio) or ratio <= 0.0:
+            raise ValueError("distance_score_over_c must be finite and positive")
+        algo["distance_clip"] = ratio * clip_norm
+        algo["distance_score_over_c"] = ratio
     algo["reference_clip_tau"] = float(tau_over_c) * clip_norm
     algo["privacy_num_rounds"] = int(config["training"]["num_rounds"])
     algo["honest_outlier_client_ids"] = _outlier_ids(
@@ -197,7 +244,7 @@ def _resolved_config(
     config["output_dir"] = str(output_dir)
     config["reproduction"] = {
         "protocol_id": str(common["protocol_id"]),
-        "execution_scope": "full_protocol",
+        "execution_scope": str(common.get("execution_scope", "full_protocol")),
         "matrix_axes": {
             "scenario": scenario_id,
             "method": method_id,
@@ -207,6 +254,16 @@ def _resolved_config(
             "tilt": tilt_id,
             "privacy": privacy_id,
             "tau_over_c": float(tau_over_c),
+            **(
+                {"user_clip_norm": float(user_clip_norm)}
+                if user_clip_norm is not None
+                else {}
+            ),
+            **(
+                {"distance_score_over_c": float(distance_score_over_c)}
+                if distance_score_over_c is not None
+                else {}
+            ),
             "partition_seed": int(partition_seed),
             "training_seed": int(training_seed),
         },
@@ -243,10 +300,25 @@ def expand_tasks(
             experiment["tilt_ids"],
             experiment["privacy_ids"],
             experiment["tau_over_c"],
-            common["partition_seeds"],
-            common["training_seeds"],
+            experiment.get("user_clip_norms", [None]),
+            experiment.get("distance_score_over_c", [None]),
         )
-        for values in itertools.product(*axes):
+        seed_pairs = experiment.get("seed_pairs")
+        if seed_pairs is not None:
+            resolved_seed_pairs = [
+                (int(pair["partition_seed"]), int(pair["training_seed"]))
+                for pair in seed_pairs
+            ]
+        else:
+            resolved_seed_pairs = list(
+                itertools.product(
+                    experiment.get("partition_seeds", common["partition_seeds"]),
+                    experiment.get("training_seeds", common["training_seeds"]),
+                )
+            )
+        for values, seed_values in itertools.product(
+            itertools.product(*axes), resolved_seed_pairs
+        ):
             (
                 scenario_id,
                 method_id,
@@ -256,9 +328,10 @@ def expand_tasks(
                 tilt_id,
                 privacy_id,
                 tau_over_c,
-                partition_seed,
-                training_seed,
+                user_clip_norm,
+                distance_score_over_c,
             ) = values
+            partition_seed, training_seed = seed_values
             if scenario_ids and scenario_id not in scenario_ids:
                 continue
             if method_ids and method_id not in method_ids:
@@ -269,7 +342,7 @@ def expand_tasks(
                 continue
             if training_seeds and int(training_seed) not in training_seeds:
                 continue
-            parts = (
+            parts = [
                 matrix_id,
                 experiment_id,
                 scenario_id,
@@ -280,8 +353,13 @@ def expand_tasks(
                 tilt_id,
                 privacy_id,
                 f"tau_{float(tau_over_c):g}",
-                f"partition_seed{partition_seed}",
-                f"training_seed{training_seed}",
+            ]
+            if user_clip_norm is not None:
+                parts.append(f"clip_{float(user_clip_norm):g}")
+            if distance_score_over_c is not None:
+                parts.append(f"dscore_{float(distance_score_over_c):g}c")
+            parts.extend(
+                (f"partition_seed{partition_seed}", f"training_seed{training_seed}")
             )
             output_dir = output_root.joinpath(*(_slug(part) for part in parts))
             config = _resolved_config(
@@ -294,6 +372,14 @@ def expand_tasks(
                 tilt_id=str(tilt_id),
                 privacy_id=str(privacy_id),
                 tau_over_c=float(tau_over_c),
+                user_clip_norm=(
+                    float(user_clip_norm) if user_clip_norm is not None else None
+                ),
+                distance_score_over_c=(
+                    float(distance_score_over_c)
+                    if distance_score_over_c is not None
+                    else None
+                ),
                 partition_seed=int(partition_seed),
                 training_seed=int(training_seed),
                 output_dir=output_dir,
@@ -319,6 +405,14 @@ def expand_tasks(
                     tilt_id=str(tilt_id),
                     privacy_id=str(privacy_id),
                     tau_over_c=float(tau_over_c),
+                    user_clip_norm=(
+                        float(user_clip_norm) if user_clip_norm is not None else None
+                    ),
+                    distance_score_over_c=(
+                        float(distance_score_over_c)
+                        if distance_score_over_c is not None
+                        else None
+                    ),
                     partition_seed=int(partition_seed),
                     training_seed=int(training_seed),
                     config=config,
@@ -334,6 +428,17 @@ def _task_issues(task: Task) -> list[str]:
     algo = training["algo_config"]
     clients = cfg["clients"]
     issues: list[str] = []
+    active_parameter_mode = str(
+        algo.get("active_parameter_mode", "full")
+    ).strip().lower()
+    protocol_id = str(cfg.get("reproduction", {}).get("protocol_id", ""))
+    if (
+        protocol_id == "scfar_dp_paper1_full_update_v1"
+        and active_parameter_mode != "full"
+    ):
+        issues.append(
+            "paper-1 full-update protocol requires active_parameter_mode=full"
+        )
     n = int(clients["num_clients"])
     if float(clients.get("sample_fraction", 0.0)) != 1.0:
         issues.append("sample_fraction must equal 1")
@@ -372,6 +477,28 @@ def _task_issues(task: Task) -> list[str]:
             kappa_w = float(algo.get("kappa_w", 0.0))
             if requested_alpha < 0.0 or requested_alpha > alpha_max(n, kappa_w) + 1e-12:
                 issues.append("controlled tilt lies outside the certified alpha region")
+        elif (
+            aggregation_rule == "far_raw_distance"
+            and str(algo.get("sensitivity_mode", ""))
+            == "proved_raw_distance_reference_bound"
+        ):
+            requested_alpha = float(algo.get("far_alpha", -1.0))
+            kappa_w = float(algo.get("kappa_w", 0.0))
+            clip_norm = float(algo.get("user_clip_norm", 0.0))
+            raw_alpha_max = (
+                alpha_max(n, kappa_w) / (2.0 * clip_norm)
+                if clip_norm > 0.0
+                else -1.0
+            )
+            if requested_alpha < 0.0 or requested_alpha > raw_alpha_max + 1e-12:
+                issues.append(
+                    "raw-distance tilt lies outside its certified public 2C range"
+                )
+            anchor_radius = algo.get("anchor_clip_norm")
+            if anchor_radius is not None and float(anchor_radius) > clip_norm + 1e-12:
+                issues.append(
+                    "certified raw-distance FAR requires anchor_clip_norm <= user_clip_norm"
+                )
         if bool(algo.get("enable_central_dp")):
             if algo.get("target_epsilon") is None:
                 issues.append("finite-DP arm requires target_epsilon")
@@ -455,6 +582,48 @@ def validate_matrix(document: dict[str, Any]) -> list[str]:
         ):
             if not isinstance(experiment.get(key), list) or not experiment[key]:
                 errors.append(f"{experiment_id}: {key} must be a non-empty list")
+        for key in (
+            "user_clip_norms",
+            "distance_score_over_c",
+            "partition_seeds",
+            "training_seeds",
+            "seed_pairs",
+        ):
+            if key in experiment and (
+                not isinstance(experiment[key], list) or not experiment[key]
+            ):
+                errors.append(f"{experiment_id}: {key} must be a non-empty list")
+        if "seed_pairs" in experiment and (
+            "partition_seeds" in experiment or "training_seeds" in experiment
+        ):
+            errors.append(
+                f"{experiment_id}: seed_pairs cannot be combined with separate seed axes"
+            )
+        for pair in experiment.get("seed_pairs", []):
+            if not isinstance(pair, dict) or set(pair) != {
+                "partition_seed",
+                "training_seed",
+            }:
+                errors.append(
+                    f"{experiment_id}: every seed_pairs entry must contain exactly "
+                    "partition_seed and training_seed"
+                )
+        for value in experiment.get("user_clip_norms", []):
+            if value is not None and (
+                not math.isfinite(float(value)) or float(value) <= 0.0
+            ):
+                errors.append(
+                    f"{experiment_id}: user_clip_norms must contain null or "
+                    "finite positive values"
+                )
+        for value in experiment.get("distance_score_over_c", []):
+            if value is not None and (
+                not math.isfinite(float(value)) or float(value) <= 0.0
+            ):
+                errors.append(
+                    f"{experiment_id}: distance_score_over_c must contain null "
+                    "or finite positive values"
+                )
         expected = int(experiment.get("expected_tasks", -1))
         actual = math.prod(
             len(experiment[key])
@@ -468,7 +637,14 @@ def validate_matrix(document: dict[str, Any]) -> list[str]:
                 "privacy_ids",
                 "tau_over_c",
             )
-        ) * len(common["partition_seeds"]) * len(common["training_seeds"])
+        )
+        actual *= len(experiment.get("user_clip_norms", [None]))
+        actual *= len(experiment.get("distance_score_over_c", [None]))
+        if "seed_pairs" in experiment:
+            actual *= len(experiment["seed_pairs"])
+        else:
+            actual *= len(experiment.get("partition_seeds", common["partition_seeds"]))
+            actual *= len(experiment.get("training_seeds", common["training_seeds"]))
         if expected != actual:
             errors.append(f"{experiment_id}: expected_tasks={expected}, expanded={actual}")
     if errors:
@@ -645,7 +821,10 @@ def main() -> None:
     if not tasks:
         raise SystemExit("No task matches the requested filters")
     if args.validate:
-        print(f"VALID: {len(tasks)} unique full-update tasks")
+        scope = str(
+            document["common"].get("execution_scope", "full_protocol")
+        )
+        print(f"VALID: {len(tasks)} unique tasks ({scope})")
         print(f"matrix={document['matrix']['matrix_id']}")
         print(f"experiments={sorted({task.experiment_id for task in tasks})}")
         print(f"scenarios={sorted({task.scenario_id for task in tasks})}")

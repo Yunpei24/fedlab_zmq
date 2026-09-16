@@ -30,6 +30,28 @@ class _FedFairCore(FLAlgorithm):
     def _private_enabled(self, config: dict) -> bool:
         return bool(config.get("enable_dp", True))
 
+    @staticmethod
+    def _accounting_sampling_rate(dataloader, config: dict) -> float:
+        """Return the single public q used by calibration and accounting.
+
+        FedFDP currently executes shuffled fixed-size minibatches.  Its RDP
+        ledger is therefore explicitly an SGM approximation, but calibration
+        and the online accountant must still use the *same* q.  Previously an
+        override affected calibration only, while the online accountant used
+        ``batch_size / |D_i|``; a nominal epsilon label could consequently
+        disagree with the realised ledger.
+        """
+
+        dataset_size = max(len(dataloader.dataset), 1)
+        batch_size = min(int(config.get("batch_size", 1)), dataset_size)
+        override = config.get("privacy_sampling_rate_override")
+        sampling_rate = (
+            float(override) if override is not None else batch_size / dataset_size
+        )
+        if not 0.0 < sampling_rate <= 1.0:
+            raise ValueError("FedFDP privacy sampling rate must lie in (0,1]")
+        return float(sampling_rate)
+
     def _resolved_noise_multipliers(self, dataloader, state, config):
         """Return model/loss multipliers, jointly calibrated when requested."""
 
@@ -49,10 +71,7 @@ class _FedFairCore(FLAlgorithm):
             )
         dataset_size = max(len(dataloader.dataset), 1)
         batch_size = min(int(config.get("batch_size", 1)), dataset_size)
-        q_override = config.get("privacy_sampling_rate_override")
-        sampling_rate = (
-            float(q_override) if q_override is not None else batch_size / dataset_size
-        )
+        sampling_rate = self._accounting_sampling_rate(dataloader, config)
         batches_per_epoch = math.ceil(dataset_size / batch_size)
         max_local_batches = config.get("max_local_batches")
         if max_local_batches is not None:
@@ -95,8 +114,16 @@ class _FedFairCore(FLAlgorithm):
         max_fair_scale = config.get("max_fair_scale")
         max_fair_scale = float(max_fair_scale) if max_fair_scale is not None else None
         scale_policy = str(config.get("fair_scale_policy", "error")).lower()
-        if scale_policy not in {"error", "clip_nonnegative"}:
-            raise ValueError("fair_scale_policy must be 'error' or 'clip_nonnegative'")
+        valid_scale_policies = {
+            "error",
+            "clip_nonnegative",
+            "allow_negative_uncertified",
+        }
+        if scale_policy not in valid_scale_policies:
+            raise ValueError(
+                "fair_scale_policy must be 'error', 'clip_nonnegative', or "
+                "'allow_negative_uncertified'"
+            )
         noise_model, noise_loss = self._resolved_noise_multipliers(
             dataloader, state, config
         )
@@ -115,6 +142,20 @@ class _FedFairCore(FLAlgorithm):
         total_examples = 0
         model_steps = 0
         clipped_examples = 0
+        norm_clipped_examples = 0
+        negative_deviation_examples = 0
+        negative_raw_fair_scale_examples = 0
+        negative_applied_scale_examples = 0
+        contribution_norm_violations = 0
+        raw_fair_scale_sum = 0.0
+        raw_fair_scale_min = math.inf
+        raw_fair_scale_max = -math.inf
+        loss_deviation_sum = 0.0
+        loss_deviation_min = math.inf
+        loss_deviation_max = -math.inf
+        applied_scale_min = math.inf
+        applied_scale_max = -math.inf
+        max_scaled_gradient_norm = 0.0
         last_x = None
         last_y = None
         max_local_batches = config.get("max_local_batches")
@@ -140,9 +181,18 @@ class _FedFairCore(FLAlgorithm):
                     grad_norm = torch.sqrt(
                         sum(grad.detach().float().square().sum() for grad in grads)
                     ).item()
-                    fair_scale = 1.0 + fairness_lambda * (
-                        float(loss.item()) - global_loss
-                    )
+                    loss_deviation = float(loss.item()) - global_loss
+                    raw_fair_scale = 1.0 + fairness_lambda * loss_deviation
+                    negative_deviation_examples += int(loss_deviation < 0.0)
+                    negative_raw_fair_scale_examples += int(raw_fair_scale < 0.0)
+                    loss_deviation_sum += loss_deviation
+                    loss_deviation_min = min(loss_deviation_min, loss_deviation)
+                    loss_deviation_max = max(loss_deviation_max, loss_deviation)
+                    raw_fair_scale_sum += raw_fair_scale
+                    raw_fair_scale_min = min(raw_fair_scale_min, raw_fair_scale)
+                    raw_fair_scale_max = max(raw_fair_scale_max, raw_fair_scale)
+
+                    fair_scale = raw_fair_scale
                     if fair_scale < 0.0:
                         if scale_policy == "error":
                             raise ValueError(
@@ -151,12 +201,29 @@ class _FedFairCore(FLAlgorithm):
                                 "fair_scale_policy='clip_nonnegative' as an "
                                 "explicit stability ablation"
                             )
-                        fair_scale = 0.0
+                        if scale_policy == "clip_nonnegative":
+                            fair_scale = 0.0
+                        # The raw policy deliberately evaluates the literal
+                        # minimum in Algorithm 2 even when its fairness term is
+                        # negative.  It is an *uncertified diagnostic lane*:
+                        # signed scaling can reverse a gradient and no longer
+                        # guarantees a contribution norm bounded by C.
                     if max_fair_scale is not None:
                         fair_scale = min(fair_scale, max_fair_scale)
                     clip_scale = clip_norm / max(grad_norm, 1e-12)
                     scale = min(fair_scale, clip_scale)
                     clipped_examples += int(scale < fair_scale)
+                    norm_clipped_examples += int(clip_scale < fair_scale)
+                    negative_applied_scale_examples += int(scale < 0.0)
+                    applied_scale_min = min(applied_scale_min, scale)
+                    applied_scale_max = max(applied_scale_max, scale)
+                    scaled_gradient_norm = abs(scale) * grad_norm
+                    max_scaled_gradient_norm = max(
+                        max_scaled_gradient_norm, scaled_gradient_norm
+                    )
+                    contribution_norm_violations += int(
+                        scaled_gradient_norm > clip_norm + 1e-8
+                    )
                     for accumulator, grad in zip(summed, grads):
                         accumulator.add_(grad.detach(), alpha=scale)
                     sample_losses.append(float(loss.item()))
@@ -223,10 +290,7 @@ class _FedFairCore(FLAlgorithm):
             state.custom.get("fedfdp_accountant")
         )
         dataset_size = max(len(dataloader.dataset), 1)
-        realised_batch_size = int(last_y.numel()) if last_y is not None else 1
-        sampling_rate = min(
-            1.0, float(config.get("batch_size", realised_batch_size)) / dataset_size
-        )
+        sampling_rate = self._accounting_sampling_rate(dataloader, config)
         epsilon = best_order = None
         if dp_enabled:
             accountant.add_sampled_gaussian(
@@ -274,6 +338,8 @@ class _FedFairCore(FLAlgorithm):
         state.battery_j = max(0.0, state.battery_j - breakdown["total"])
         state.round_num += 1
 
+        sample_count = max(total_examples, 1)
+        raw_policy = scale_policy == "allow_negative_uncertified"
         metadata = {
             "client_id": state.client_id,
             "round_num": state.round_num,
@@ -282,6 +348,57 @@ class _FedFairCore(FLAlgorithm):
             "private_loss_release": float(loss_release),
             "loss_clip": loss_clip,
             "clip_rate": clipped_examples / max(total_examples, 1),
+            "fedfdp_norm_clip_rate": norm_clipped_examples / sample_count,
+            "fedfdp_loss_deviation_negative_count": negative_deviation_examples,
+            "fedfdp_loss_deviation_negative_rate": (
+                negative_deviation_examples / sample_count
+            ),
+            "fedfdp_raw_fair_scale_negative_count": (negative_raw_fair_scale_examples),
+            "fedfdp_raw_fair_scale_negative_rate": (
+                negative_raw_fair_scale_examples / sample_count
+            ),
+            "fedfdp_applied_scale_negative_count": (negative_applied_scale_examples),
+            "fedfdp_applied_scale_negative_rate": (
+                negative_applied_scale_examples / sample_count
+            ),
+            "fedfdp_contribution_norm_violation_count": (contribution_norm_violations),
+            "fedfdp_contribution_norm_violation_rate": (
+                contribution_norm_violations / sample_count
+            ),
+            "fedfdp_loss_deviation_mean": loss_deviation_sum / sample_count,
+            "fedfdp_loss_deviation_min": (
+                loss_deviation_min if total_examples else 0.0
+            ),
+            "fedfdp_loss_deviation_max": (
+                loss_deviation_max if total_examples else 0.0
+            ),
+            "fedfdp_raw_fair_scale_mean": raw_fair_scale_sum / sample_count,
+            "fedfdp_raw_fair_scale_min": (
+                raw_fair_scale_min if total_examples else 1.0
+            ),
+            "fedfdp_raw_fair_scale_max": (
+                raw_fair_scale_max if total_examples else 1.0
+            ),
+            "fedfdp_applied_scale_min": (applied_scale_min if total_examples else 0.0),
+            "fedfdp_applied_scale_max": (applied_scale_max if total_examples else 0.0),
+            "fedfdp_max_scaled_gradient_norm": max_scaled_gradient_norm,
+            "fedfdp_scale_policy": scale_policy,
+            "fedfdp_sample_count": total_examples,
+            # This flag certifies only the deterministic norm precondition
+            # used by the Gaussian mechanism.  It is deliberately *not* named
+            # a privacy guarantee: adjacency and sampling-accountant fidelity
+            # require a separate audit.
+            "fedfdp_norm_precondition_valid": not raw_policy,
+            "fedfdp_norm_precondition_status": (
+                "violated_by_design_raw_negative_scale_policy"
+                if raw_policy
+                else "bounded_by_nonnegative_fair_scale_and_norm_clip"
+            ),
+            "privacy_guarantee_status": (
+                "not_certified_raw_negative_scale_policy"
+                if raw_policy
+                else "not_asserted_accounting_and_adjacency_require_separate_validation"
+            ),
             "model_steps": model_steps,
             "sampling_rate": sampling_rate,
             "privacy_epsilon": epsilon,
@@ -369,6 +486,46 @@ class _FedFairCore(FLAlgorithm):
             for _, meta, _ in client_updates
             if meta.get("privacy_loss_noise_multiplier") is not None
         ]
+        diagnostic_sample_count = sum(
+            int(meta.get("fedfdp_sample_count", 0)) for _, meta, _ in client_updates
+        )
+
+        def _sum_diagnostic(key: str) -> int:
+            return sum(int(meta.get(key, 0)) for _, meta, _ in client_updates)
+
+        def _weighted_diagnostic_mean(key: str) -> float:
+            if diagnostic_sample_count <= 0:
+                return 0.0
+            return (
+                sum(
+                    float(meta.get(key, 0.0)) * int(meta.get("fedfdp_sample_count", 0))
+                    for _, meta, _ in client_updates
+                )
+                / diagnostic_sample_count
+            )
+
+        negative_deviation_count = _sum_diagnostic(
+            "fedfdp_loss_deviation_negative_count"
+        )
+        negative_raw_scale_count = _sum_diagnostic(
+            "fedfdp_raw_fair_scale_negative_count"
+        )
+        negative_applied_scale_count = _sum_diagnostic(
+            "fedfdp_applied_scale_negative_count"
+        )
+        norm_violation_count = _sum_diagnostic(
+            "fedfdp_contribution_norm_violation_count"
+        )
+        norm_precondition_valid = all(
+            bool(meta.get("fedfdp_norm_precondition_valid", False))
+            for _, meta, _ in client_updates
+        )
+        scale_policies = sorted(
+            {
+                str(meta.get("fedfdp_scale_policy", "unspecified"))
+                for _, meta, _ in client_updates
+            }
+        )
         metrics.update(
             {
                 "round": round_num,
@@ -385,6 +542,12 @@ class _FedFairCore(FLAlgorithm):
                 "privacy_delta": (
                     float(config.get("delta", 1e-5)) if epsilons else None
                 ),
+                "privacy_target_epsilon": (
+                    float(config["target_epsilon"])
+                    if config.get("target_epsilon") is not None
+                    else None
+                ),
+                "privacy_profile": config.get("experiment_privacy_profile"),
                 "privacy_best_order_mean": (
                     sum(best_orders) / len(best_orders) if best_orders else None
                 ),
@@ -405,6 +568,78 @@ class _FedFairCore(FLAlgorithm):
                 "fedfdp_loss_clip_mean": (
                     sum(loss_clips) / len(loss_clips) if loss_clips else None
                 ),
+                "fedfdp_scale_policy": ",".join(scale_policies),
+                "fedfdp_diagnostic_sample_count": diagnostic_sample_count,
+                "fedfdp_loss_deviation_negative_count": negative_deviation_count,
+                "fedfdp_loss_deviation_negative_rate": (
+                    negative_deviation_count / diagnostic_sample_count
+                    if diagnostic_sample_count
+                    else 0.0
+                ),
+                "fedfdp_raw_fair_scale_negative_count": negative_raw_scale_count,
+                "fedfdp_raw_fair_scale_negative_rate": (
+                    negative_raw_scale_count / diagnostic_sample_count
+                    if diagnostic_sample_count
+                    else 0.0
+                ),
+                "fedfdp_applied_scale_negative_count": negative_applied_scale_count,
+                "fedfdp_applied_scale_negative_rate": (
+                    negative_applied_scale_count / diagnostic_sample_count
+                    if diagnostic_sample_count
+                    else 0.0
+                ),
+                "fedfdp_contribution_norm_violation_count": norm_violation_count,
+                "fedfdp_contribution_norm_violation_rate": (
+                    norm_violation_count / diagnostic_sample_count
+                    if diagnostic_sample_count
+                    else 0.0
+                ),
+                "fedfdp_loss_deviation_mean": _weighted_diagnostic_mean(
+                    "fedfdp_loss_deviation_mean"
+                ),
+                "fedfdp_loss_deviation_min": min(
+                    float(meta.get("fedfdp_loss_deviation_min", 0.0))
+                    for _, meta, _ in client_updates
+                ),
+                "fedfdp_loss_deviation_max": max(
+                    float(meta.get("fedfdp_loss_deviation_max", 0.0))
+                    for _, meta, _ in client_updates
+                ),
+                "fedfdp_raw_fair_scale_mean": _weighted_diagnostic_mean(
+                    "fedfdp_raw_fair_scale_mean"
+                ),
+                "fedfdp_raw_fair_scale_min": min(
+                    float(meta.get("fedfdp_raw_fair_scale_min", 1.0))
+                    for _, meta, _ in client_updates
+                ),
+                "fedfdp_raw_fair_scale_max": max(
+                    float(meta.get("fedfdp_raw_fair_scale_max", 1.0))
+                    for _, meta, _ in client_updates
+                ),
+                "fedfdp_applied_scale_min": min(
+                    float(meta.get("fedfdp_applied_scale_min", 0.0))
+                    for _, meta, _ in client_updates
+                ),
+                "fedfdp_applied_scale_max": max(
+                    float(meta.get("fedfdp_applied_scale_max", 0.0))
+                    for _, meta, _ in client_updates
+                ),
+                "fedfdp_max_scaled_gradient_norm": max(
+                    float(meta.get("fedfdp_max_scaled_gradient_norm", 0.0))
+                    for _, meta, _ in client_updates
+                ),
+                "fedfdp_norm_precondition_valid": norm_precondition_valid,
+                "fedfdp_norm_precondition_status": (
+                    "bounded_by_nonnegative_fair_scale_and_norm_clip"
+                    if norm_precondition_valid
+                    else "violated_by_design_raw_negative_scale_policy"
+                ),
+                "privacy_guarantee_status": (
+                    "not_asserted_accounting_and_adjacency_require_separate_validation"
+                    if norm_precondition_valid
+                    else "not_certified_raw_negative_scale_policy"
+                ),
+                "privacy_epsilon_nominal_max": (max(epsilons) if epsilons else None),
                 "privacy_accounting_assumption": (
                     "poisson_approximation_for_fixed_minibatches"
                     if epsilons

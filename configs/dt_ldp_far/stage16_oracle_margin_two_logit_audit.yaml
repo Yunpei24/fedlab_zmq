@@ -1,0 +1,87 @@
+campaign_id: dt_ldp_far_stage16_oracle_margin_two_logit_v1
+scope: independent_synthetic_oracle_margin_and_two_logit_audit
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  ambient_dimension: 256
+  honest_outliers: 5
+  noise_std: 0.012
+  public_noise_scales: [1.0, 1.5, 2.0]
+  noise_permutations: [identity, rotate7, reverse]
+  outlier_geometries: [aligned, orthogonal]
+  threats: [ipm, alie, bitflip_x10, adaptive_aligned_jitter]
+  attack_severities: [0.75, 1.0, 1.25]
+
+novelty:
+  family: effective_moment
+  reference: centered_clipping_leave_one_out
+  fcc_radius: 0.13
+  dimension: 256
+  individual_calibration_weight: 1.0
+  moment_z_clip: 4.0
+  variance_ridge: 1.0e-12
+
+robust_reference:
+  candidates: [fcc, huber, rfa]
+  fcc_radius: 0.13
+  huber_radius: 0.13
+  huber_gamma: 1.0
+  huber_steps: 10
+  rfa_max_iter: 50
+  rfa_tolerance: 1.0e-7
+
+support:
+  reference_reject_cosine: -0.10
+  reference_full_support_cosine: 0.25
+  peer_reject_cosine: 0.00
+  peer_full_support_cosine: 0.20
+  extra_honest_supporters: 1
+  independence_low_null_quantile: 0.05
+  independence_full_trust_null_quantile: 0.50
+  independence_trust_floor: 0.05
+
+profiles:
+  - name: crossfit_covariance
+    support_logit_fraction: 0.00
+    role: baseline
+  - name: two_logit_support_50_control
+    support_logit_fraction: 0.50
+    role: stage15_control
+  - name: two_logit_support_75_primary
+    support_logit_fraction: 0.75
+    role: preregistered_primary
+
+aggregation:
+  server_clip_norm: 0.42
+  kappa_w: 2.0
+
+randomness:
+  calibration_seed: 2026091601
+  null_holdout_seed: 2026091602
+  signal_seeds: [71, 83, 97]
+  calibration_draws: 256
+  null_holdout_draws: 256
+  signal_draws: 16
+
+gates:
+  null_abs_score_noise_correlation_max: 0.10
+  null_noise_tier_score_range_max: 0.05
+  null_pairwise_ks_max: 0.10
+  clean_geometry_correlation_min: 0.50
+  honest_outlier_recall_at_5_min: 0.60
+  honest_outlier_weight_mass_min_exclusive: 0.20
+  max_individual_weight: 0.08
+  attacked_byzantine_weight_mass_max: 0.20
+  attacked_global_honest_outlier_recall_at_5_min: 0.35
+  positive_quantile_support_margin_group_rate_min: 0.90
+  empirical_two_logit_condition_group_rate_min: 0.90
+  robust_reference_error_over_honest_dispersion_max: 1.00
+
+decision:
+  accuracy_must_not_be_used: true
+  primary_profile: two_logit_support_75_primary
+  control_profile: two_logit_support_50_control
+  every_attack_severity_and_geometry_must_pass: true
+  if_primary_fails: do_not_launch_fashion_mnist
+  oracle_membership_is_a_diagnostic_not_an_impossibility_proof: true

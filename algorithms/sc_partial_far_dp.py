@@ -60,6 +60,22 @@ def alpha_max_for_weight_factor(n: int, kappa_w: float) -> float:
     return math.log(kappa_w * (n - 1) / (n - kappa_w))
 
 
+def raw_distance_alpha_max_for_weight_factor(
+    n: int, kappa_w: float, clip_norm: float
+) -> float:
+    r"""Largest tilt certifying ``max_i q_i <= kappa_w/n`` for raw distances.
+
+    If every client upload and the reference belong to the public ball
+    ``B(0,C)``, then ``d_i=||u_i-F(U)||`` belongs to ``[0,2C]``.  The score
+    range is therefore ``2C`` rather than one, and the admissible raw-distance
+    tilt is the unit-score bound divided by ``2C``.
+    """
+
+    if clip_norm <= 0:
+        raise ValueError("clip_norm must be positive")
+    return alpha_max_for_weight_factor(n, kappa_w) / (2.0 * float(clip_norm))
+
+
 def bounded_distance_scores(
     distances: torch.Tensor,
     distance_clip: float,
@@ -138,6 +154,47 @@ def certified_scfar_sensitivity(
         2.0 * clip_norm * alpha / distance_clip
     ) * reference_stability
     return float(min(2.0 * clip_norm, transported))
+
+
+def certified_raw_distance_scfar_sensitivity(
+    *,
+    n: int,
+    clip_norm: float,
+    alpha: float,
+    kappa_bound: float,
+    reference_stability: float,
+) -> float:
+    r"""Sensitivity certificate for raw-distance FAR with a stable reference.
+
+    This bound applies under four explicit conditions: neighboring cohorts
+    differ by replacement of one row; all received rows are clipped to
+    ``B(0,C)``; both references belong to ``B(0,C)`` and satisfy
+    ``||F(U)-F(U')|| <= delta_F``; and ``alpha`` is small enough that every
+    softmax weight along the segment joining the two score vectors is at most
+    ``kappa_bound/n``.
+
+    For unchanged clients, reverse triangle inequality gives
+    ``|d_i-d_i'| <= delta_F``.  For the replaced client, both distances are in
+    ``[0,2C]``, hence ``|d_k-d_k'| <= 2C``.  Integrating the softmax Jacobian
+    then yields
+
+    ``||q-q'||_1 <= 2*alpha*(2*C*kappa_bound/n + delta_F)``.
+
+    Decomposing the aggregate into the directly replaced update and the
+    change of weights gives the expression below.  The outer ``2C`` minimum
+    remains a universally valid fallback because both aggregates are convex
+    combinations of vectors in ``B(0,C)``.
+    """
+
+    if n < 2 or clip_norm <= 0:
+        raise ValueError("Need n>=2 and a positive clipping constant")
+    if alpha < 0 or kappa_bound < 1 or reference_stability < 0:
+        raise ValueError("Invalid raw-distance sensitivity parameter")
+    direct = 2.0 * clip_norm * kappa_bound / n
+    weight_transport = 2.0 * clip_norm * alpha * (
+        2.0 * clip_norm * kappa_bound / n + reference_stability
+    )
+    return float(min(2.0 * clip_norm, direct + weight_transport))
 
 
 class _SCFARServerMixin:
@@ -392,6 +449,13 @@ class _SCFARServerMixin:
         n = int(vectors.shape[0])
         clip_norm = float(config.get("user_clip_norm", 1.0))
         clipped_vectors, clip_factors = clip_rows(vectors, clip_norm)
+        raw_norms = torch.linalg.vector_norm(vectors, dim=1).detach().double().cpu()
+        clipped_norms = (
+            torch.linalg.vector_norm(clipped_vectors, dim=1).detach().double().cpu()
+        )
+
+        def _quantile(values: torch.Tensor, probability: float) -> float:
+            return float(torch.quantile(values, probability).item())
 
         first_meta = client_updates[0][1]
         group_key = str(first_meta.get("active_group_idx", "full"))
@@ -436,11 +500,55 @@ class _SCFARServerMixin:
             weights = torch.full_like(scores, 1.0 / n)
             clean_aggregate_vector = reference
         elif aggregation_rule == "far_raw_distance":
-            alpha = float(config.get("far_alpha", 0.1))
-            if alpha < 0:
+            requested_alpha = float(config.get("far_alpha", 0.1))
+            if requested_alpha < 0:
                 raise ValueError("far_raw_distance requires far_alpha >= 0")
-            alpha_max, alpha_was_clipped = None, False
+            raw_certificate_requested = str(
+                config.get("sensitivity_mode", "conservative_2C")
+            ) == "proved_raw_distance_reference_bound"
+            if raw_certificate_requested:
+                if reference_name != "centered_clipping":
+                    raise ValueError(
+                        "proved_raw_distance_reference_bound currently requires "
+                        "the centered_clipping reference"
+                    )
+                anchor_radius_setting = config.get("anchor_clip_norm")
+                anchor_radius = (
+                    clip_norm
+                    if anchor_radius_setting is None
+                    else float(anchor_radius_setting)
+                )
+                if anchor_radius > clip_norm + 1e-12:
+                    raise ValueError(
+                        "The raw-distance certificate requires anchor_clip_norm "
+                        "<= user_clip_norm so F_CC remains in B(0,C)"
+                    )
+                alpha_max = raw_distance_alpha_max_for_weight_factor(
+                    n, float(config.get("kappa_w", 2.0)), clip_norm
+                )
+                policy = str(config.get("alpha_bound_policy", "clip")).lower()
+                if policy not in {"clip", "error"}:
+                    raise ValueError(
+                        "Certified raw-distance FAR requires alpha_bound_policy "
+                        "equal to clip or error"
+                    )
+                alpha_was_clipped = requested_alpha > alpha_max
+                if alpha_was_clipped and policy == "error":
+                    raise ValueError(
+                        f"far_alpha={requested_alpha} exceeds raw-distance "
+                        f"alpha_max={alpha_max:.6g} for n={n}, "
+                        f"kappa_w={config.get('kappa_w', 2.0)}, C={clip_norm}"
+                    )
+                alpha = min(requested_alpha, alpha_max) if policy == "clip" else requested_alpha
+            else:
+                alpha, alpha_max, alpha_was_clipped = requested_alpha, None, False
             scores = distances
+            if raw_certificate_requested and float(scores.max().item()) > (
+                2.0 * clip_norm + 1e-6
+            ):
+                raise RuntimeError(
+                    "Certified raw-distance score exceeded its public 2C range"
+                )
             weights = self.controlled_weights(scores, alpha)
             clean_aggregate_vector = (weights[:, None] * clipped_vectors).sum(0)
         else:
@@ -451,9 +559,14 @@ class _SCFARServerMixin:
 
         configured_kappa = float(config.get("kappa_w", 2.0))
         analytical_kappa = float(n * weights.max().detach().cpu())
+        raw_certificate_active = bool(
+            aggregation_rule == "far_raw_distance"
+            and str(config.get("sensitivity_mode", ""))
+            == "proved_raw_distance_reference_bound"
+        )
         weight_bound_holds = (
             analytical_kappa <= configured_kappa + 1e-12
-            if aggregation_rule != "far_raw_distance"
+            if aggregation_rule != "far_raw_distance" or raw_certificate_active
             else None
         )
         # Privacy calibration must use a public, data-independent bound.  The
@@ -466,10 +579,31 @@ class _SCFARServerMixin:
             certified_kappa = 1.0
         elif aggregation_rule == "controlled_tilt":
             certified_kappa = softmax_weight_factor_bound(n, alpha)
+        elif raw_certificate_active:
+            certified_kappa = softmax_weight_factor_bound(
+                n, alpha * (2.0 * clip_norm)
+            )
         else:
-            # Raw-distance FAR always uses the conservative 2C branch below;
-            # this value is diagnostic only.
-            certified_kappa = configured_kappa
+            # An unrestricted raw-distance diagnostic does not inherit the
+            # [0,1] score certificate of controlled_tilt.
+            certified_kappa = None
+
+        score_transform = (
+            str(config.get("score_mode", "hard_clip"))
+            if aggregation_rule == "controlled_tilt"
+            else "raw_distance"
+            if aggregation_rule == "far_raw_distance"
+            else "constant_zero"
+        )
+        certified_kappa_source = (
+            "public_score_range_and_alpha"
+            if aggregation_rule == "controlled_tilt"
+            else "uniform_weights"
+            if aggregation_rule in {"uniform", "reference"}
+            else "public_raw_distance_range_2C_and_alpha"
+            if raw_certificate_active
+            else "none_raw_distance_uses_conservative_2C"
+        )
 
         if aggregation_rule == "reference":
             sensitivity = (
@@ -483,7 +617,28 @@ class _SCFARServerMixin:
                 else "reference_fallback_conservative_2C"
             )
         elif aggregation_rule == "far_raw_distance":
-            sensitivity, sensitivity_mode = 2.0 * clip_norm, "conservative_2C"
+            requested_mode = str(config.get("sensitivity_mode", "conservative_2C"))
+            if requested_mode == "proved_raw_distance_reference_bound":
+                if reference_stability is None or certified_kappa is None:
+                    raise ValueError(
+                        "Raw-distance sensitivity certification requires a "
+                        "proved stable reference and a public weight cap"
+                    )
+                sensitivity = certified_raw_distance_scfar_sensitivity(
+                    n=n,
+                    clip_norm=clip_norm,
+                    alpha=alpha,
+                    kappa_bound=certified_kappa,
+                    reference_stability=float(reference_stability),
+                )
+                sensitivity_mode = requested_mode
+            elif requested_mode == "conservative_2C":
+                sensitivity, sensitivity_mode = 2.0 * clip_norm, requested_mode
+            else:
+                raise ValueError(
+                    "far_raw_distance requires sensitivity_mode equal to "
+                    "conservative_2C or proved_raw_distance_reference_bound"
+                )
         else:
             sensitivity, sensitivity_mode = self._sensitivity(
                 n=n,
@@ -512,6 +667,18 @@ class _SCFARServerMixin:
                 noise_multiplier * sensitivity
             )
         aggregate_vector = clean_aggregate_vector + noise
+        clean_aggregate_norm = float(
+            torch.linalg.vector_norm(clean_aggregate_vector).detach().cpu().item()
+        )
+        released_aggregate_norm = float(
+            torch.linalg.vector_norm(aggregate_vector).detach().cpu().item()
+        )
+        noise_norm = float(torch.linalg.vector_norm(noise).detach().cpu().item())
+        score_values = scores.detach().double().cpu()
+        score_min = float(score_values.min().item())
+        score_max = float(score_values.max().item())
+        score_span = score_max - score_min
+        logit_span = float(alpha) * score_span
         _, anchor_drift = self._update_reference_anchor(
             anchor=anchor,
             released_aggregate=aggregate_vector,
@@ -554,14 +721,53 @@ class _SCFARServerMixin:
                 "scfar_aggregation_rule": aggregation_rule,
                 "scfar_kappa_w": configured_kappa,
                 "scfar_certified_kappa": certified_kappa,
-                "scfar_certified_kappa_source": "public_score_range_and_alpha",
+                "scfar_certified_kappa_source": certified_kappa_source,
                 "scfar_analytical_kappa": analytical_kappa,
                 "scfar_weight_bound_holds": weight_bound_holds,
+                "scfar_score_transform": score_transform,
+                "scfar_score_is_bounded": aggregation_rule != "far_raw_distance",
+                "scfar_score_is_unit_bounded": (
+                    aggregation_rule != "far_raw_distance"
+                ),
+                "scfar_score_has_public_range_certificate": (
+                    aggregation_rule != "far_raw_distance" or raw_certificate_active
+                ),
+                "scfar_public_score_range": (
+                    2.0 * clip_norm if raw_certificate_active else 1.0
+                    if aggregation_rule != "far_raw_distance" else None
+                ),
                 "scfar_user_clip_norm": clip_norm,
+                "scfar_active_parameter_dimension": int(vectors.shape[1]),
                 "scfar_user_clip_rate": float((clip_factors < 1.0).double().mean()),
+                "scfar_preclip_norm_p10": _quantile(raw_norms, 0.10),
+                "scfar_preclip_norm_mean": float(raw_norms.mean().item()),
+                "scfar_preclip_norm_p50": _quantile(raw_norms, 0.50),
+                "scfar_preclip_norm_p90": _quantile(raw_norms, 0.90),
+                "scfar_preclip_norm_p95": _quantile(raw_norms, 0.95),
+                "scfar_preclip_norm_max": float(raw_norms.max().item()),
+                "scfar_postclip_norm_mean": float(clipped_norms.mean().item()),
+                "scfar_postclip_norm_p50": _quantile(clipped_norms, 0.50),
+                "scfar_postclip_norm_p90": _quantile(clipped_norms, 0.90),
+                "scfar_postclip_norm_p95": _quantile(clipped_norms, 0.95),
+                "scfar_postclip_norm_max": float(clipped_norms.max().item()),
                 "scfar_distance_clip": distance_clip,
-                "scfar_score_saturation_rate": float(
+                "scfar_score_saturation_rate": (
+                    float((bounded_scores >= 1.0).double().mean())
+                    if aggregation_rule != "far_raw_distance"
+                    else None
+                ),
+                "scfar_bounded_score_diagnostic_saturation_rate": float(
                     (bounded_scores >= 1.0).double().mean()
+                ),
+                "scfar_score_min": score_min,
+                "scfar_score_mean": float(score_values.mean().item()),
+                "scfar_score_p50": _quantile(score_values, 0.50),
+                "scfar_score_p90": _quantile(score_values, 0.90),
+                "scfar_score_max": score_max,
+                "scfar_score_span": score_span,
+                "scfar_logit_span": logit_span,
+                "scfar_weight_quadratic_concentration": float(
+                    n * weights.detach().double().square().sum().cpu().item()
                 ),
                 "scfar_mean_distance": float(distances.mean()),
                 "scfar_max_distance": float(distances.max()),
@@ -576,7 +782,15 @@ class _SCFARServerMixin:
                 "central_noise_std": (
                     noise_multiplier * sensitivity if dp_enabled else None
                 ),
-                "central_noise_norm": float(torch.linalg.vector_norm(noise)),
+                "scfar_clean_aggregate_norm": clean_aggregate_norm,
+                "scfar_clean_aggregate_near_zero": clean_aggregate_norm <= 1e-12,
+                "scfar_released_aggregate_norm": released_aggregate_norm,
+                "central_noise_norm": noise_norm,
+                "central_noise_to_clean_aggregate_ratio": (
+                    noise_norm / max(clean_aggregate_norm, 1e-12)
+                    if dp_enabled
+                    else None
+                ),
                 "privacy_epsilon": epsilon,
                 "privacy_delta": (
                     float(config.get("delta", 1e-5)) if dp_enabled else None
@@ -655,7 +869,16 @@ class _SCFARServerMixin:
         metrics = common_round_metrics(client_updates)
         metrics.update({"round": round_num})
         metrics.update(diagnostics)
-        for key in ("active_group_idx", "is_warmup", "num_layer_groups"):
+        for key in (
+            "active_group_idx",
+            "is_warmup",
+            "num_layer_groups",
+            "active_parameter_mode",
+            "active_parameter_count",
+            "full_parameter_count",
+            "active_parameter_fraction",
+            "active_parameter_names",
+        ):
             if key in first_meta:
                 metrics[key] = first_meta[key]
         if dp_enabled:
@@ -698,6 +921,8 @@ class _SCFARServerMixin:
             "reference_stability_constant": None,
             "honest_outlier_client_ids": [],
             "client_metrics_every": 1,
+            "active_parameter_mode": "full",
+            "active_parameter_prefixes": None,
         }
 
 

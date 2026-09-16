@@ -1,0 +1,76 @@
+campaign_id: dt_ldp_far_stage14b_reference_trust_guard_v1
+scope: frozen_synthetic_reference_trust_and_guard_audit
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  ambient_dimension: 256
+  honest_outliers: 5
+  noise_std: 0.012
+  public_noise_scales: [1.0, 1.5, 2.0]
+  noise_permutations: [identity, rotate7, reverse]
+  outlier_geometries: [aligned, orthogonal]
+  threats: [none, ipm, alie, bitflip_x10, adaptive_aligned_jitter]
+
+score:
+  reference: centered_clipping_leave_one_out
+  fcc_radius: 0.13
+  families: [effective_moment, empirical_quantile]
+  dimension: 256
+  individual_calibration_weight: 1.0
+  moment_z_clip: 4.0
+  quantile_tail_probability: 0.90
+  variance_ridge: 1.0e-12
+
+robust_reference:
+  candidates: [fcc, huber, rfa, cm_nnm]
+  fcc_radius: 0.13
+  huber_radius: 0.13
+  huber_gamma: 1.0
+  huber_steps: 10
+  rfa_max_iter: 50
+  rfa_tolerance: 1.0e-7
+
+trust:
+  profiles: [none, directional_independence]
+  trust_logit_fraction: 0.25
+  direction_reject_cosine: -0.10
+  direction_full_trust_cosine: 0.25
+  independence_low_null_quantile: 0.05
+  independence_full_trust_null_quantile: 0.50
+  trust_floor: 0.05
+
+aggregation:
+  server_clip_norm: 0.42
+  kappa_w: 2.0
+  guard_radius_fractions: [raw, 0.50, 0.25, 0.10, 0.0]
+
+randomness:
+  calibration_seed: 2026091401
+  null_holdout_seed: 2026091402
+  signal_seeds: [28, 36, 54]
+  calibration_draws: 512
+  null_holdout_draws: 512
+  signal_draws: 30
+
+gates:
+  null_abs_score_noise_correlation_max: 0.10
+  null_noise_tier_score_range_max: 0.05
+  null_pairwise_ks_max: 0.10
+  clean_geometry_correlation_min: 0.50
+  honest_outlier_recall_at_5_min: 0.60
+  honest_outlier_weight_mass_min_exclusive: 0.20
+  max_individual_weight: 0.08
+  attacked_byzantine_weight_mass_max: 0.20
+  attacked_global_honest_outlier_recall_at_5_min: 0.35
+  trust_recall_loss_max: 0.05
+  trust_honest_outlier_mass_loss_max: 0.02
+  robust_reference_error_over_honest_dispersion_max: 0.75
+  guarded_attack_error_reduction_min: 0.20
+  guarded_clean_error_increase_max: 0.10
+
+decision:
+  accuracy_must_not_be_used: true
+  every_attack_must_pass: true
+  at_most_two_candidates_for_end_to_end: true
+  if_no_guarded_survivor: do_not_modify_dt_ldp_far_training

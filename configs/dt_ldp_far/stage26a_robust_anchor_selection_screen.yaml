@@ -1,0 +1,74 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage26a_robust_anchor_selection_screen_v1
+scope: preregistered_single_seed_anchor_selection_screen_no_confirmatory_claim
+common: common.yaml
+seed_pair_indices: [31]
+expected_tasks: 15
+
+analysis_split:
+  selection_screen_seed: 353
+  locked_confirmatory_seeds: [359, 367, 373]
+  confirmatory_seeds_must_not_be_run_before_selection: true
+
+analysis:
+  control_method: dt_ldp_far_stage19_peer_support
+  candidate_methods:
+    - dt_ldp_far_stage26_anchor_cm
+    - dt_ldp_far_stage26_anchor_trmean
+    - dt_ldp_far_stage26_anchor_cm_nnm
+    - dt_ldp_far_stage26_anchor_trmean_nnm
+  # First discard anchors whose clean loss exceeds this threshold. Among the
+  # rest, maximise the minimum attacked gain, then mean attacked gain, then
+  # clean gain. This rule is fixed before reading seed 353.
+  clean_accuracy_gain_min_pp: -4.0
+  selection_order:
+    - minimum_attacked_accuracy_gain_pp
+    - mean_attacked_accuracy_gain_pp
+    - clean_accuracy_gain_pp
+
+confirmatory_gates_locked_before_screen:
+  anchor_no_attack_accuracy_mean_min_pp: -1.5
+  anchor_no_attack_accuracy_each_min_pp: -4.0
+  anchor_attacked_accuracy_gain_mean_min_pp: 0.5
+  anchor_attacked_accuracy_gain_each_attack_mean_min_pp: 0.25
+  anchor_attacked_positive_gain_rate_min: 0.6666666666666666
+  anchor_attacked_worst20_difference_mean_min_pp: -1.0
+  correction_no_attack_accuracy_mean_min_pp: -1.0
+  correction_attacked_accuracy_gain_mean_min_pp: 0.0
+  correction_attacked_positive_gain_rate_min: 0.5
+  correction_attacked_worst20_difference_mean_min_pp: -1.0
+  candidate_concentration_median_min: 1.002
+  candidate_correction_norm_median_min: 0.0001
+  privacy_epsilon_difference_max: 0.01
+  every_weight_cap_must_hold: true
+  every_correction_certificate_must_hold: true
+  strict_randomness_pair_key_required: true
+
+experiments:
+  - id: E40_stage26a_uniform_mean_control
+    scenarios: [fmnist_b01_n25_t12]
+    methods: [dt_ldp_far_stage19_peer_support]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 3
+
+  - id: E41_stage26a_robust_anchor_screen
+    scenarios: [fmnist_b01_n25_t12]
+    methods:
+      - dt_ldp_far_stage26_anchor_cm
+      - dt_ldp_far_stage26_anchor_trmean
+      - dt_ldp_far_stage26_anchor_cm_nnm
+      - dt_ldp_far_stage26_anchor_trmean_nnm
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12

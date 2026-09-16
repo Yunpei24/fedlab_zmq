@@ -1,0 +1,60 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage26b_trmean_nnm_anchor_confirmatory_v1
+scope: preregistered_holdout_confirmation_of_stage26a_selected_anchor
+common: common.yaml
+seed_pair_indices: [32, 33, 34]
+expected_tasks: 27
+
+analysis_split:
+  selection_screen_seed_not_reused: 353
+  confirmatory_seeds: [359, 367, 373]
+
+analysis:
+  control_method: dt_ldp_far_stage19_peer_support
+  candidate_method: dt_ldp_far_stage26_anchor_trmean_nnm
+  selected_anchor: trmean_nnm
+  selection_record: results/dt_ldp_far/stage26a_robust_anchor_selection_screen_v1/stage26a_selection.json
+
+# Copied verbatim from Stage 26A before the seed-353 screen was run.
+gates:
+  anchor_no_attack_accuracy_mean_min_pp: -1.5
+  anchor_no_attack_accuracy_each_min_pp: -4.0
+  anchor_attacked_accuracy_gain_mean_min_pp: 0.5
+  anchor_attacked_accuracy_gain_each_attack_mean_min_pp: 0.25
+  anchor_attacked_positive_gain_rate_min: 0.6666666666666666
+  anchor_attacked_worst20_difference_mean_min_pp: -1.0
+  correction_no_attack_accuracy_mean_min_pp: -1.0
+  correction_attacked_accuracy_gain_mean_min_pp: 0.0
+  correction_attacked_positive_gain_rate_min: 0.5
+  correction_attacked_worst20_difference_mean_min_pp: -1.0
+  candidate_concentration_median_min: 1.002
+  candidate_correction_norm_median_min: 0.0001
+  privacy_epsilon_difference_max: 0.01
+  every_weight_cap_must_hold: true
+  every_correction_certificate_must_hold: true
+  strict_randomness_pair_key_required: true
+
+experiments:
+  - id: E42_stage26b_uniform_mean_control
+    scenarios: [fmnist_b01_n25_t12]
+    methods: [dt_ldp_far_stage19_peer_support]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 9
+
+  - id: E43_stage26b_selected_anchor_and_far
+    scenarios: [fmnist_b01_n25_t12]
+    methods: [dt_ldp_far_stage26_anchor_trmean_nnm]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform, boundary]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 18

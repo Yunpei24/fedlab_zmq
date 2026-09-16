@@ -1,0 +1,2072 @@
+schema_version: 1
+protocol_id: dt_ldp_far_e1_e8_v1
+
+base_config:
+  device: cpu
+  data:
+    dataset: fashionmnist
+    model: lenet5
+    partition: client_dirichlet_balanced
+    alpha: 0.1
+    partition_seed: 28
+    data_root: ./data
+  model:
+    architecture: lenet5
+  training:
+    num_rounds: 40
+    cost_model: measured
+    algorithm: dt_ldp_far
+    algo_config:
+      lr: 0.01
+      momentum: 0.0
+      weight_decay: 0.0
+      local_epochs: 1
+      batch_size: 64
+      per_sample_backend: vectorized
+      sampling_scheme: fixed_minibatch
+      privacy_adjacency: unspecified
+      poisson_steps_per_round: null
+      clip_norm: 1.0
+      server_clip_norm: 1.0
+      distance_clip: 2.0
+      tilt_tau: 0.1
+      tilt_delay_rounds: 1
+      kappa_w: 2.0
+      tilt_bound_policy: error
+      dt_reference: centered_clipping
+      reference_clip_radius: 1.0
+      anchor_update_rate: 0.1
+      anchor_clip_norm: 1.0
+      num_byzantine: 0
+      require_full_participation: true
+      expected_num_clients: 10
+      enable_oracle_diagnostics: true
+      enable_private_client_oracle_diagnostics: false
+      client_metrics_every: 2
+      fairness_tail_fraction: 0.2
+  clients:
+    num_clients: 10
+    sample_fraction: 1.0
+    sampling_strategy: random
+    min_clients: 10
+    dropout_rate: 0.0
+    fleet:
+      - type: raspberry_pi_4
+        count: 10
+    battery_init:
+      distribution: uniform_soc
+      params: {min_soc: 0.95, max_soc: 0.95}
+  eval:
+    eval_every: 2
+    honest_clients_only: true
+
+seed_pairs:
+  - {partition_seed: 28, training_seed: 28}
+  - {partition_seed: 36, training_seed: 36}
+  - {partition_seed: 54, training_seed: 54}
+  # Additional crossed pairs used to separate optimisation randomness from
+  # partition sensitivity in the decisive campaign.  The first three entries
+  # are intentionally unchanged so all earlier matrix indices remain stable.
+  - {partition_seed: 28, training_seed: 36}
+  - {partition_seed: 28, training_seed: 54}
+  - {partition_seed: 36, training_seed: 28}
+  - {partition_seed: 36, training_seed: 54}
+  - {partition_seed: 54, training_seed: 28}
+  - {partition_seed: 54, training_seed: 36}
+  # Independent end-to-end confirmation seeds introduced only after the
+  # Stage-19 vector holdout had frozen the RFA + 50% peer-support candidate.
+  - {partition_seed: 71, training_seed: 71}
+  - {partition_seed: 83, training_seed: 83}
+  - {partition_seed: 97, training_seed: 97}
+  # Fresh confirmatory seeds for the narrower IPM-specific hypothesis. They
+  # were registered only after Stages 20C/20R generated that hypothesis.
+  - {partition_seed: 109, training_seed: 109}
+  - {partition_seed: 127, training_seed: 127}
+  - {partition_seed: 149, training_seed: 149}
+  # Stage-22 lagged-descent study. Seed 163 is an integration screen only;
+  # 179, 193 and 211 form the untouched confirmatory holdout.
+  - {partition_seed: 163, training_seed: 163}
+  - {partition_seed: 179, training_seed: 179}
+  - {partition_seed: 193, training_seed: 193}
+  - {partition_seed: 211, training_seed: 211}
+  # Stage-23 robust-admissibility study. Seed 271 is an integration screen;
+  # 277, 283 and 293 are an untouched end-to-end holdout.
+  - {partition_seed: 271, training_seed: 271}
+  - {partition_seed: 277, training_seed: 277}
+  - {partition_seed: 283, training_seed: 283}
+  - {partition_seed: 293, training_seed: 293}
+  # Stage-24 Multi-Krum admissibility study. Seed 307 is an integration
+  # screen; 311, 313 and 317 are a new untouched end-to-end holdout.
+  - {partition_seed: 307, training_seed: 307}
+  - {partition_seed: 311, training_seed: 311}
+  - {partition_seed: 313, training_seed: 313}
+  - {partition_seed: 317, training_seed: 317}
+  # Stage-25 robust-anchor containment study. Seed 331 is an integration
+  # screen; 337, 347 and 349 are a new untouched end-to-end holdout.
+  - {partition_seed: 331, training_seed: 331}
+  - {partition_seed: 337, training_seed: 337}
+  - {partition_seed: 347, training_seed: 347}
+  - {partition_seed: 349, training_seed: 349}
+  # Stage-26 robust-anchor selection and confirmation. Seed 353 is the only
+  # selection screen. Seeds 359, 367 and 373 are locked before that screen and
+  # remain untouched until one anchor has been selected mechanically.
+  - {partition_seed: 353, training_seed: 353}
+  - {partition_seed: 359, training_seed: 359}
+  - {partition_seed: 367, training_seed: 367}
+  - {partition_seed: 373, training_seed: 373}
+
+scenarios:
+  fmnist_b01:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      algo_config: {privacy_public_dataset_size: 6001}
+  fmnist_b05:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.5}
+    model: {architecture: lenet5}
+    training:
+      algo_config: {privacy_public_dataset_size: 6001}
+  fmnist_b01_t40:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 40
+      algo_config: {privacy_public_dataset_size: 6001}
+  fmnist_b01_t80:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 80
+      algo_config: {privacy_public_dataset_size: 6001}
+  fmnist_b01_t120:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 120
+      algo_config: {privacy_public_dataset_size: 6001}
+  fmnist_b05_t40:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.5}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 40
+      algo_config: {privacy_public_dataset_size: 6001}
+  fmnist_b05_t80:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.5}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 80
+      algo_config: {privacy_public_dataset_size: 6001}
+  fmnist_b05_t120:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.5}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 120
+      algo_config: {privacy_public_dataset_size: 6001}
+  # Short ten-client gate: geometry is calibrated here before any expensive
+  # 25-client confirmatory task is promoted.
+  fmnist_b01_n10_t20:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 20
+      algo_config: {privacy_public_dataset_size: 6001}
+  # Class-centric Dirichlet ablation. Contrary to
+  # client_dirichlet_balanced, client sizes are not controlled. Train and
+  # held-out test shards nevertheless reuse matched public Dirichlet streams
+  # through run_experiment.py so client-level fairness remains meaningful.
+  # The public capacity 12000 is fixed before training and covers the largest
+  # local shard for the pre-registered seeds 28, 36 and 54 (observed public
+  # maximum: 11935). It is not inferred from a private runtime cardinality.
+  fmnist_b01_n10_t20_class_dirichlet:
+    data:
+      dataset: fashionmnist
+      model: lenet5
+      partition: dirichlet
+      alpha: 0.1
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 20
+      algo_config: {privacy_public_dataset_size: 12000}
+  # Twelve-round confirmatory horizon for the post-hoc IPM-specific claim.
+  # 2401 is a public padded capacity, not the realised private cardinality.
+  fmnist_b01_n25_t12:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 12
+      algo_config: {privacy_public_dataset_size: 2401}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      fleet: [{type: raspberry_pi_4, count: 25}]
+  # FAR's paper-scale cohort. Balanced FMNIST gives approximately 2400
+  # training records per client; 2401 is a public padded capacity used by the
+  # add/remove Poisson mechanism and never the realised private cardinality.
+  fmnist_b01_n25_t20:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 20
+      algo_config: {privacy_public_dataset_size: 2401}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      fleet: [{type: raspberry_pi_4, count: 25}]
+  # Short mechanism-discovery horizon.  Accuracy is not used to select a
+  # profile; only the pre-registered geometry/noise gates are evaluated.
+  fmnist_b01_n25_t6:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 6
+      algo_config: {privacy_public_dataset_size: 2401}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      fleet: [{type: raspberry_pi_4, count: 25}]
+  fmnist_b01_n25_t80:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 80
+      algo_config: {privacy_public_dataset_size: 2401}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      fleet: [{type: raspberry_pi_4, count: 25}]
+  fmnist_b01_n25_t120:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.1}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 120
+      algo_config: {privacy_public_dataset_size: 2401}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      fleet: [{type: raspberry_pi_4, count: 25}]
+  fmnist_b05_n25_t80:
+    data: {dataset: fashionmnist, model: lenet5, alpha: 0.5}
+    model: {architecture: lenet5}
+    training:
+      num_rounds: 80
+      algo_config: {privacy_public_dataset_size: 2401}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      fleet: [{type: raspberry_pi_4, count: 25}]
+  cifar10_b01:
+    data: {dataset: cifar10, model: alexnet, alpha: 0.1}
+    model: {architecture: alexnet}
+    training:
+      algo_config: {privacy_public_dataset_size: 5001}
+
+methods:
+  fedavg_no_dp:
+    algorithm: fedavg
+    algo_config: {enable_dp: false}
+    comparison_lane: native_non_private
+  far_no_dp:
+    algorithm: far
+    algo_config: {far_alpha: 0.1}
+    comparison_lane: native_non_private
+  clipped_fedavg_no_dp:
+    algorithm: dpfedavg
+    algo_config: {enable_dp: false, noise_multiplier: 0.0, target_epsilon: null}
+    comparison_lane: poisson_no_noise_clipping_matched
+  clipped_far_no_dp:
+    algorithm: dpfar
+    algo_config:
+      enable_dp: false
+      noise_multiplier: 0.0
+      target_epsilon: null
+      far_score_mode: bounded_normalized
+    comparison_lane: poisson_no_noise_clipping_matched
+  dt_no_dp:
+    algorithm: dt_ldp_far
+    algo_config: {enable_dp: false, noise_multiplier: 0.0, target_epsilon: null}
+    comparison_lane: poisson_no_noise_clipping_matched
+  dp_fedavg:
+    algorithm: dpfedavg
+    comparison_lane: true_poisson_add_remove
+  dp_qffl:
+    algorithm: dpqffl
+    algo_config: {q: 1.0, aggregation_prior: uniform}
+    comparison_lane: true_poisson_add_remove_with_private_loss_channel
+  fedfdp:
+    algorithm: fedfdp
+    algo_config:
+      fairness_lambda: 0.1
+      loss_clip: 2.5
+      target_epsilon_includes_auxiliary_channels: true
+    comparison_lane: legacy_alias_do_not_use_for_cross_method_claims
+  fedfdp_native:
+    algorithm: fedfdp
+    algo_config:
+      fairness_lambda: 0.1
+      loss_clip: 2.5
+      target_epsilon_includes_auxiliary_channels: true
+      max_local_batches: null
+    comparison_lane: fedfdp_native_fixed_minibatch
+  fedfdp_compute_matched:
+    algorithm: fedfdp
+    algo_config:
+      fairness_lambda: 0.1
+      loss_clip: 2.5
+      target_epsilon_includes_auxiliary_channels: true
+      max_local_batches: 5
+    comparison_lane: fixed_minibatch_five_step_compute_matched
+  dp_far_current:
+    algorithm: dpfar
+    algo_config: {far_alpha: 0.1}
+    comparison_lane: original_far_raw_distance
+  dp_far_current_matched:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      suppress_private_client_diagnostics: true
+    comparison_lane: true_poisson_current_round_bounded_score_privacy_safe_transcript
+  dp_far_current_matched_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_oracle_diagnostic
+  dp_far_current_noise_scale_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: client_noise_scale
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_public_noise_scale_diagnostic
+  dp_far_current_covariance_proxy_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_covariance_proxy
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_public_covariance_proxy_diagnostic
+  dp_far_current_excess_energy_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_excess_energy
+      noise_score_z_clip: 5.0
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_excess_energy_oracle_diagnostic
+  dp_far_current_debiased_distance_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_debiased_distance
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_debiased_distance_oracle_diagnostic
+  # Generation-4 score selected by the frozen synthetic train/holdout gate.
+  # Its null calibration uses deterministic artificial Gaussian draws from
+  # public DP-mechanism parameters, hence consumes no additional privacy.
+  dp_far_current_null_mc_robust:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_calibrated_independence_orthogonalized
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: true
+    comparison_lane: true_poisson_current_round_generation4_null_mc_privacy_safe
+  dp_far_current_null_mc_robust_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_calibrated_independence_orthogonalized
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_generation4_null_mc_oracle
+  # Generation-4 ablation: exact leave-one-out FCC residual, excess energy,
+  # directional trust and null-calibrated anti-collusion trust.
+  dp_far_current_loo_excess_robust:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_loo_excess_calibrated_dual_trust_orthogonalized
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 5.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: true
+    comparison_lane: true_poisson_current_round_generation4_loo_privacy_safe
+  dp_far_current_loo_excess_robust_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_loo_excess_calibrated_dual_trust_orthogonalized
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 5.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_generation4_loo_oracle
+  # Generation 5: exact midrank calibration inside each discrete public
+  # noise tier. Difficulty and robust trust share one bounded logit budget.
+  # The deployable profiles suppress every private/oracle diagnostic.
+  dp_far_current_tier_rank_no_trust:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_tier_robust_separate_trust
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_logit_fraction: 0.0
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: true
+    comparison_lane: true_poisson_current_round_generation5_tier_rank_no_trust
+  dp_far_current_tier_rank_fairness:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_tier_robust_separate_trust
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_logit_fraction: 0.25
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: true
+    comparison_lane: true_poisson_current_round_generation5_tier_rank_fairness
+  dp_far_current_tier_rank_balanced:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_tier_robust_separate_trust
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_logit_fraction: 0.50
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: true
+    comparison_lane: true_poisson_current_round_generation5_tier_rank_balanced
+  dp_far_current_tier_rank_no_trust_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_tier_robust_separate_trust
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_logit_fraction: 0.0
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_generation5_tier_rank_no_trust_oracle
+  dp_far_current_tier_rank_fairness_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_tier_robust_separate_trust
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_logit_fraction: 0.25
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_generation5_tier_rank_fairness_oracle
+  dp_far_current_tier_rank_balanced_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_tier_robust_separate_trust
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_logit_fraction: 0.50
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_generation5_tier_rank_balanced_oracle
+  # Generation-5 ablation for continuously varying public noise scales:
+  # Theil--Sen replaces the ordinary least-squares orthogonalisation.
+  dp_far_current_theil_sen_fairness_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_null_mc_moment_theil_sen_separate_trust
+      noise_score_null_mc_draws: 64
+      noise_score_null_mc_seed: 20260906
+      noise_score_z_clip: 4.0
+      noise_score_trust_floor: 0.05
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_robust_lower_quantile: 0.05
+      noise_score_robust_upper_quantile: 0.95
+      noise_score_trust_logit_fraction: 0.25
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_generation5_theil_sen_fairness_oracle
+  # Generation 6: the score uses a direction fixed by earlier locally-private
+  # uploads.  This tests whether persistent honest geometry can be separated
+  # from fresh, conditionally centred DP noise.  No trust channel is mixed in
+  # during Stage 13A so the novelty hypothesis is tested in isolation.
+  dp_far_current_temporal_previous_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_temporal_previous_projection
+      noise_score_temporal_lower_z: 0.0
+      noise_score_temporal_upper_z: 3.0
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_generation6_previous_projection_oracle
+  dp_far_current_temporal_ema_oracle:
+    algorithm: dpfar
+    algo_config:
+      far_score_mode: bounded_normalized
+      noise_score_standardization: isotropic_dp_temporal_ema_projection
+      noise_score_temporal_lower_z: 0.0
+      noise_score_temporal_upper_z: 3.0
+      noise_score_temporal_ema_decay: 0.5
+      noise_score_include_server_contraction: true
+      suppress_private_client_diagnostics: false
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: non_private_current_round_generation6_ema_projection_oracle
+  dt_ldp_far:
+    algorithm: dt_ldp_far
+    comparison_lane: true_poisson_delayed_bounded_score
+  dt_ldp_far_raw_distance:
+    algorithm: dt_ldp_far
+    algo_config:
+      dt_score_transform: raw_distance
+      noise_score_standardization: none
+    comparison_lane: true_poisson_delayed_raw_distance_public_2U_range
+  dt_ldp_far_oracle:
+    algorithm: dt_ldp_far
+    algo_config:
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: private_client_oracle_diagnostic_not_a_dp_release
+  dt_ldp_far_noise_scale_oracle:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: client_noise_scale
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: private_client_public_noise_scale_oracle_diagnostic
+  dt_ldp_far_covariance_proxy_oracle:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: isotropic_dp_covariance_proxy
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: private_client_public_covariance_proxy_oracle_diagnostic
+  dt_ldp_far_excess_energy_oracle:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: isotropic_dp_excess_energy
+      noise_score_z_clip: 5.0
+      noise_score_include_server_contraction: true
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: private_client_excess_energy_oracle_diagnostic
+  dt_ldp_far_debiased_distance_oracle:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: isotropic_dp_debiased_distance
+      noise_score_include_server_contraction: true
+      enable_private_client_oracle_diagnostics: true
+      enable_noise_free_counterfactual_oracle: true
+      non_private_diagnostic_transcript: true
+    comparison_lane: private_client_debiased_distance_oracle_diagnostic
+  # Stage 14 end-to-end transfer.  The score is calibrated against artificial
+  # null cohorts in the public 256-coordinate score space.  These profiles are
+  # exploratory because the frozen vector preflight had no fully robust
+  # survivor; final accuracy is reported but never used to rewrite its gates.
+  dt_ldp_far_stage14_moment_current_raw:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 32
+      noise_score_null_mc_seed: 2026091401
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: none
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: exploratory_stage14_moment_current_raw
+  dt_ldp_far_stage14_moment_current_trust_raw:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 32
+      noise_score_null_mc_seed: 2026091401
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: directional_independence
+      noise_score_trust_logit_fraction: 0.25
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: exploratory_stage14_moment_current_dual_trust_raw
+  dt_ldp_far_stage14_moment_current_trust_guard:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 32
+      noise_score_null_mc_seed: 2026091401
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: directional_independence
+      noise_score_trust_logit_fraction: 0.25
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: 0.10
+      dt_guard_reference_clip_radius: 0.13
+      dt_guard_anchor_update_rate: 1.0
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: exploratory_stage14_moment_current_dual_trust_guard
+  dt_ldp_far_stage14_quantile_current_trust_guard:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_quantile_fcc_loo
+      noise_score_null_mc_draws: 32
+      noise_score_null_mc_seed: 2026091401
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_tail_probability: 0.90
+      dt_trust_profile: directional_independence
+      noise_score_trust_logit_fraction: 0.25
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: 0.10
+      dt_guard_reference_clip_radius: 0.13
+      dt_guard_anchor_update_rate: 1.0
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: exploratory_stage14_quantile_current_dual_trust_guard
+  dt_ldp_far_stage14_moment_lagged_trust_guard:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 32
+      noise_score_null_mc_seed: 2026091401
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: directional_independence
+      noise_score_trust_logit_fraction: 0.25
+      dt_reference_time_mode: lagged_ema
+      anchor_update_rate: 0.25
+      temporal_reference_step_radius: 0.013
+      dt_output_guard_radius_fraction: 0.10
+      dt_guard_reference_clip_radius: 0.13
+      dt_guard_anchor_update_rate: 1.0
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: exploratory_stage14_moment_strict_temporal_dual_trust_guard
+  # Causal-memory control for the clean -> attack -> recovery experiment.
+  # The state H is updated in clean/recovery rounds but held fixed throughout
+  # the public attack window.  This isolates persistent reference poisoning
+  # from the ordinary lag incurred by a temporal reference.
+  dt_ldp_far_stage14_moment_lagged_frozen_attack_trust_guard:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 32
+      noise_score_null_mc_seed: 2026091401
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: directional_independence
+      noise_score_trust_logit_fraction: 0.25
+      dt_reference_time_mode: lagged_ema
+      anchor_update_rate: 0.25
+      temporal_reference_step_radius: 0.013
+      temporal_reference_freeze_during_attack: true
+      dt_output_guard_radius_fraction: 0.10
+      dt_guard_reference_clip_radius: 0.13
+      dt_guard_anchor_update_rate: 1.0
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: exploratory_stage14_strict_temporal_frozen_attack_control
+  # Stage-19 confirmatory candidate. Novelty is always built with exact
+  # FCC leave-one-out residuals, while the independent reference axis chooses
+  # the robust direction used by the ranked peer-support channel. The public
+  # f_max=5 bound remains fixed even in the no-attack arm.
+  dt_ldp_far_stage19_peer_support:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026091901
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: ranked_directional_peer_support
+      dt_support_assumed_byzantine: 5
+      noise_score_trust_logit_fraction: 0.50
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_peer_reject_cosine: 0.00
+      noise_score_peer_full_support_cosine: 0.20
+      noise_score_peer_extra_honest_supporters: 1
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_floor: 0.05
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: confirmed_vector_stage19_delayed_peer_support
+  dt_ldp_far_stage19_novelty_only:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026091901
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: none
+      dt_support_assumed_byzantine: 5
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: confirmed_vector_stage19_novelty_only_control
+  # Stage-22 candidate: current novelty is combined with alignment to the
+  # robust RFA direction from the previous round. That direction is fixed by
+  # the past private transcript before fresh uploads arrive. The 75% utility
+  # share, cosine thresholds and cold-start value are frozen before any
+  # Stage-22 end-to-end result is read.
+  dt_ldp_far_stage22_lagged_descent:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026092201
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: lagged_descent_alignment
+      noise_score_trust_logit_fraction: 0.75
+      noise_score_lagged_descent_reject_cosine: 0.0
+      noise_score_lagged_descent_full_cosine: 0.50
+      noise_score_lagged_descent_neutral: 0.50
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: preregistered_lagged_robust_descent_alignment
+  # Stage-23 candidate: a delayed robust trust channel selects n-f admissible
+  # clients, then the delayed FAR novelty score is normalised only inside that
+  # set. This separates robust exclusion from fairness-oriented tilting.
+  dt_ldp_far_stage23_admissible_far:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026092301
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: ranked_directional_peer_support_filter
+      dt_support_assumed_byzantine: 5
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_peer_reject_cosine: 0.00
+      noise_score_peer_full_support_cosine: 0.20
+      noise_score_peer_extra_honest_supporters: 1
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_floor: 0.05
+      dt_admissibility_filter_enabled: true
+      dt_admissibility_max_byzantine: 5
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: preregistered_delayed_robust_admissibility_far
+  # Stage-24 candidate: the delayed admissible set is the classical
+  # Multi-Krum core of size n-f-2. FAR novelty only reweights this core.
+  # The robust selector and the fairness-oriented tilt remain separate.
+  dt_ldp_far_stage24_multikrum_far:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026092401
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: multi_krum_admissibility
+      dt_support_assumed_byzantine: 5
+      dt_admissibility_filter_enabled: true
+      dt_admissibility_max_byzantine: 5
+      dt_admissibility_excluded_clients: 7
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: preregistered_delayed_multikrum_core_far
+  # Stage-25 candidate: RFA is the full-update robust anchor. FAR is allowed
+  # only as a centred, clipped perturbation around that anchor. With residual
+  # radius V=U and gain gamma=1/4, the output always remains within U/2 of
+  # RFA, independently of score quality and attack behaviour.
+  dt_ldp_far_stage25_robust_anchor_far:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026092501
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: ranked_directional_peer_support
+      dt_support_assumed_byzantine: 5
+      noise_score_trust_logit_fraction: 0.50
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_peer_reject_cosine: 0.00
+      noise_score_peer_full_support_cosine: 0.20
+      noise_score_peer_extra_honest_supporters: 1
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_floor: 0.05
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      dt_aggregate_mode: robust_anchor_perturbation
+      dt_aggregate_anchor: rfa
+      dt_anchor_residual_radius_fraction: 1.0
+      dt_anchor_correction_gain: 0.25
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: preregistered_robust_anchor_bounded_far_correction
+  # Stage-26 screen candidates. They share the exact Stage-25 score and
+  # certified correction; only the robust full-update anchor changes.
+  dt_ldp_far_stage26_anchor_cm:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026092601
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: ranked_directional_peer_support
+      dt_support_assumed_byzantine: 5
+      noise_score_trust_logit_fraction: 0.50
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_peer_reject_cosine: 0.00
+      noise_score_peer_full_support_cosine: 0.20
+      noise_score_peer_extra_honest_supporters: 1
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_floor: 0.05
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      dt_aggregate_mode: robust_anchor_perturbation
+      dt_aggregate_anchor: coordinate_median
+      dt_anchor_residual_radius_fraction: 1.0
+      dt_anchor_correction_gain: 0.25
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: stage26_robust_anchor_screen
+  dt_ldp_far_stage26_anchor_trmean:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026092601
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: ranked_directional_peer_support
+      dt_support_assumed_byzantine: 5
+      noise_score_trust_logit_fraction: 0.50
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_peer_reject_cosine: 0.00
+      noise_score_peer_full_support_cosine: 0.20
+      noise_score_peer_extra_honest_supporters: 1
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_floor: 0.05
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      dt_aggregate_mode: robust_anchor_perturbation
+      dt_aggregate_anchor: trimmed_mean
+      dt_anchor_residual_radius_fraction: 1.0
+      dt_anchor_correction_gain: 0.25
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: stage26_robust_anchor_screen
+  dt_ldp_far_stage26_anchor_cm_nnm:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026092601
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: ranked_directional_peer_support
+      dt_support_assumed_byzantine: 5
+      noise_score_trust_logit_fraction: 0.50
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_peer_reject_cosine: 0.00
+      noise_score_peer_full_support_cosine: 0.20
+      noise_score_peer_extra_honest_supporters: 1
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_floor: 0.05
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      dt_aggregate_mode: robust_anchor_perturbation
+      dt_aggregate_anchor: cm_nnm
+      dt_anchor_residual_radius_fraction: 1.0
+      dt_anchor_correction_gain: 0.25
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: stage26_robust_anchor_screen
+  dt_ldp_far_stage26_anchor_trmean_nnm:
+    algorithm: dt_ldp_far
+    algo_config:
+      noise_score_standardization: effective_null_moment_fcc_loo
+      noise_score_null_mc_draws: 160
+      noise_score_null_mc_seed: 2026092601
+      noise_score_individual_calibration_weight: 1.0
+      noise_score_z_clip: 4.0
+      dt_trust_profile: ranked_directional_peer_support
+      dt_support_assumed_byzantine: 5
+      noise_score_trust_logit_fraction: 0.50
+      noise_score_reject_cosine: -0.10
+      noise_score_full_trust_cosine: 0.25
+      noise_score_peer_reject_cosine: 0.00
+      noise_score_peer_full_support_cosine: 0.20
+      noise_score_peer_extra_honest_supporters: 1
+      noise_score_independence_low_quantile: 0.05
+      noise_score_independence_full_quantile: 0.50
+      noise_score_trust_floor: 0.05
+      dt_reference_time_mode: current
+      dt_output_guard_radius_fraction: raw
+      dt_aggregate_mode: robust_anchor_perturbation
+      dt_aggregate_anchor: trmean_nnm
+      dt_anchor_residual_radius_fraction: 1.0
+      dt_anchor_correction_gain: 0.25
+      enable_private_client_oracle_diagnostics: false
+    comparison_lane: stage26_robust_anchor_screen
+
+references:
+  fcc:
+    algo_config:
+      dt_reference: centered_clipping
+      robust_reference: centered_clipping
+  huber:
+    algo_config:
+      dt_reference: regularized_huber
+      robust_reference: regularized_huber
+      huber_gamma: 1.0
+      huber_num_steps: 10
+  cm_nnm:
+    algo_config: {dt_reference: cm_nnm, robust_reference: cm_nnm}
+  trmean_nnm:
+    algo_config: {dt_reference: trmean_nnm, robust_reference: trmean_nnm}
+  rfa:
+    algo_config: {dt_reference: rfa, robust_reference: rfa}
+
+threats:
+  none:
+    num_byzantine: 0
+    attack: {enabled: false, name: none, num_byzantine: 0, client_ids: []}
+  bf20:
+    num_byzantine: 2
+    attack: {enabled: true, name: bf, scale: 1.0, num_byzantine: 2, client_ids: [0, 1]}
+  ipm20:
+    num_byzantine: 2
+    attack: {enabled: true, name: ipm, scale: 1.0, num_byzantine: 2, client_ids: [0, 1]}
+  alie20:
+    num_byzantine: 2
+    attack: {enabled: true, name: alie, scale: 1.0, num_byzantine: 2, client_ids: [0, 1]}
+  minmax20:
+    num_byzantine: 2
+    attack: {enabled: true, name: minmax, scale: 1.0, num_byzantine: 2, client_ids: [0, 1]}
+  minsum20:
+    num_byzantine: 2
+    attack: {enabled: true, name: minsum, scale: 1.0, num_byzantine: 2, client_ids: [0, 1]}
+  bf20_n25:
+    num_byzantine: 5
+    attack: {enabled: true, name: bf, scale: 1.0, num_byzantine: 5, client_ids: [0, 1, 2, 3, 4]}
+  # Explicit high-norm stress: unlike canonical BF, this is intended to
+  # activate the server clipping radius and test its bounded-influence role.
+  bf20_n25_s10:
+    num_byzantine: 5
+    attack: {enabled: true, name: bf, scale: 10.0, num_byzantine: 5, client_ids: [0, 1, 2, 3, 4]}
+  ipm20_n25:
+    num_byzantine: 5
+    attack: {enabled: true, name: ipm, scale: 1.0, num_byzantine: 5, client_ids: [0, 1, 2, 3, 4]}
+  alie20_n25:
+    num_byzantine: 5
+    attack: {enabled: true, name: alie, scale: 1.0, num_byzantine: 5, client_ids: [0, 1, 2, 3, 4]}
+  # Public one-indexed inclusive attack windows used by the causal-memory
+  # experiment: rounds 1--6 clean, 7--12 attacked, 13--20 recovery.
+  ipm20_n25_phase_7_12:
+    num_byzantine: 5
+    attack:
+      enabled: true
+      name: ipm
+      scale: 1.0
+      num_byzantine: 5
+      client_ids: [0, 1, 2, 3, 4]
+      active_round_start: 7
+      active_round_end: 12
+  alie20_n25_phase_7_12:
+    num_byzantine: 5
+    attack:
+      enabled: true
+      name: alie
+      scale: 1.0
+      num_byzantine: 5
+      client_ids: [0, 1, 2, 3, 4]
+      active_round_start: 7
+      active_round_end: 12
+  bf20_n25_s10_phase_7_12:
+    num_byzantine: 5
+    attack:
+      enabled: true
+      name: bf
+      scale: 10.0
+      num_byzantine: 5
+      client_ids: [0, 1, 2, 3, 4]
+      active_round_start: 7
+      active_round_end: 12
+  minmax20_n25:
+    num_byzantine: 5
+    attack: {enabled: true, name: minmax, scale: 1.0, num_byzantine: 5, client_ids: [0, 1, 2, 3, 4]}
+  minsum20_n25:
+    num_byzantine: 5
+    attack: {enabled: true, name: minsum, scale: 1.0, num_byzantine: 5, client_ids: [0, 1, 2, 3, 4]}
+  alie08_n25:
+    num_byzantine: 2
+    attack: {enabled: true, name: alie, scale: 1.0, num_byzantine: 2, client_ids: [0, 1]}
+  alie20_n25_s05:
+    num_byzantine: 5
+    attack: {enabled: true, name: alie, scale: 0.5, num_byzantine: 5, client_ids: [0, 1, 2, 3, 4]}
+  alie20_n25_s20:
+    num_byzantine: 5
+    attack: {enabled: true, name: alie, scale: 2.0, num_byzantine: 5, client_ids: [0, 1, 2, 3, 4]}
+
+privacy:
+  none:
+    algo_config:
+      enable_dp: false
+      noise_multiplier: 0.0
+      target_epsilon: null
+      sampling_scheme: fixed_minibatch
+      privacy_adjacency: none
+  none_poisson:
+    algo_config:
+      enable_dp: false
+      noise_multiplier: 0.0
+      target_epsilon: null
+      sampling_scheme: poisson
+      privacy_adjacency: add_remove
+      privacy_sampling_rate_override: 0.05
+  eps1:
+    algo_config: {enable_dp: true, target_epsilon: 1.0, delta: 1.0e-5, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  eps2:
+    algo_config: {enable_dp: true, target_epsilon: 2.0, delta: 1.0e-5, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  eps4:
+    algo_config: {enable_dp: true, target_epsilon: 4.0, delta: 1.0e-5, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  # Pre-registered local-clipping calibration lanes. Encoding C in the
+  # privacy profile keeps it separate from the server geometry U/D_score/rho.
+  none_poisson_c1:
+    algo_config: {enable_dp: false, noise_multiplier: 0.0, target_epsilon: null, clip_norm: 1.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  none_poisson_c2:
+    algo_config: {enable_dp: false, noise_multiplier: 0.0, target_epsilon: null, clip_norm: 2.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  none_poisson_c4:
+    algo_config: {enable_dp: false, noise_multiplier: 0.0, target_epsilon: null, clip_norm: 4.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  none_poisson_c8:
+    algo_config: {enable_dp: false, noise_multiplier: 0.0, target_epsilon: null, clip_norm: 8.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  eps4_c1:
+    algo_config: {enable_dp: true, target_epsilon: 4.0, delta: 1.0e-5, clip_norm: 1.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  eps4_c2:
+    algo_config: {enable_dp: true, target_epsilon: 4.0, delta: 1.0e-5, clip_norm: 2.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  eps4_c4:
+    algo_config: {enable_dp: true, target_epsilon: 4.0, delta: 1.0e-5, clip_norm: 4.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  eps1_c4:
+    algo_config: {enable_dp: true, target_epsilon: 1.0, delta: 1.0e-5, clip_norm: 4.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  eps8_c4:
+    algo_config: {enable_dp: true, target_epsilon: 8.0, delta: 1.0e-5, clip_norm: 4.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  # Public three-tier privacy preferences.  Every factor is >= 1, so the
+  # least-noisy clients attain the target epsilon while all others receive a
+  # strictly smaller epsilon.  The maximum client epsilon remains the target.
+  eps4_c4_hetero_noise_n25:
+    algo_config:
+      enable_dp: true
+      target_epsilon: 4.0
+      delta: 1.0e-5
+      clip_norm: 4.0
+      sampling_scheme: poisson
+      privacy_adjacency: add_remove
+      privacy_sampling_rate_override: 0.05
+      privacy_noise_multiplier_scale_by_client: [1.0, 1.5, 2.0, 1.5, 1.0, 2.0, 1.0, 1.5, 2.0, 1.5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5]
+  # Fixed-size batch ablation. Each DP step draws exactly 120 of the public
+  # 2400 records, uniformly and without replacement. Unlike the primary
+  # Poisson/add-remove lane, this accountant uses public-size replace-one
+  # adjacency. Replacing one C-clipped gradient gives sum sensitivity 2C, so
+  # the implementation calibrates the actual Gaussian multiplier against
+  # sigma/2 in the RDP ledger.
+  eps4_c4_hetero_noise_n25_fixed_wor:
+    algo_config:
+      enable_dp: true
+      target_epsilon: 4.0
+      delta: 1.0e-5
+      clip_norm: 4.0
+      sampling_scheme: fixed_without_replacement
+      privacy_adjacency: replace_one
+      privacy_public_dataset_size: 2400
+      privacy_sampling_rate_override: 0.05
+      fixed_batch_size: 120
+      fixed_steps_per_round: null
+      privacy_noise_multiplier_scale_by_client: [1.0, 1.5, 2.0, 1.5, 1.0, 2.0, 1.0, 1.5, 2.0, 1.5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5]
+  eps4_c8:
+    algo_config: {enable_dp: true, target_epsilon: 4.0, delta: 1.0e-5, clip_norm: 8.0, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  eps8:
+    algo_config: {enable_dp: true, target_epsilon: 8.0, delta: 1.0e-5, sampling_scheme: poisson, privacy_adjacency: add_remove, privacy_sampling_rate_override: 0.05}
+  fedfdp_native_eps4:
+    algo_config:
+      enable_dp: true
+      target_epsilon: 4.0
+      delta: 1.0e-5
+      sampling_scheme: fixed_minibatch
+      privacy_adjacency: manuscript_unspecified
+      privacy_sampling_rate_override: null
+  fedfdp_compute_matched_eps4:
+    algo_config:
+      enable_dp: true
+      target_epsilon: 4.0
+      delta: 1.0e-5
+      sampling_scheme: fixed_minibatch
+      privacy_adjacency: manuscript_unspecified
+      privacy_sampling_rate_override: null
+
+geometries:
+  # Diagnostic-only server profile for isolating C. Uniform weights are used
+  # and U is deliberately far above the observed update norms so neither
+  # server clipping nor FAR tilting determines the apparent utility of C.
+  local_clip_server_inactive:
+    algo_config:
+      server_clip_norm: 10.0
+      far_server_clip_norm: 10.0
+      distance_clip: 10.0
+      far_distance_clip: 10.0
+      reference_clip_radius: 1.0
+      anchor_clip_norm: 10.0
+  legacy_d2:
+    algo_config:
+      server_clip_norm: 1.0
+      far_server_clip_norm: null
+      distance_clip: 2.0
+      far_distance_clip: 2.0
+      reference_clip_radius: 1.0
+      anchor_clip_norm: 1.0
+  calibrated_d02:
+    algo_config:
+      server_clip_norm: 0.05
+      far_server_clip_norm: 0.05
+      distance_clip: 0.02
+      far_distance_clip: 0.02
+      reference_clip_radius: 0.05
+      anchor_clip_norm: 0.05
+  calibrated_d05:
+    algo_config:
+      server_clip_norm: 0.05
+      far_server_clip_norm: 0.05
+      distance_clip: 0.05
+      far_distance_clip: 0.05
+      reference_clip_radius: 0.05
+      anchor_clip_norm: 0.05
+  calibrated_d10:
+    algo_config:
+      server_clip_norm: 0.05
+      far_server_clip_norm: 0.05
+      distance_clip: 0.10
+      far_distance_clip: 0.10
+      reference_clip_radius: 0.05
+      anchor_clip_norm: 0.05
+  # Joint U/D_score/rho gate for K=10. Profile names expose every public
+  # constant so resolved task identities remain scientifically auditable.
+  gate_u10_d05_r05:
+    algo_config:
+      server_clip_norm: 0.10
+      far_server_clip_norm: 0.10
+      distance_clip: 0.05
+      far_distance_clip: 0.05
+      reference_clip_radius: 0.05
+      anchor_clip_norm: 0.10
+  gate_u05_d025_r025:
+    algo_config:
+      server_clip_norm: 0.05
+      far_server_clip_norm: 0.05
+      distance_clip: 0.025
+      far_distance_clip: 0.025
+      reference_clip_radius: 0.025
+      anchor_clip_norm: 0.05
+  gate_u05_d025_r05:
+    algo_config:
+      server_clip_norm: 0.05
+      far_server_clip_norm: 0.05
+      distance_clip: 0.025
+      far_distance_clip: 0.025
+      reference_clip_radius: 0.05
+      anchor_clip_norm: 0.05
+  gate_u05_d05_r025:
+    algo_config:
+      server_clip_norm: 0.05
+      far_server_clip_norm: 0.05
+      distance_clip: 0.05
+      far_distance_clip: 0.05
+      reference_clip_radius: 0.025
+      anchor_clip_norm: 0.05
+  gate_u05_d10_r025:
+    algo_config:
+      server_clip_norm: 0.05
+      far_server_clip_norm: 0.05
+      distance_clip: 0.10
+      far_distance_clip: 0.10
+      reference_clip_radius: 0.025
+      anchor_clip_norm: 0.05
+  gate_u10_d05_r10:
+    algo_config:
+      server_clip_norm: 0.10
+      far_server_clip_norm: 0.10
+      distance_clip: 0.05
+      far_distance_clip: 0.05
+      reference_clip_radius: 0.10
+      anchor_clip_norm: 0.10
+  gate_u10_d10_r05:
+    algo_config:
+      server_clip_norm: 0.10
+      far_server_clip_norm: 0.10
+      distance_clip: 0.10
+      far_distance_clip: 0.10
+      reference_clip_radius: 0.05
+      anchor_clip_norm: 0.10
+  gate_u10_d20_r05:
+    algo_config:
+      server_clip_norm: 0.10
+      far_server_clip_norm: 0.10
+      distance_clip: 0.20
+      far_distance_clip: 0.20
+      reference_clip_radius: 0.05
+      anchor_clip_norm: 0.10
+  gate_u10_d10_r10:
+    algo_config:
+      server_clip_norm: 0.10
+      far_server_clip_norm: 0.10
+      distance_clip: 0.10
+      far_distance_clip: 0.10
+      reference_clip_radius: 0.10
+      anchor_clip_norm: 0.10
+  gate_u10_d20_r10:
+    algo_config:
+      server_clip_norm: 0.10
+      far_server_clip_norm: 0.10
+      distance_clip: 0.20
+      far_distance_clip: 0.20
+      reference_clip_radius: 0.10
+      anchor_clip_norm: 0.10
+  gate_u20_d10_r10:
+    algo_config:
+      server_clip_norm: 0.20
+      far_server_clip_norm: 0.20
+      distance_clip: 0.10
+      far_distance_clip: 0.10
+      reference_clip_radius: 0.10
+      anchor_clip_norm: 0.20
+  gate_u20_d20_r20:
+    algo_config:
+      server_clip_norm: 0.20
+      far_server_clip_norm: 0.20
+      distance_clip: 0.20
+      far_distance_clip: 0.20
+      reference_clip_radius: 0.20
+      anchor_clip_norm: 0.20
+  gate_u20_d40_r20:
+    algo_config:
+      server_clip_norm: 0.20
+      far_server_clip_norm: 0.20
+      distance_clip: 0.40
+      far_distance_clip: 0.40
+      reference_clip_radius: 0.20
+      anchor_clip_norm: 0.20
+  gate_u20_d10_r20:
+    algo_config:
+      server_clip_norm: 0.20
+      far_server_clip_norm: 0.20
+      distance_clip: 0.10
+      far_distance_clip: 0.10
+      reference_clip_radius: 0.20
+      anchor_clip_norm: 0.20
+  gate_u20_d20_r10:
+    algo_config:
+      server_clip_norm: 0.20
+      far_server_clip_norm: 0.20
+      distance_clip: 0.20
+      far_distance_clip: 0.20
+      reference_clip_radius: 0.10
+      anchor_clip_norm: 0.20
+  gate_u20_d40_r10:
+    algo_config:
+      server_clip_norm: 0.20
+      far_server_clip_norm: 0.20
+      distance_clip: 0.40
+      far_distance_clip: 0.40
+      reference_clip_radius: 0.10
+      anchor_clip_norm: 0.20
+
+  # Refined public server-geometry grid. D_score/U is in {0.75,1,1.25}
+  # and rho/U is in {0.5,1}; C is supplied independently by privacy profiles.
+  refined_u06_d045_r030:
+    algo_config:
+      server_clip_norm: 0.060
+      far_server_clip_norm: 0.060
+      distance_clip: 0.045
+      far_distance_clip: 0.045
+      reference_clip_radius: 0.030
+      anchor_clip_norm: 0.060
+  refined_u06_d045_r060:
+    algo_config:
+      server_clip_norm: 0.060
+      far_server_clip_norm: 0.060
+      distance_clip: 0.045
+      far_distance_clip: 0.045
+      reference_clip_radius: 0.060
+      anchor_clip_norm: 0.060
+  refined_u06_d060_r030:
+    algo_config:
+      server_clip_norm: 0.060
+      far_server_clip_norm: 0.060
+      distance_clip: 0.060
+      far_distance_clip: 0.060
+      reference_clip_radius: 0.030
+      anchor_clip_norm: 0.060
+  refined_u06_d060_r060:
+    algo_config:
+      server_clip_norm: 0.060
+      far_server_clip_norm: 0.060
+      distance_clip: 0.060
+      far_distance_clip: 0.060
+      reference_clip_radius: 0.060
+      anchor_clip_norm: 0.060
+  refined_u06_d075_r030:
+    algo_config:
+      server_clip_norm: 0.060
+      far_server_clip_norm: 0.060
+      distance_clip: 0.075
+      far_distance_clip: 0.075
+      reference_clip_radius: 0.030
+      anchor_clip_norm: 0.060
+  refined_u06_d075_r060:
+    algo_config:
+      server_clip_norm: 0.060
+      far_server_clip_norm: 0.060
+      distance_clip: 0.075
+      far_distance_clip: 0.075
+      reference_clip_radius: 0.060
+      anchor_clip_norm: 0.060
+  refined_u07_d0525_r035:
+    algo_config:
+      server_clip_norm: 0.070
+      far_server_clip_norm: 0.070
+      distance_clip: 0.0525
+      far_distance_clip: 0.0525
+      reference_clip_radius: 0.035
+      anchor_clip_norm: 0.070
+  refined_u07_d0525_r070:
+    algo_config:
+      server_clip_norm: 0.070
+      far_server_clip_norm: 0.070
+      distance_clip: 0.0525
+      far_distance_clip: 0.0525
+      reference_clip_radius: 0.070
+      anchor_clip_norm: 0.070
+  refined_u07_d070_r035:
+    algo_config:
+      server_clip_norm: 0.070
+      far_server_clip_norm: 0.070
+      distance_clip: 0.070
+      far_distance_clip: 0.070
+      reference_clip_radius: 0.035
+      anchor_clip_norm: 0.070
+  refined_u07_d070_r070:
+    algo_config:
+      server_clip_norm: 0.070
+      far_server_clip_norm: 0.070
+      distance_clip: 0.070
+      far_distance_clip: 0.070
+      reference_clip_radius: 0.070
+      anchor_clip_norm: 0.070
+  refined_u07_d0875_r035:
+    algo_config:
+      server_clip_norm: 0.070
+      far_server_clip_norm: 0.070
+      distance_clip: 0.0875
+      far_distance_clip: 0.0875
+      reference_clip_radius: 0.035
+      anchor_clip_norm: 0.070
+  refined_u07_d0875_r070:
+    algo_config:
+      server_clip_norm: 0.070
+      far_server_clip_norm: 0.070
+      distance_clip: 0.0875
+      far_distance_clip: 0.0875
+      reference_clip_radius: 0.070
+      anchor_clip_norm: 0.070
+  refined_u08_d060_r040:
+    algo_config:
+      server_clip_norm: 0.080
+      far_server_clip_norm: 0.080
+      distance_clip: 0.060
+      far_distance_clip: 0.060
+      reference_clip_radius: 0.040
+      anchor_clip_norm: 0.080
+  refined_u08_d060_r080:
+    algo_config:
+      server_clip_norm: 0.080
+      far_server_clip_norm: 0.080
+      distance_clip: 0.060
+      far_distance_clip: 0.060
+      reference_clip_radius: 0.080
+      anchor_clip_norm: 0.080
+  refined_u08_d080_r040:
+    algo_config:
+      server_clip_norm: 0.080
+      far_server_clip_norm: 0.080
+      distance_clip: 0.080
+      far_distance_clip: 0.080
+      reference_clip_radius: 0.040
+      anchor_clip_norm: 0.080
+  refined_u08_d080_r080:
+    algo_config:
+      server_clip_norm: 0.080
+      far_server_clip_norm: 0.080
+      distance_clip: 0.080
+      far_distance_clip: 0.080
+      reference_clip_radius: 0.080
+      anchor_clip_norm: 0.080
+  refined_u08_d100_r040:
+    algo_config:
+      server_clip_norm: 0.080
+      far_server_clip_norm: 0.080
+      distance_clip: 0.100
+      far_distance_clip: 0.100
+      reference_clip_radius: 0.040
+      anchor_clip_norm: 0.080
+  refined_u08_d100_r080:
+    algo_config:
+      server_clip_norm: 0.080
+      far_server_clip_norm: 0.080
+      distance_clip: 0.100
+      far_distance_clip: 0.100
+      reference_clip_radius: 0.080
+      anchor_clip_norm: 0.080
+  refined_u09_d0675_r045:
+    algo_config:
+      server_clip_norm: 0.090
+      far_server_clip_norm: 0.090
+      distance_clip: 0.0675
+      far_distance_clip: 0.0675
+      reference_clip_radius: 0.045
+      anchor_clip_norm: 0.090
+  refined_u09_d0675_r090:
+    algo_config:
+      server_clip_norm: 0.090
+      far_server_clip_norm: 0.090
+      distance_clip: 0.0675
+      far_distance_clip: 0.0675
+      reference_clip_radius: 0.090
+      anchor_clip_norm: 0.090
+  refined_u09_d090_r045:
+    algo_config:
+      server_clip_norm: 0.090
+      far_server_clip_norm: 0.090
+      distance_clip: 0.090
+      far_distance_clip: 0.090
+      reference_clip_radius: 0.045
+      anchor_clip_norm: 0.090
+  refined_u09_d090_r090:
+    algo_config:
+      server_clip_norm: 0.090
+      far_server_clip_norm: 0.090
+      distance_clip: 0.090
+      far_distance_clip: 0.090
+      reference_clip_radius: 0.090
+      anchor_clip_norm: 0.090
+  refined_u09_d1125_r045:
+    algo_config:
+      server_clip_norm: 0.090
+      far_server_clip_norm: 0.090
+      distance_clip: 0.1125
+      far_distance_clip: 0.1125
+      reference_clip_radius: 0.045
+      anchor_clip_norm: 0.090
+  refined_u09_d1125_r090:
+    algo_config:
+      server_clip_norm: 0.090
+      far_server_clip_norm: 0.090
+      distance_clip: 0.1125
+      far_distance_clip: 0.1125
+      reference_clip_radius: 0.090
+      anchor_clip_norm: 0.090
+
+  # C=4 refined server-geometry grid selected after the local-clipping gate.
+  # D_score/U is in {0.75,1,1.25}; rho/U is in {0.5,1}.
+  c4_u18_d135_r090:
+    algo_config:
+      server_clip_norm: 0.180
+      far_server_clip_norm: 0.180
+      distance_clip: 0.135
+      far_distance_clip: 0.135
+      reference_clip_radius: 0.090
+      anchor_clip_norm: 0.180
+  c4_u18_d135_r180:
+    algo_config:
+      server_clip_norm: 0.180
+      far_server_clip_norm: 0.180
+      distance_clip: 0.135
+      far_distance_clip: 0.135
+      reference_clip_radius: 0.180
+      anchor_clip_norm: 0.180
+  c4_u18_d180_r090:
+    algo_config:
+      server_clip_norm: 0.180
+      far_server_clip_norm: 0.180
+      distance_clip: 0.180
+      far_distance_clip: 0.180
+      reference_clip_radius: 0.090
+      anchor_clip_norm: 0.180
+  c4_u18_d180_r180:
+    algo_config:
+      server_clip_norm: 0.180
+      far_server_clip_norm: 0.180
+      distance_clip: 0.180
+      far_distance_clip: 0.180
+      reference_clip_radius: 0.180
+      anchor_clip_norm: 0.180
+  c4_u18_d225_r090:
+    algo_config:
+      server_clip_norm: 0.180
+      far_server_clip_norm: 0.180
+      distance_clip: 0.225
+      far_distance_clip: 0.225
+      reference_clip_radius: 0.090
+      anchor_clip_norm: 0.180
+  c4_u18_d225_r180:
+    algo_config:
+      server_clip_norm: 0.180
+      far_server_clip_norm: 0.180
+      distance_clip: 0.225
+      far_distance_clip: 0.225
+      reference_clip_radius: 0.180
+      anchor_clip_norm: 0.180
+  c4_u20_d150_r100:
+    algo_config:
+      server_clip_norm: 0.200
+      far_server_clip_norm: 0.200
+      distance_clip: 0.150
+      far_distance_clip: 0.150
+      reference_clip_radius: 0.100
+      anchor_clip_norm: 0.200
+  c4_u20_d150_r200:
+    algo_config:
+      server_clip_norm: 0.200
+      far_server_clip_norm: 0.200
+      distance_clip: 0.150
+      far_distance_clip: 0.150
+      reference_clip_radius: 0.200
+      anchor_clip_norm: 0.200
+  c4_u20_d200_r100:
+    algo_config:
+      server_clip_norm: 0.200
+      far_server_clip_norm: 0.200
+      distance_clip: 0.200
+      far_distance_clip: 0.200
+      reference_clip_radius: 0.100
+      anchor_clip_norm: 0.200
+  c4_u20_d200_r200:
+    algo_config:
+      server_clip_norm: 0.200
+      far_server_clip_norm: 0.200
+      distance_clip: 0.200
+      far_distance_clip: 0.200
+      reference_clip_radius: 0.200
+      anchor_clip_norm: 0.200
+  c4_u20_d250_r100:
+    algo_config:
+      server_clip_norm: 0.200
+      far_server_clip_norm: 0.200
+      distance_clip: 0.250
+      far_distance_clip: 0.250
+      reference_clip_radius: 0.100
+      anchor_clip_norm: 0.200
+  c4_u20_d250_r200:
+    algo_config:
+      server_clip_norm: 0.200
+      far_server_clip_norm: 0.200
+      distance_clip: 0.250
+      far_distance_clip: 0.250
+      reference_clip_radius: 0.200
+      anchor_clip_norm: 0.200
+  c4_u22_d165_r110:
+    algo_config:
+      server_clip_norm: 0.220
+      far_server_clip_norm: 0.220
+      distance_clip: 0.165
+      far_distance_clip: 0.165
+      reference_clip_radius: 0.110
+      anchor_clip_norm: 0.220
+  c4_u22_d165_r220:
+    algo_config:
+      server_clip_norm: 0.220
+      far_server_clip_norm: 0.220
+      distance_clip: 0.165
+      far_distance_clip: 0.165
+      reference_clip_radius: 0.220
+      anchor_clip_norm: 0.220
+  c4_u22_d220_r110:
+    algo_config:
+      server_clip_norm: 0.220
+      far_server_clip_norm: 0.220
+      distance_clip: 0.220
+      far_distance_clip: 0.220
+      reference_clip_radius: 0.110
+      anchor_clip_norm: 0.220
+  c4_u22_d220_r220:
+    algo_config:
+      server_clip_norm: 0.220
+      far_server_clip_norm: 0.220
+      distance_clip: 0.220
+      far_distance_clip: 0.220
+      reference_clip_radius: 0.220
+      anchor_clip_norm: 0.220
+  c4_u22_d275_r110:
+    algo_config:
+      server_clip_norm: 0.220
+      far_server_clip_norm: 0.220
+      distance_clip: 0.275
+      far_distance_clip: 0.275
+      reference_clip_radius: 0.110
+      anchor_clip_norm: 0.220
+  c4_u22_d275_r220:
+    algo_config:
+      server_clip_norm: 0.220
+      far_server_clip_norm: 0.220
+      distance_clip: 0.275
+      far_distance_clip: 0.275
+      reference_clip_radius: 0.220
+      anchor_clip_norm: 0.220
+  c4_u24_d180_r120:
+    algo_config:
+      server_clip_norm: 0.240
+      far_server_clip_norm: 0.240
+      distance_clip: 0.180
+      far_distance_clip: 0.180
+      reference_clip_radius: 0.120
+      anchor_clip_norm: 0.240
+  c4_u24_d180_r240:
+    algo_config:
+      server_clip_norm: 0.240
+      far_server_clip_norm: 0.240
+      distance_clip: 0.180
+      far_distance_clip: 0.180
+      reference_clip_radius: 0.240
+      anchor_clip_norm: 0.240
+  c4_u24_d240_r120:
+    algo_config:
+      server_clip_norm: 0.240
+      far_server_clip_norm: 0.240
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.120
+      anchor_clip_norm: 0.240
+  c4_u24_d240_r240:
+    algo_config:
+      server_clip_norm: 0.240
+      far_server_clip_norm: 0.240
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.240
+      anchor_clip_norm: 0.240
+  c4_u24_d300_r120:
+    algo_config:
+      server_clip_norm: 0.240
+      far_server_clip_norm: 0.240
+      distance_clip: 0.300
+      far_distance_clip: 0.300
+      reference_clip_radius: 0.120
+      anchor_clip_norm: 0.240
+  c4_u24_d300_r240:
+    algo_config:
+      server_clip_norm: 0.240
+      far_server_clip_norm: 0.240
+      distance_clip: 0.300
+      far_distance_clip: 0.300
+      reference_clip_radius: 0.240
+      anchor_clip_norm: 0.240
+  # Targeted rescue grid after the seed-36/54 confirmation showed that U=0.24
+  # still clipped 40--50% of uploads.  D_score stays fixed so the screen
+  # changes server clipping without simultaneously diluting the scores.
+  c4_u26_d240_r120:
+    algo_config:
+      server_clip_norm: 0.260
+      far_server_clip_norm: 0.260
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.120
+      anchor_clip_norm: 0.260
+  c4_u26_d240_r240:
+    algo_config:
+      server_clip_norm: 0.260
+      far_server_clip_norm: 0.260
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.240
+      anchor_clip_norm: 0.260
+  c4_u28_d240_r120:
+    algo_config:
+      server_clip_norm: 0.280
+      far_server_clip_norm: 0.280
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.120
+      anchor_clip_norm: 0.280
+  c4_u28_d240_r240:
+    algo_config:
+      server_clip_norm: 0.280
+      far_server_clip_norm: 0.280
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.240
+      anchor_clip_norm: 0.280
+  c4_u30_d240_r120:
+    algo_config:
+      server_clip_norm: 0.300
+      far_server_clip_norm: 0.300
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.120
+      anchor_clip_norm: 0.300
+  c4_u30_d240_r240:
+    algo_config:
+      server_clip_norm: 0.300
+      far_server_clip_norm: 0.300
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.240
+      anchor_clip_norm: 0.300
+  # Matched arm for the server-clipping ablation.  Only U is made inactive;
+  # D_score, rho and the public anchor bound remain those of the U=0.30 arm.
+  c4_uinactive10_d240_r120_anchor300:
+    algo_config:
+      server_clip_norm: 10.0
+      far_server_clip_norm: 10.0
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.120
+      anchor_clip_norm: 0.300
+  # Inactive-U control matched to the selected U=0.28 geometry. The score
+  # scale, reference radius and public anchor bound remain fixed; only the
+  # server upload clipping radius is removed from the active regime.
+  c4_uinactive10_d240_r120_anchor280:
+    algo_config:
+      server_clip_norm: 10.0
+      far_server_clip_norm: 10.0
+      distance_clip: 0.240
+      far_distance_clip: 0.240
+      reference_clip_radius: 0.120
+      anchor_clip_norm: 0.280
+
+  # Public n=25 recalibration grid.  The previous n=10 constants
+  # (U,D_score,rho)=(0.28,0.24,0.12) clipped essentially every honest upload
+  # and saturated every bounded score at n=25.  These constants are frozen
+  # before the new runs; they are never estimated from a current private
+  # cohort.  The grid crosses U in {0.38,0.40,0.42}, D_score/U in
+  # {0.90,1.05}, and rho/U in {0.50,1.00}.
+  n25_u38_d342_r190:
+    algo_config:
+      server_clip_norm: 0.380
+      far_server_clip_norm: 0.380
+      distance_clip: 0.342
+      far_distance_clip: 0.342
+      reference_clip_radius: 0.190
+      anchor_clip_norm: 0.380
+  n25_u38_d342_r380:
+    algo_config:
+      server_clip_norm: 0.380
+      far_server_clip_norm: 0.380
+      distance_clip: 0.342
+      far_distance_clip: 0.342
+      reference_clip_radius: 0.380
+      anchor_clip_norm: 0.380
+  n25_u38_d399_r190:
+    algo_config:
+      server_clip_norm: 0.380
+      far_server_clip_norm: 0.380
+      distance_clip: 0.399
+      far_distance_clip: 0.399
+      reference_clip_radius: 0.190
+      anchor_clip_norm: 0.380
+  n25_u38_d399_r380:
+    algo_config:
+      server_clip_norm: 0.380
+      far_server_clip_norm: 0.380
+      distance_clip: 0.399
+      far_distance_clip: 0.399
+      reference_clip_radius: 0.380
+      anchor_clip_norm: 0.380
+  n25_u40_d360_r200:
+    algo_config:
+      server_clip_norm: 0.400
+      far_server_clip_norm: 0.400
+      distance_clip: 0.360
+      far_distance_clip: 0.360
+      reference_clip_radius: 0.200
+      anchor_clip_norm: 0.400
+  n25_u40_d360_r400:
+    algo_config:
+      server_clip_norm: 0.400
+      far_server_clip_norm: 0.400
+      distance_clip: 0.360
+      far_distance_clip: 0.360
+      reference_clip_radius: 0.400
+      anchor_clip_norm: 0.400
+  n25_u40_d420_r200:
+    algo_config:
+      server_clip_norm: 0.400
+      far_server_clip_norm: 0.400
+      distance_clip: 0.420
+      far_distance_clip: 0.420
+      reference_clip_radius: 0.200
+      anchor_clip_norm: 0.400
+  n25_u40_d420_r400:
+    algo_config:
+      server_clip_norm: 0.400
+      far_server_clip_norm: 0.400
+      distance_clip: 0.420
+      far_distance_clip: 0.420
+      reference_clip_radius: 0.400
+      anchor_clip_norm: 0.400
+  n25_u42_d378_r210:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.378
+      far_distance_clip: 0.378
+      reference_clip_radius: 0.210
+      anchor_clip_norm: 0.420
+  n25_u42_d378_r420:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.378
+      far_distance_clip: 0.378
+      reference_clip_radius: 0.420
+      anchor_clip_norm: 0.420
+  n25_u42_d441_r210:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.441
+      far_distance_clip: 0.441
+      reference_clip_radius: 0.210
+      anchor_clip_norm: 0.420
+      score_subspace_mode: full
+  # Public score-space ablations.  The aggregation weights still multiply
+  # complete updates; only the distance used to construct the score changes.
+  n25_u42_last_d035_r018:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.035
+      far_distance_clip: 0.035
+      reference_clip_radius: 0.018
+      anchor_clip_norm: 0.420
+      score_subspace_mode: last_layer
+  n25_u42_coord256_d025_r013:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.025
+      far_distance_clip: 0.025
+      reference_clip_radius: 0.013
+      anchor_clip_norm: 0.420
+      score_subspace_mode: public_coordinates
+      score_subspace_dimension: 256
+      score_subspace_seed: 20260904
+  # Stage-17 feasibility winner. This public coordinate subspace is a
+  # conditional end-to-end test: Stage 17 explicitly did not prove that an
+  # arbitrary 64-coordinate view preserves Fashion-MNIST update geometry.
+  n25_u42_coord64_d025_r013:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.025
+      far_distance_clip: 0.025
+      reference_clip_radius: 0.13
+      anchor_clip_norm: 0.420
+      score_subspace_mode: public_coordinates
+      score_subspace_dimension: 64
+      score_subspace_seed: 20260917
+  n25_u42_d441_r420:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.441
+      far_distance_clip: 0.441
+      reference_clip_radius: 0.420
+      anchor_clip_norm: 0.420
+  # Mechanistic-stress transfer grid. D_score is public and fixed before a
+  # run; these profiles test whether the observed n=25 score span can be made
+  # informative without saturating the bounded score.
+  n25_u42_d294_r210:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.294
+      far_distance_clip: 0.294
+      reference_clip_radius: 0.210
+      anchor_clip_norm: 0.420
+  n25_u42_d350_r210:
+    algo_config:
+      server_clip_norm: 0.420
+      far_server_clip_norm: 0.420
+      distance_clip: 0.350
+      far_distance_clip: 0.350
+      reference_clip_radius: 0.210
+      anchor_clip_norm: 0.420
+  # Server-clipping ablation matched to n25_u42_d441_r210. Only U is made
+  # inactive; D_score, rho and the public anchor bound remain unchanged.
+  n25_uinactive10_d441_r210_anchor420:
+    algo_config:
+      server_clip_norm: 10.0
+      far_server_clip_norm: 10.0
+      distance_clip: 0.441
+      far_distance_clip: 0.441
+      reference_clip_radius: 0.210
+      anchor_clip_norm: 0.420
+
+tilts:
+  uniform: {tau_fraction_of_max: 0.0, kappa_w: 2.0}
+  mild: {tau_fraction_of_max: 0.25, kappa_w: 2.0}
+  medium: {tau_fraction_of_max: 0.50, kappa_w: 2.0}
+  boundary: {tau_fraction_of_max: 1.0, kappa_w: 2.0}
+  # A wider but still certified lane: q_max <= 5/n.
+  boundary_k5: {tau_fraction_of_max: 1.0, kappa_w: 5.0}
+  # Geometry-specific exact slope match for Stage 27. With U=0.42 and
+  # D_score=0.441, this kappa makes alpha_raw=alpha_bounded/D_score while the
+  # public raw-distance range [0,2U] still yields an explicit q_max cap.
+  boundary_raw_slope_u42_d441:
+    tau_fraction_of_max: 1.0
+    kappa_w: 3.617754018678074
+  # Wide certified diagnostic: q_max <= 10/n. This is not the paper's
+  # primary kappa_w=2 operating point; it tests a visibly larger logit range
+  # while retaining an explicit influence certificate.
+  boundary_k10: {tau_fraction_of_max: 1.0, kappa_w: 10.0}
+  # Explicit falsification lanes.  Local DP is unchanged because server-side
+  # tilting is post-processing of already-private uploads, but the kappa/n
+  # influence certificate is intentionally not claimed in these runs.
+  stress2_uncertified:
+    tau_fraction_of_max: 2.0
+    kappa_w: 2.0
+    algo_config:
+      tilt_bound_policy: diagnostic_only
+      allow_uncertified_tilt_diagnostic: true
+  stress4_uncertified:
+    tau_fraction_of_max: 4.0
+    kappa_w: 2.0
+    algo_config:
+      tilt_bound_policy: diagnostic_only
+      allow_uncertified_tilt_diagnostic: true
+  # Stronger falsification lanes. They preserve local DP by post-processing,
+  # but intentionally abandon the kappa_w/n influence certificate.
+  stress8_uncertified:
+    tau_fraction_of_max: 8.0
+    kappa_w: 2.0
+    algo_config:
+      tilt_bound_policy: diagnostic_only
+      allow_uncertified_tilt_diagnostic: true
+  stress12_uncertified:
+    tau_fraction_of_max: 12.0
+    kappa_w: 2.0
+    algo_config:
+      tilt_bound_policy: diagnostic_only
+      allow_uncertified_tilt_diagnostic: true

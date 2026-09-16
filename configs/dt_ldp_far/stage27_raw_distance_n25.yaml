@@ -1,0 +1,42 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage27_raw_distance_n25_v1
+scope: paired_bounded_vs_raw_distance_under_sample_level_local_dp
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 15
+preregistration:
+  primary_question: >-
+    Does removing the [0,1] score transformation improve fairness or utility
+    under local DP when the raw-distance tilt is rescaled by the public 2U
+    range so the same kappa_w/n influence cap is retained?
+  comparisons_are_paired: true
+  selection_uses_all_three_seeds: true
+  note: >-
+    The bounded and raw DT arms differ only in score transform and the public
+    alpha scaling required by that transform. Noise-aware direct-score modes
+    are not silently converted to unbounded scores.
+
+experiments:
+  - id: E27_raw_distance_n25
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dp_fedavg, dp_far_current, dt_ldp_far, dt_ldp_far_raw_distance]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12
+
+  - id: E27_raw_distance_slope_matched_n25
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dt_ldp_far_raw_distance]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary_raw_slope_u42_d441]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 3

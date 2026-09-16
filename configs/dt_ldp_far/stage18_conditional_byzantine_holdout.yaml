@@ -1,0 +1,110 @@
+campaign_id: dt_ldp_far_stage18_conditional_byzantine_holdout_v1
+scope: preregistered_synthetic_conditional_byzantine_validation
+
+stage17_selection:
+  path: results/dt_ldp_far/score_quality_stage17_reference_snr_feasibility_v1/selection.json
+  required_total_clients: 25
+  required_effective_score_dimension: 64
+  required_upload_noise_std: 0.012
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  effective_score_dimension: 64
+  noise_std: 0.012
+  public_noise_scales: [1.0, 1.5, 2.0]
+  noise_permutations: [identity, rotate7, reverse]
+  outlier_geometries: [aligned, orthogonal]
+  minority_structures:
+    - name: dispersed_f_control
+      outlier_count_rule: f
+      coherence: dispersed
+      role: non_identifiable_negative_control
+    - name: coherent_f_control
+      outlier_count_rule: f
+      coherence: coherent
+      role: coalition_size_negative_control
+    - name: coherent_f_plus_2_primary
+      outlier_count_rule: f_plus_2
+      coherence: coherent
+      role: preregistered_identifiable_primary
+
+novelty:
+  family: effective_moment
+  fcc_radius: 0.13
+  moment_z_clip: 4.0
+  individual_calibration_weight: 1.0
+  variance_ridge: 1.0e-12
+
+robust_reference:
+  candidates: [fcc, huber, rfa]
+  fcc_radius: 0.13
+  huber_radius: 0.13
+  huber_gamma: 1.0
+  huber_steps: 10
+  rfa_max_iter: 50
+  rfa_tolerance: 1.0e-7
+
+support:
+  reference_reject_cosine: -0.10
+  reference_full_support_cosine: 0.25
+  peer_reject_cosine: 0.00
+  peer_full_support_cosine: 0.20
+  extra_honest_supporters: 1
+  independence_low_null_quantile: 0.05
+  independence_full_trust_null_quantile: 0.50
+  independence_trust_floor: 0.05
+
+profiles:
+  - name: crossfit_covariance
+    support_logit_fraction: 0.00
+    role: novelty_only_control
+  - name: two_logit_support_50_primary
+    support_logit_fraction: 0.50
+    role: preregistered_primary
+  - name: two_logit_support_75_control
+    support_logit_fraction: 0.75
+    role: stronger_support_control
+
+threats:
+  separated: [ipm, bitflip_x10]
+  evasive_controls: [alie, adaptive_aligned_jitter]
+  attack_severities: [0.75, 1.0, 1.25]
+
+aggregation:
+  server_clip_norm: 0.42
+  kappa_w: 2.0
+
+randomness:
+  calibration_seed: 2026091801
+  null_holdout_seed: 2026091802
+  signal_seeds: [307, 331, 353, 379, 401]
+  calibration_draws: 128
+  null_holdout_draws: 128
+  signal_draws: 16
+
+gates:
+  null_abs_score_noise_correlation_max: 0.10
+  null_noise_tier_score_range_max: 0.05
+  clean_geometry_correlation_mean_min: 0.50
+  honest_outlier_recall_mean_min: 0.60
+  honest_outlier_weight_mass_gain_over_uniform_min: 0.005
+  max_individual_weight: 0.08
+  separated_byzantine_weight_mass_worst_group_max: 0.20
+  separated_global_honest_outlier_recall_worst_group_min: 0.35
+  separated_aggregate_error_mean_ratio_to_uniform_max: 1.00
+  separated_aggregate_error_worst_group_ratio_to_uniform_max: 1.10
+  positive_support_margin_group_rate_min: 0.90
+  fcc_reference_competitive_tolerance: 0.05
+
+decision:
+  accuracy_must_not_be_used: true
+  primary_structure: coherent_f_plus_2_primary
+  primary_profile: two_logit_support_50_primary
+  primary_reference: fcc
+  separated_attacks_define_the_conditional_claim: true
+  evasive_attacks_are_reported_but_not_claimed_solved: true
+  negative_controls_must_not_be_relabelled_as_failures_of_the_conditional_claim: true
+  if_primary_passes: authorize_fashion_mnist_confirmation
+  if_primary_fails: record_negative_validation_and_do_not_tune_on_holdout
+

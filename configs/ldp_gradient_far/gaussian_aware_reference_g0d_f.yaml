@@ -1,0 +1,130 @@
+campaign_id: gaussian_aware_reference_g0d_f_mps_v1
+scope: preregistered_reference_only_null_calibrated_development_holdout
+
+# Every identity used in G0, G0b or G0c is excluded.  G0d-F does not read
+# their development or holdout metrics.  The sole retained G0c object is the
+# frozen mathematical candidate listed below, used as a comparator.
+excluded_prior_seeds:
+  [28, 36, 54, 107, 131, 211, 307, 401, 503, 607, 701, 809, 907,
+   1009, 1103, 1201, 1301, 1409, 2203, 2309, 2411, 2503, 2609,
+   3001, 3109, 3203, 3301, 3407, 3511, 3607,
+   2026090901, 2026091101, 2026091301]
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  reference_only: true
+  far_weights_used: false
+  accuracy_used: false
+  holdout_used_for_selection: false
+  null_calibration_is_independent: true
+  inverse_variance_estimand_forbidden: true
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, reverse]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  fcc:
+    radius: 0.13
+  rfa:
+    max_iter: 80
+    tolerance: 1.0e-8
+    smoothing: 1.0e-8
+  trimmed_mean:
+    trim_count: 5
+
+  # The G0c candidate is frozen exactly as selected previously.  It is a
+  # comparator only and cannot be retuned or selected as G0d-F.
+  g0c_locked:
+    id: sigma_huber_rs045_g022_r025
+    radial_base_tail_probability: 0.01
+    radial_scale: 0.45
+    influence_cap_total: 0.22
+    regularization: 0.25
+    num_steps: 24
+
+  # G0d-F replaces a scaled asymptotic radius by a public empirical quantile
+  # of the complete null simulator: honest heterogeneity + DP noise + Clip_U.
+  # Quantiles, caps and regularisations are selected on development only.
+  g0d_grid:
+    null_tail_quantiles: [0.80, 0.90, 0.94]
+    influence_cap_totals: [0.22, 0.30]
+    regularizations: [0.10, 0.25]
+    num_steps: 24
+    variance_floor: 1.0e-12
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference: true
+
+threats:
+  names: [none, alie, ipm, bitflip_x10, model_replacement]
+  # ALIE is evaluated as the pre-registered evasive control.  The generator's
+  # IPM, Bit-Flip x10 and model-replacement cells are the separated attacks.
+  separated_for_gates: [ipm, bitflip_x10, model_replacement]
+  evasive_controls: [alie]
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+  development_severities: [0.75, 1.0, 1.25]
+  holdout_severities: [0.60, 0.90, 1.10, 1.40]
+
+randomness:
+  null_calibration_seeds: [2026091701, 2026091703]
+  null_calibration_draws_per_seed: 32
+  pair_noise_across_tier_permutations: true
+  development_seeds: [4001, 4103, 4201, 4303, 4409]
+  development_draws_per_seed: 1
+  holdout_seeds: [5003, 5101, 5209, 5303, 5407, 5501, 5609]
+  holdout_draws_per_seed: 2
+  replace_one_trials_per_seed_cell: 4
+
+gates:
+  complete_fraction_min: 1.0
+  finite_primary_metric_fraction_min: 1.0
+  clean_reference_error_ratio_to_uniform_max: 1.0
+  attacked_reference_error_ratio_to_uniform_max: 0.90
+  attacked_reference_error_ratio_to_fcc_max: 1.05
+  evasive_reference_error_ratio_to_uniform_max: 1.05
+  evasive_reference_error_ratio_to_fcc_max: 1.05
+  regular_honest_tail_rate_min: 0.06
+  regular_honest_tail_rate_max: 0.20
+  identity_reverse_error_ratio_ci95_abs_max: 0.10
+  replace_one_bound_max: 0.12
+  empirical_replace_one_violation_max: 0
+  solver_gradient_residual_max: 1.0e-6
+  covariance_limited_and_tail_fraction_min: 0.05
+
+selection:
+  phase: development_only
+  holdout_used_for_selection: false
+  tie_break_order:
+    [gate_fail_count, normalized_gate_penalty, candidate_registration_order]
+  if_no_candidate_passes: lock_least_violation_but_forbid_promotion
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  allow_cpu_fallback: false

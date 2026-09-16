@@ -1,0 +1,24 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage13a_generation6_temporal_score_n25_screen_v1
+scope: frozen_generation6_temporal_persistence_score_screen
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 8
+
+# Stage 13A tests only the novelty channel.  It deliberately excludes the
+# confidence/risk channel and uses one reference so that a failure cannot be
+# hidden by a favourable reference or by averaging unrelated mechanisms.
+experiments:
+  - id: E21_generation6_temporal_persistence
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_temporal_previous_oracle
+      - dp_far_current_temporal_ema_oracle
+    references: [fcc]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 8

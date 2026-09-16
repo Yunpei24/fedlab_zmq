@@ -1,0 +1,53 @@
+campaign_id: private_risk_feasibility_n10_v1
+stage: paired_real_gradient_headroom_and_private_report_gate
+expected_runs: 6
+seeds: [934001, 934002, 934003]
+device: mps
+model: lenet5_tanh
+dataset: fashionmnist
+num_clients: 10
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+train_size: 4800
+validation_size: 1200
+batch_size: 120
+rounds: 40
+probe_rounds: [8, 20, 40]
+host_rule: uniform_clean_private_gradients
+candidate_names: [no_update, uniform, rfa_direct, far_rfa]
+far_alpha: 0.1
+server_lr: 0.2
+local_clip: 4.0
+server_clip: 16.0
+gradient_scenarios: [none, bf_x10, ipm_x5]
+attacker_ids: [0, 1]
+report_modes: [truthful, veto, endorse_far]
+byzantine_bound: 2
+noise_regimes:
+  homogeneous: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  heteroscedastic: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+privacy:
+  gradient_epsilon: 3.0
+  evaluation_epsilon: 1.0
+  component_delta: 5.0e-6
+  total_epsilon_max: 4.0
+  total_delta: 1.0e-5
+  adjacency: replace_one
+  gradient_sampling: fixed_without_replacement
+  evaluation_sampling: full_fixed_local_validation_set
+  evaluation_release: four_brier_risk_levels_independent_gaussian_coordinates
+  composition_scope: per_client_per_run_not_across_experiments_or_oracle_exports
+fairness:
+  loss: half_brier
+  mean_tail_mix: 0.5
+  tail_fraction: 0.2
+confidence_failure_probability: 0.05
+screen_criteria:
+  minimum_oracle_progress: 0.001
+  minimum_gap_vs_uniform: 0.001
+  minimum_informative_fraction: 0.5
+  minimum_progress_retention: 0.5
+  maximum_harmful_acceptance_fraction: 0.05
+  seeds_required_per_regime: 2
+  automatic_end_to_end_promotion: false
+protocol: output/analysis/Private_Risk_Feasibility_N10_Protocol.md

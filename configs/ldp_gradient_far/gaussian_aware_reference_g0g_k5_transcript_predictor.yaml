@@ -1,0 +1,310 @@
+campaign_id: gaussian_aware_reference_g0g_k5_transcript_predictor_mps_v1
+scope: preregistered_development_only_strict_transcript_past_predictor
+
+preregistration_lock:
+  path: configs/ldp_gradient_far/gaussian_aware_reference_g0g_k5_transcript_predictor.lock.json
+  verify_before_output_creation: true
+  publish_lock_sha256_before_fit: true
+  external_publication_is_procedural_precondition: true
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  reference_only: true
+  far_weights_used: false
+  accuracy_used: false
+  loss: squared_l2_reference_error
+  inference_predictor_name: g0g_k5_tp_shared_scalar_ridge
+  inference_sigma_field: observable_transcript_through_t_minus_1
+  inference_uses_current_upload: false
+  inference_uses_current_clean_target: false
+  inference_uses_current_noise: false
+  inference_uses_current_attack: false
+  inference_uses_simulator_labels: false
+  offline_supervision: privileged_k4c_ch_targets_on_train_and_calibration_only
+  privileged_supervision_allowed_at_inference: false
+  anchor: exogenous_oracle_common_centre_with_fixed_public_error
+  screen_conditioned_on_semi_oracle_anchor: true
+  end_to_end_deployability_claimed: false
+  postprocessing_privacy_interpretation: conditional_on_already_private_transcript
+  new_end_to_end_privacy_claimed: false
+  arbitrary_adaptive_byzantine_behavior_supported: false
+  persistent_authenticated_identities_required: true
+  sybil_resistance_assumed: true
+  aggregate_denominator: public_cohort_size_n
+  gate_sum_normalization: false
+  current_cohort_replace_one_scope: fixed_past_fixed_frozen_predictor
+  user_trajectory_sensitivity_claimed: false
+  two_phase_execution_required: true
+  evaluation_seed_data_generation_before_predictor_freeze_forbidden: true
+  evaluation_requires_published_predictor_sha256: true
+  holdout_opened: false
+  holdout_code_path_present: false
+  pass_authorizes_holdout_or_promotion: false
+  pass_authorizes_end_to_end_development_screen: true
+
+frozen_calibrations:
+  k2:
+    path: results/ldp_gradient_far/gaussian_aware_reference_g0g_k2_mps_v1/calibration.json
+    sha256: 98a30cad8a2f92e6843346e9a9512bd321e8302b9b6e17b447b2641fffb544a5
+    source_campaign_id: gaussian_aware_reference_g0g_k2_mps_v1
+  k4_temporal:
+    path: results/ldp_gradient_far/gaussian_aware_reference_g0g_k4_tcg_mps_v1/temporal_calibration.json
+    sha256: 6ca81b5b8897ec19509a569b54fdf9edeac8c6dc65c7b0c4a890142882603075
+    source_campaign_id: gaussian_aware_reference_g0g_k4_tcg_mps_v1
+    deployed_c0: 10.823704719543457
+    deployed_c1: 11.615572929382324
+  reuse_thresholds_exactly: true
+  recalibrate: false
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, byzantine_high]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  total_client_influence_cap: 0.13
+  current_gate_transition_width: 1.0
+  variance_floor: 1.0e-12
+  fcc_radius: 0.13
+
+temporal:
+  enrollment_rounds: 8
+  monitoring_rounds: 4
+  history_window: 4
+  first_temporal_gate_round: 13
+  total_rounds_needed_for_frozen_pasts: 24
+  assessment_rounds: [17, 24]
+  attack_start_round: 13
+  attack_end_round: 24
+  schedule: persistent
+  standardized_clip_formula: 2_sqrt_dimension
+  standardized_clip_norm: 16.0
+  whitening_covariance: authenticated_dp_block_diagonal_only
+  variance_floor_role: numerical_ridge_only
+  nominal_mean_difference_scale: sqrt_1_over_L_plus_1_over_W0
+
+honest_dynamics:
+  names: [stationary, bounded_drift]
+  offsets_persistent_across_rounds: true
+  drift_direction_fixed_per_identity: true
+  drift_step_mahalanobis: 0.05
+  drift_increments_have_zero_cohort_mean: true
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference_and_temporal_whitening: true
+  imputation_formula: anchor_plus_direct_sum_plus_R_predictor_over_n
+
+threats:
+  names: [bitflip_x10, model_replacement]
+  severity: 1.0
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+
+features:
+  history_length: 4
+  order:
+    - rolling_accepted_mean
+    - accepted_mean_t_minus_1
+    - accepted_mean_delta_t_minus_1_t_minus_2
+    - fixed_denominator_direction_t_minus_1
+    - fixed_denominator_delta_t_minus_1_t_minus_2
+    - rolling_fixed_denominator_direction
+  accepted_mean_denominator: max_public_m_min_and_accepted_mass
+  minimum_accepted_mass: 20
+  fixed_denominator: public_cohort_size_n
+  every_feature_l2_cap: 0.13
+  normalization: featurewise_root_mean_square_per_coordinate_from_fitting_split_only
+  normalization_formula: sqrt_sum_h_norm_V_j_h_squared_over_H_times_dimension
+  rms_floor: 1.0e-8
+  scales_for_lambda_selection: train_only
+  scales_for_frozen_predictor: train_plus_calibration_refit
+  coefficients: scalar_shared_across_all_64_coordinates
+  inference_projection: l2_ball_radius_G
+  feature_schema_fixed_before_fit: true
+  rank_diagnostic: two_pass_modified_gram_schmidt_on_unit_norm_columns
+  rank_relative_tolerance: max_H_times_d_and_J_times_float32_epsilon
+
+ridge:
+  lambda_grid: [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0, 10.0]
+  objective: weighted_normalized_squared_error_to_k4c_ch_target_plus_l2_penalty
+  history_weight: squared_missing_slot_fraction_R_over_n
+  outer_seed_weighting: normalize_history_weights_to_sum_one_within_each_fitting_seed
+  objective_normalizer: dimension_times_sum_history_weights
+  calibration_metric: equal_seed_mean_of_integrated_projected_aggregate_mse
+  selection_tie_absolute_tolerance: 1.0e-12
+  tie_break: largest_lambda
+  refit_after_selection: train_plus_calibration
+  refit_recomputes_feature_scales: true
+  condition_number_norm: infinity_exact_via_solve
+  one_dimensional_control:
+    enabled: true
+    feature: rolling_accepted_mean
+    lambda_selected_independently_on_same_calibration_split: true
+    refit_after_selection: train_plus_calibration
+
+nested_monte_carlo:
+  train_target_construction_children: 64
+  calibration_target_construction_children: 64
+  calibration_evaluation_children: 64
+  evaluation_target_construction_children: 64
+  evaluation_target_split_a_children: 32
+  evaluation_target_split_b_children: 32
+  evaluation_children: 64
+  train_target_stream_tag: k5_tp_train_target_construction
+  calibration_target_stream_tag: k5_tp_calibration_target_construction
+  calibration_evaluation_stream_tag: k5_tp_calibration_lambda_evaluation
+  evaluation_target_stream_tag: k5_tp_evaluation_privileged_target_construction
+  evaluation_stream_tag: k5_tp_final_evaluation
+  all_stream_tags_unique: true
+  current_child_randomness:
+    [private_gaussian_upload_noise, model_replacement_direction]
+  projection_rule_for_k4c_target: once_after_both_conditional_expectations
+
+randomness:
+  train_outer_seeds:
+    [2027043003, 2027043017, 2027043029, 2027043041,
+     2027043053, 2027043067, 2027043079, 2027043091,
+     2027043107, 2027043121, 2027043133, 2027043149]
+  calibration_outer_seeds:
+    [2027050101, 2027050117, 2027050133, 2027050149,
+     2027050165, 2027050181, 2027050197, 2027050213]
+  evaluation_outer_seeds:
+    [2027050201, 2027050217, 2027050233, 2027050249,
+     2027050265, 2027050281, 2027050297, 2027050313,
+     2027050329, 2027050345, 2027050361, 2027050377]
+  reserved_holdout_seeds:
+    [2027044009, 2027044021, 2027044033, 2027044047,
+     2027044059, 2027044071, 2027044087]
+  train_seed_role: reuse_prior_k4c_development_seeds_for_offline_supervision_only
+  calibration_and_evaluation_seed_rule: new_development_seeds_disjoint_from_prior_registries
+  split_disjointness_required: true
+  holdout_rule: registry_metadata_only_never_generate_holdout_trajectory_or_data
+  common_random_numbers: strict_across_candidates_within_child
+  replace_one_trials_per_evaluation_seed_noise_cell: 25
+
+candidates:
+  names:
+    - g0g_k2
+    - g0g_k4_temporal_causal_gate
+    - g0g_k4b_rolling_past_imputation
+    - g0g_k5_tp_one_dimensional_control
+    - g0g_k5_tp_shared_scalar_ridge
+    - g0g_k4c_ch_privileged_benchmark
+    - g0g_k4b_pointwise_optimal_oracle
+  primary: g0g_k5_tp_shared_scalar_ridge
+  learned_one_dimensional_control: g0g_k5_tp_one_dimensional_control
+  deployable_fixed_control: g0g_k4b_rolling_past_imputation
+  privileged_headroom_benchmark: g0g_k4c_ch_privileged_benchmark
+  pointwise_headroom_denominator: g0g_k4b_pointwise_optimal_oracle
+
+statistical_analysis:
+  training_unit: outer_seed
+  train_independent_units: 12
+  calibration_independent_units: 8
+  evaluation_independent_units: 12
+  histories_per_outer_seed: 48
+  train_histories_total: 576
+  calibration_histories_total: 384
+  evaluation_histories_total: 576
+  histories_formula: 3_noise_cells_x_2_geometries_x_2_dynamics_x_2_threats_x_2_rounds
+  time_estimand: equal_weight_two_snapshot_integrated_mse_at_rounds_17_and_24
+  calibration_selection_unit: outer_seed
+  evaluation_unit: outer_seed
+  no_child_or_history_pseudoreplication: true
+  confidence_interval: approximate_two_sided_student_t_95_percent_on_12_evaluation_seed_ratios
+  t_critical_df11: 2.2009851600916406
+  primary_gain_vs_k4b: sum_k4b_mse_minus_sum_k5_mse_over_sum_k4b_mse_within_seed
+  gain_vs_k4: sum_k4_mse_minus_sum_k5_mse_over_sum_k4_mse_within_seed
+  gain_vs_one_dimensional: sum_1d_mse_minus_sum_k5_mse_over_sum_1d_mse_within_seed
+  ch_capture_fraction: sum_k4_mse_minus_sum_k5_mse_over_sum_k4_mse_minus_sum_k4c_mse_within_seed
+  regime_gain_vs_k4b: ratio_of_sums_within_seed_and_noise_regime
+  multiple_gate_rule: intersection_union_all_gates_must_pass
+  all_validity_and_scientific_gates_pass_status: authorize_end_to_end_development_screen
+  valid_scientific_failure_status: stop_this_linear_transcript_predictor_instance
+  validity_failure_status: invalid_or_inconclusive_screen
+
+gates:
+  production_device_required: mps
+  finite_metric_fraction_min: 1.0
+  train_histories_exact: 576
+  calibration_histories_exact: 384
+  evaluation_histories_exact: 576
+  feature_count_exact: 6
+  flattened_feature_rank_exact: 6
+  minimum_centered_feature_rms_strictly_greater_than: 0.0
+  feature_scale_floor_active_count_max: 0
+  regularized_system_condition_number_max: 1.0e7
+  normal_equation_relative_residual_max: 1.0e-4
+  forbidden_current_inference_field_count_max: 0
+  feature_max_source_round_must_be_at_most_t_minus_1: true
+  train_calibration_evaluation_outer_seed_overlap_max: 0
+  development_holdout_seed_overlap_max: 0
+  generated_holdout_seed_count_max: 0
+  global_child_seed_duplicate_max: 0
+  train_target_child_seeds_exact: 36864
+  calibration_target_child_seeds_exact: 24576
+  calibration_evaluation_child_seeds_exact: 24576
+  evaluation_target_child_seeds_exact: 36864
+  evaluation_child_seeds_exact: 36864
+  lambda_selected_from_declared_grid: true
+  calibration_tie_rule_exact: largest_lambda_within_absolute_1e_minus_12
+  frozen_predictor_created_before_evaluation: true
+  frozen_predictor_hash_publication_required_before_evaluation: true
+  coefficients_identical_across_all_evaluation_children: true
+  aggregate_denominator_exact_n: true
+  gate_sum_normalization_violation_max: 0
+  contribution_cap_violation_max: 0
+  replace_one_violation_max: 0
+  replace_one_exact_trials: 900
+  replace_one_bound: 0.0104
+  k4_manual_formula_abs_error_max: 1.0e-6
+  k4b_reproduction_abs_error_max: 1.0e-6
+  fixed_denominator_formula_abs_error_max: 1.0e-6
+  privileged_target_split_disagreement_mse_ratio_max: 0.20
+  positive_k4_minus_k4c_denominator_seed_count_exact: 12
+  primary_gain_vs_k4b_mean_min: 0.10
+  primary_gain_vs_k4b_ci95_low_strictly_greater_than: 0.0
+  primary_gain_vs_k4_mean_min: 0.30
+  primary_gain_vs_k4_ci95_low_strictly_greater_than: 0.20
+  primary_gain_vs_one_dimensional_mean_min: 0.05
+  primary_gain_vs_one_dimensional_ci95_low_strictly_greater_than: 0.0
+  ch_capture_fraction_mean_min: 0.40
+  ch_capture_fraction_ci95_low_strictly_greater_than: 0.30
+  homogeneous_gain_vs_k4b_ci95_low_strictly_greater_than: 0.0
+  heteroscedastic_gain_vs_k4b_ci95_low_strictly_greater_than: 0.0
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  ridge_fit_dtype: float32
+  ridge_fit_device_must_equal_runtime_device: true
+  rank_diagnostic_device_must_equal_runtime_device: true
+  allow_cpu_fallback: false
+  development_only: true
+  holdout_code_path_present: false
+  fit_phase_name: fit_freeze
+  evaluation_phase_name: evaluate_frozen
+  expected_runtime_minutes_mps: [75, 130]

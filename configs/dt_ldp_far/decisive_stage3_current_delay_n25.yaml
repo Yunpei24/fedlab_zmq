@@ -1,0 +1,39 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage3_current_delay_n25_v1
+scope: multi_seed_current_vs_one_round_delayed_after_n25_recalibration
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 15
+requires_geometry_selection:
+  status: selected
+  selected_geometry: n25_u42_d441_r210
+  evidence: output/analysis/dt_ldp_far_n25_geometry_selection_v2.json
+  required_evidence_status: confirmed
+
+experiments:
+  - id: E11_dp_fedavg_control_n25
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dp_fedavg]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [uniform]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 3
+
+  - id: E11_alpha_stress_current_delay_n25
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dp_far_current_matched, dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    # The certified boundary is the main comparison. Stress-2 is an explicit
+    # local-DP post-processing diagnostic and is not claimed to satisfy the
+    # bounded-influence certificate.
+    tilts: [boundary, stress2_uncertified]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12

@@ -1,0 +1,236 @@
+campaign_id: gaussian_aware_reference_g0g_k4b_past_imputation_mps_v1
+scope: preregistered_development_only_semi_oracle_conditioned_causal_fixed_denominator_temporal_mixture_screen
+
+preregistration_lock:
+  path: configs/ldp_gradient_far/gaussian_aware_reference_g0g_k4b_past_imputation.lock.json
+  verify_before_output_creation: true
+  publish_lock_sha256_before_scientific_run: true
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  reference_only: true
+  far_weights_used: false
+  delay_weights_used: false
+  accuracy_used: false
+  persistent_authenticated_identities_required: true
+  sybil_resistance_assumed: true
+  compromise_before_enrollment_supported: false
+  base_anchor: exogenous_oracle_common_centre_with_fixed_public_error
+  screen_conditioned_on_semi_oracle_anchor: true
+  end_to_end_deployability_claimed: false
+  predictor_deployability: conditional_on_supplied_past_or_public_anchor
+  anchor_is_past_measurable: true
+  covariance_role: authenticated_dp_covariance_only
+  history_gate_uses_current_upload: false
+  history_gate_is_past_measurable: true
+  final_gate_uses_current_upload: true
+  final_gate_is_past_measurable: false
+  final_gate_rule: elementwise_minimum_k2_aware_and_frozen_k4_temporal
+  aggregate_denominator: public_cohort_size_n
+  gate_sum_normalization: false
+  primary_mechanism: historical_confidence_mixture_full_temporal_missing_slot_imputation
+  primary_imputation_rule: one_minus_history_gate
+  incremental_ablation_rule: current_gate_minus_joint_gate
+  predictor_feedback_from_k4b_output: false
+  predictor_randomness: none
+  influence_cap_depends_on_covariance: false
+  inverse_variance_weighting: false
+  global_l2_cap: true
+  current_cohort_replace_one_only: true
+  user_trajectory_sensitivity_claimed: false
+  development_only_screen: true
+
+frozen_calibrations:
+  k2:
+    path: results/ldp_gradient_far/gaussian_aware_reference_g0g_k2_mps_v1/calibration.json
+    sha256: 98a30cad8a2f92e6843346e9a9512bd321e8302b9b6e17b447b2641fffb544a5
+    source_campaign_id: gaussian_aware_reference_g0g_k2_mps_v1
+  k4_temporal:
+    path: results/ldp_gradient_far/gaussian_aware_reference_g0g_k4_tcg_mps_v1/temporal_calibration.json
+    sha256: 6ca81b5b8897ec19509a569b54fdf9edeac8c6dc65c7b0c4a890142882603075
+    source_campaign_id: gaussian_aware_reference_g0g_k4_tcg_mps_v1
+    deployed_c0: 10.823704719543457
+    deployed_c1: 11.615572929382324
+  reuse_thresholds_exactly: true
+  recalibrate: false
+
+frozen_source_hashes:
+  algorithms/gaussian_aware_reference.py: 35b352d8a550fcbf75a71a7d64e74029d613f3548609469ee3727d7f11efb15f
+  scripts/run_gaussian_aware_reference_g0g_k1.py: ed0b2865d964ed77c2495e31f9a614f4e98d7312cce6a322287d392326e4133d
+  scripts/run_gaussian_aware_reference_g0g_k4_tcg.py: 4da1338e86ae9f6c587c181f4ca4738c1f08c9c1f7a27f4b3dbd20a64c3f2bd6
+  scripts/run_gaussian_aware_reference_g0g_k2.py: 1b4b2becc927b7e207ee63561cb56b2dde05682f369c38992a08c707500de818
+  scripts/run_gaussian_aware_reference_g0g_k3.py: 0725ce5392cc5633a6e440fba9b4b29039f7ed23bde87439851614a56960009b
+  scripts/run_gaussian_aware_reference_oracle.py: 913aa40897c272c5c1995c9a1aac7674904c0abe7b7a297d0944d18c10228974
+  robustness/aggregators.py: 1918b6ad9301c46d6ce8d5813320f322ff24b7db4adef31c2bc97de27794257f
+
+prior_campaign_seed_registry:
+  - configs/ldp_gradient_far/gaussian_aware_reference_g0g_k1.yaml
+  - configs/ldp_gradient_far/gaussian_aware_reference_g0g_k2.yaml
+  - configs/ldp_gradient_far/gaussian_aware_reference_g0g_k3.yaml
+  - configs/ldp_gradient_far/gaussian_aware_reference_g0g_k4_tcg.yaml
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, reverse, byzantine_high, byzantine_low]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  total_client_influence_cap: 0.13
+  current_gate_transition_width: 1.0
+  variance_floor: 1.0e-12
+  fcc_radius: 0.13
+
+temporal:
+  enrollment_rounds: 8
+  monitoring_rounds: 4
+  history_window: 4
+  first_temporal_gate_round: 13
+  total_rounds: 36
+  attack_start_round: 13
+  attack_end_round: 24
+  recovery_start_round: 25
+  standardized_clip_formula: 2_sqrt_dimension
+  standardized_clip_norm: 16.0
+  whitening_covariance: authenticated_dp_block_diagonal_only
+  variance_floor_role: numerical_ridge_only
+  nominal_mean_difference_scale: sqrt_1_over_L_plus_1_over_W0
+  temporal_gate_shape: linear_ramp
+  detection_gate_threshold: 0.5
+  detection_consecutive_rounds: 2
+  first_eligible_detection_round: 15
+  detection_deadline_round: 17
+  recovery_gate_threshold: 0.9
+  recovery_consecutive_rounds: 2
+  first_fully_clean_window_round: 29
+  recovery_deadline_round: 30
+
+past_imputation:
+  history_length: 4
+  maximum_byzantine_clients: 5
+  minimum_accepted_mass: 20
+  per_round_predictor: clip_G_of_sum_g_c_over_max_m_min_sum_g
+  window_predictor: clip_G_of_mean_per_round_predictors
+  primary_mechanism: historical_confidence_mixture_full_temporal_missing_slot_imputation
+  primary_formula: g_times_c_plus_one_minus_h_times_p
+  exact_incremental_ablation: incremental_temporal_suppression_imputation
+  exact_incremental_formula: g_times_c_plus_gamma_minus_g_times_p
+  rolling_predictor: rolling_strictly_prior_rounds
+  static_ablation_predictor: fixed_last_clean_window_rounds_9_to_12_full_imputation
+  static_clean_window: [9, 10, 11, 12]
+  oracle_predictor: pointwise_optimal_full_imputation_projected_to_B_G
+  oracle_formula: "Proj_BG_of_(n_times_(target_minus_anchor)_minus_sum_g_c)_over_sum_(one_minus_h)"
+  oracle_deployable: false
+  oracle_privacy_claimed: false
+  direct_current_mass_definition: norm_of_g_i_c_i
+  imputed_mass_definition: norm_of_imputation_coefficient_times_p
+  total_slot_mass_definition: norm_of_direct_plus_imputed_descriptive_only
+  predictor_error_target: current_honest_mean_of_clipped_residuals_evaluation_only
+  historical_contamination_counterfactual_available: false
+
+honest_dynamics:
+  names: [stationary, bounded_drift]
+  offsets_persistent_across_rounds: true
+  drift_direction_fixed_per_identity: true
+  drift_step_mahalanobis: 0.05
+  drift_increments_have_zero_cohort_mean: true
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference_and_temporal_whitening: true
+
+threats:
+  names: [alie, ipm, bitflip_x10, model_replacement]
+  separated_for_primary_gate: [ipm, bitflip_x10, model_replacement]
+  oracle_headroom_threats: [bitflip_x10, model_replacement]
+  schedules: [persistent, intermittent_2_on_1_off]
+  intermittent_pattern: [true, true, false]
+  severity: 1.0
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+
+no_compromise_control:
+  threat_name: none
+  schedule_name: no_compromise
+  one_trajectory_per_seed_noise_geometry_dynamics: true
+  active_history_rounds: [13, 36]
+
+randomness:
+  development_seeds: [2027031003, 2027031017, 2027031029, 2027031041, 2027031053]
+  holdout_seeds: [2027032009, 2027032021, 2027032033, 2027032047, 2027032059, 2027032071, 2027032087]
+  holdout_rule: inaccessible_to_development_runner_even_if_all_gates_pass
+  replace_one_trials_per_seed_noise_cell: 4
+  common_random_numbers: strict_across_candidates_within_trajectory
+  no_new_predictor_rng: true
+
+candidates:
+  primary: g0g_k4b_full_temporal_missing_slot_imputation
+  exact_incremental_ablation: g0g_k4b_incremental_temporal_suppression_imputation
+  static_clean_window_ablation: g0g_k4b_static_clean_window_full_imputation
+  oracle_diagnostic: g0g_k4b_pointwise_optimal_oracle
+  names:
+    [fcc, g0g_k2, g0g_k3_dual_gate, g0g_k4_temporal_causal_gate,
+     g0g_k4b_full_temporal_missing_slot_imputation,
+     g0g_k4b_incremental_temporal_suppression_imputation,
+     g0g_k4b_static_clean_window_full_imputation,
+     g0g_k4b_pointwise_optimal_oracle]
+  oracle_metadata:
+    deployable: false
+    privacy_claimed: false
+    uses_target: true
+
+gates:
+  complete_fraction_min: 1.0
+  finite_metric_fraction_min: 1.0
+  production_device_required: mps
+  contribution_cap_violation_max: 0
+  replace_one_violation_max: 0
+  k4_comparator_reproduction_abs_error_max: 1.0e-6
+  k4b_k2_identity_when_history_gate_one_abs_error_max: 1.0e-6
+  regular_client_round_false_trigger_rate_max: 0.15
+  regular_trajectory_false_trigger_rate_max: 0.15
+  pooled_regular_false_trigger_tier_gap_max: 0.10
+  pooled_regular_gate_mean_tier_gap_max: 0.10
+  honest_outlier_gate_drop_vs_k2_aware_max: 0.05
+  persistent_separated_byzantine_mass_reduction_vs_k2_aware_min: 0.10
+  persistent_separated_detection_rate_within_deadline_min: 0.80
+  persistent_separated_recovery_rate_within_deadline_min: 0.90
+  oracle_bf_mr_persistent_gain_vs_k4_min: 0.05
+  oracle_bf_mr_persistent_difference_ci95_high_max: 0.0
+  primary_bf_mr_persistent_gain_vs_k4_min: 0.03
+  primary_bf_mr_persistent_difference_ci95_high_max: 0.0
+  primary_persistent_separated_gain_vs_k2_min: 0.05
+  primary_persistent_separated_difference_ci95_high_max: 0.0
+  primary_oracle_headroom_capture_fraction_min: 0.50
+  primary_persistent_ipm_exp_log_ratio_ci95_high_to_k4_max: 1.02
+  primary_persistent_alie_exp_log_ratio_ci95_high_to_k4_max: 1.02
+  primary_intermittent_exp_log_ratio_ci95_high_to_k4_max: 1.02
+  clean_primary_post_enrollment_exp_log_ratio_ci95_high_to_k2_max: 1.02
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  allow_cpu_fallback: false
+  development_only: true
+  holdout_code_path_present: false

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "campaign_id": "gaussian_aware_reference_g0g_k4b_past_imputation_mps_v1",
+  "locked_files": {
+    "algorithms/gaussian_aware_reference_k4b.py": "e8fbf2ea02d46937b804435cbb2fb8b2d598dde14ef3e1a2e26f2dcfce5118fd",
+    "configs/ldp_gradient_far/gaussian_aware_reference_g0g_k4b_past_imputation.yaml": "a2b2e44a46108fd26ece791efa71dfdfb0a4695682ee2d4dfb7d17aa07b6ceeb",
+    "scripts/run_gaussian_aware_reference_g0g_k4b_past_imputation.py": "4042f63a0aecd081e4510f1ec15d56724312d01637224f13b45f5032481dd632",
+    "tests/test_gaussian_aware_reference_g0g_k4b.py": "b2c0f9efa15e9acf7d8c4fa86ace48e2a37a1038181bf8b2ffe3c8a59c04386a",
+    "tests/test_run_gaussian_aware_reference_g0g_k4b_past_imputation.py": "705a145935d31deacc3f55b53e5b1bec0a9ce6cfe042b637f63c12d05f2592fd",
+    "output/analysis/Gaussian_Aware_G0g_K4b_Past_Imputation_Protocol_PreRun.md": "e2376aa0d70894d1fb76b2ce280c1e9a1abb99d5daf5f27b45a0fb848e5ba38b"
+  },
+  "dependencies": {
+    "algorithms/gaussian_aware_reference.py": "35b352d8a550fcbf75a71a7d64e74029d613f3548609469ee3727d7f11efb15f",
+    "configs/ldp_gradient_far/gaussian_aware_reference_g0g_k1.yaml": "229f4372c616570d28bc5566a23768423761a6c61446dd175978883083cfd7aa",
+    "configs/ldp_gradient_far/gaussian_aware_reference_g0g_k2.yaml": "076ed6d7659391a7a383cb2ce1373a04f7428d011a34e2a31b304b3b1f7d544c",
+    "configs/ldp_gradient_far/gaussian_aware_reference_g0g_k3.yaml": "ab3b3515b36a46f753dd57c5286ecfab55958e47d0f63887467e033349853a00",
+    "configs/ldp_gradient_far/gaussian_aware_reference_g0g_k4_tcg.yaml": "ca3a43183198a0f59410339ac05dbec244ab82f89cf50edf38fe6654bb64356e",
+    "scripts/run_gaussian_aware_reference_g0g_k1.py": "ed0b2865d964ed77c2495e31f9a614f4e98d7312cce6a322287d392326e4133d",
+    "scripts/run_gaussian_aware_reference_g0g_k2.py": "1b4b2becc927b7e207ee63561cb56b2dde05682f369c38992a08c707500de818",
+    "scripts/run_gaussian_aware_reference_g0g_k3.py": "0725ce5392cc5633a6e440fba9b4b29039f7ed23bde87439851614a56960009b",
+    "scripts/run_gaussian_aware_reference_g0g_k4_tcg.py": "4da1338e86ae9f6c587c181f4ca4738c1f08c9c1f7a27f4b3dbd20a64c3f2bd6",
+    "scripts/run_gaussian_aware_reference_oracle.py": "913aa40897c272c5c1995c9a1aac7674904c0abe7b7a297d0944d18c10228974",
+    "robustness/aggregators.py": "1918b6ad9301c46d6ce8d5813320f322ff24b7db4adef31c2bc97de27794257f",
+    "results/ldp_gradient_far/gaussian_aware_reference_g0g_k2_mps_v1/calibration.json": "98a30cad8a2f92e6843346e9a9512bd321e8302b9b6e17b447b2641fffb544a5",
+    "results/ldp_gradient_far/gaussian_aware_reference_g0g_k4_tcg_mps_v1/temporal_calibration.json": "6ca81b5b8897ec19509a569b54fdf9edeac8c6dc65c7b0c4a890142882603075"
+  },
+  "lock_file_self_hash_embedded": false,
+  "publication_requirement": "publish_this_lock_file_sha256_in_research_log_or_chat_before_run"
+}

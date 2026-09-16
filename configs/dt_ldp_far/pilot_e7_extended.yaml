@@ -1,0 +1,22 @@
+schema_version: 1
+campaign_id: dt_ldp_far_e7_extended_v1
+scope: hyperparameter_pilot_not_final_paper_evidence
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 5
+
+experiments:
+  # K denotes independent Poisson DP steps per communication round.
+  # Use --pilot-rounds to place each public horizon in a distinct output tree
+  # and to recalibrate the privacy accountant for T x K mechanisms.
+  - id: E7_extended_poisson_steps
+    scenarios: [fmnist_b01]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4]
+    tilts: [boundary]
+    geometries: [calibrated_d05]
+    local_epochs: [1, 2, 5, 10, 20]
+    delays: [1]
+    expected_tasks: 5

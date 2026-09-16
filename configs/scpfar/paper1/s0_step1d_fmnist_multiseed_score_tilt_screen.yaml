@@ -1,0 +1,77 @@
+schema_version: 1
+matrix_id: s0_step1d_fmnist_multiseed_score_tilt_screen
+common: common.yaml
+description: >-
+  Pre-registered multi-seed no-DP screen separating score geometry from tilt
+  intensity. Bounded scores at D_score/C in {1,1.25} vary kappa_w and alpha;
+  raw distances are evaluated both at the same numerical alpha and at the
+  alpha/D_score value that exactly matches bounded logits whenever the bounded
+  score is unsaturated. Only paired seed tuples are used, never a 3x3 seed
+  product. This is a development screen, not a private-utility confirmation.
+
+experiments:
+  - id: step1d_uniform_control
+    expected_tasks: 3
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [central_dp_fedavg_exact]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}
+      - {partition_seed: 102, training_seed: 36}
+      - {partition_seed: 103, training_seed: 54}
+
+  - id: step1d_bounded_joint_kappa_alpha
+    expected_tasks: 18
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [scfar_no_dp]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r050, k2_r100, k5_r100]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    distance_score_over_c: [1.0, 1.25]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}
+      - {partition_seed: 102, training_seed: 36}
+      - {partition_seed: 103, training_seed: 54}
+
+  - id: step1d_raw_same_numerical_alpha
+    expected_tasks: 6
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [far_raw_distance_fcc]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100, k5_r100]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}
+      - {partition_seed: 102, training_seed: 36}
+      - {partition_seed: 103, training_seed: 54}
+
+  - id: step1d_raw_logit_matched
+    expected_tasks: 12
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [far_raw_distance_logit_matched_fcc]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100, k5_r100]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    distance_score_over_c: [1.0, 1.25]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}
+      - {partition_seed: 102, training_seed: 36}
+      - {partition_seed: 103, training_seed: 54}

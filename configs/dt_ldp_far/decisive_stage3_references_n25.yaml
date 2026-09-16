@@ -1,0 +1,26 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage3_references_n25_v1
+scope: multi_seed_five_reference_comparison_after_n25_recalibration
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 60
+requires_geometry_selection:
+  status: selected
+  selected_geometry: n25_u42_d441_r210
+  evidence: output/analysis/dt_ldp_far_n25_geometry_selection_v2.json
+  required_evidence_status: confirmed
+
+experiments:
+  - id: E11_references_attacks_n25
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dt_ldp_far]
+    # Ordering is intentional: execute the theory-backed candidate and the
+    # two main finalists first, then CM(NNM) and trMean(NNM).
+    references: [fcc, huber, rfa, cm_nnm, trmean_nnm]
+    threats: [none, bf20_n25_s10, ipm20_n25, alie20_n25]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 60

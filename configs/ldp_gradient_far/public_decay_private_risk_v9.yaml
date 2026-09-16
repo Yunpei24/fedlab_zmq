@@ -1,0 +1,22 @@
+campaign_id: public_decay_private_risk_v9
+device: mps
+calibration_seeds: [170501, 170502]
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+clip: 2.0
+risk_scale: 0.5
+rounds: 60
+learning_rate_first_half: 2.0
+learning_rate_second_half: 0.5
+expected_runs: 8
+test_evaluated: false
+attacks: none
+automatic_confirmation: false
+automatic_attacks: false
+minimum_worst20_advantage_pp: 1.0
+maximum_accuracy_loss_pp: 1.0
+source_campaign: capped_private_risk_calibration_v7
+historical_controls: [erm_mean_C1, erm_mean_C2, erm_rfa_C1, erm_rfa_C2]
+new_controls: [erm_mean, erm_rfa]
+robust_candidate: risk_rfa
+reserved_confirmation_seeds: [170601, 170602, 170603, 170604]
+protocol: output/analysis/Public_Decay_Private_Risk_V9_Protocol.md

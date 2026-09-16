@@ -1,0 +1,42 @@
+campaign_id: full_population_private_risk_confirmation_v29
+device: mps
+seeds: [180701, 180702, 180703, 180704]
+full_methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+small_methods: [erm_mean, erm_rfa]
+expected_runs: 24
+dataset: fashionmnist
+model: lenet5_tanh
+num_clients: 10
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+public_train_size: 4800
+validation_size: 1200
+batch_sizes: [4800, 240]
+gradient_accumulation_block: 240
+rounds: 120
+local_optimizer_steps: 0
+clip: 2.0
+risk_scale: 0.5
+epsilon: 4.0
+delta: 0.00001
+epsilon_risk: 0.25
+adjacency: replace_one
+server_clip: null
+validation_rounds: [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
+test_rounds: [120]
+eta_early: 2.0
+eta_late: 0.5
+eta_switch_after_round: 60
+primary_method: risk_rfa
+primary_batch: 4800
+minimum_worst20_advantage_pp: 1.0
+maximum_accuracy_loss_pp: 1.0
+all_seeds_required: true
+mean_gap_and_variance_must_not_increase: true
+prospective_confirmation_wave: 1
+one_sided_alpha: 0.0125
+paired_t_critical_df3: 4.176534846104499
+automatic_attacks: false
+automatic_retry: false
+protocol: output/analysis/Full_Population_Private_Risk_Confirmation_V29_Protocol.md
+ledger_snapshot: output/analysis/Private_Fairness_Robustness_Confirmation_Ledger_V29.json

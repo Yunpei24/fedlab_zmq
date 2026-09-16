@@ -1,0 +1,50 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage6_noise_aware_score_n25_v1
+scope: paired_public_dp_covariance_score_hypothesis_test
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 30
+
+# Pre-registered scientific question:
+# Does a score standardised only by public DP-noise parameters recover the
+# noise-free client geometry better than the raw Euclidean FAR score when
+# privacy mechanisms are heteroscedastic?
+#
+# Promotion is not based on final accuracy.  Primary outcomes are noisy-clean
+# score correlation/error, noisy-clean weight L1 error, and the excess
+# correlation between the score and the public noise scale.  The homogeneous
+# experiment is a negative control and must reproduce the raw score exactly.
+experiments:
+  - id: E13_noise_aware_oracle_diagnostic_heteroscedastic
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_matched_oracle
+      - dp_far_current_noise_scale_oracle
+      - dp_far_current_covariance_proxy_oracle
+      - dt_ldp_far_oracle
+      - dt_ldp_far_noise_scale_oracle
+      - dt_ldp_far_covariance_proxy_oracle
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 18
+
+  - id: E13_noise_aware_oracle_diagnostic_homogeneous_negative_control
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_matched_oracle
+      - dp_far_current_covariance_proxy_oracle
+      - dt_ldp_far_oracle
+      - dt_ldp_far_covariance_proxy_oracle
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12

@@ -1,0 +1,27 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage8_debiased_distance_n25_v1
+scope: paired_debiased_distance_end_to_end_screen
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 72
+
+# Promoted only after the frozen-update gate in
+# stage8_frozen_debiased_distance_gate.yaml passed. This remains a six-round
+# mechanism screen: final accuracy is secondary to clean-score recovery,
+# clean-weight recovery and dependence on the public DP-noise tier.
+experiments:
+  - id: E16_debiased_distance_end_to_end_oracle_diagnostic
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_matched_oracle
+      - dp_far_current_debiased_distance_oracle
+      - dt_ldp_far_oracle
+      - dt_ldp_far_debiased_distance_oracle
+    references: [fcc, rfa]
+    threats: [none, ipm20_n25, alie20_n25]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 72

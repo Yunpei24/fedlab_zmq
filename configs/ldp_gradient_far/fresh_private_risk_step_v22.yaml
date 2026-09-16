@@ -1,0 +1,21 @@
+campaign_id: fresh_private_risk_step_v22
+device: mps
+seeds: [170501, 170502]
+step_controls: [half, global_clip]
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+candidate_order: [global_clip, half]
+rounds: 120
+batch_size: 240
+local_optimizer_steps: 0
+clip: 2.0
+aggregate_radius: 1.0
+epsilon: 4.0
+delta: 1.0e-5
+expected_runs: 16
+test_evaluated: false
+attacks: none
+automatic_confirmation: false
+automatic_attacks: false
+minimum_worst20_advantage_pp: 1.0
+maximum_accuracy_loss_pp: 1.0
+protocol: output/analysis/Fresh_Private_Risk_Step_V22_Protocol.md

@@ -1,0 +1,37 @@
+schema_version: 1
+matrix_id: s0_step1b_fmnist_geometry_dev
+common: common.yaml
+description: >-
+  Development-only clean geometry screen for the centered-clipping reference,
+  public anchors and certified controlled tilt on Fashion-MNIST. C=1.4 is
+  frozen from Step 1A before this matrix is inspected. The development seeds
+  are disjoint from both Step 1A and the confirmatory protocol.
+
+experiments:
+  - id: step1b_uniform_control
+    expected_tasks: 1
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [central_dp_fedavg_exact]
+    reference_ids: [fcc]
+    anchor_ids: [fixed_zero]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    partition_seeds: [105]
+    training_seeds: [19]
+
+  - id: step1b_fcc_anchor_tau_geometry
+    expected_tasks: 9
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [scfar_no_dp]
+    reference_ids: [fcc]
+    anchor_ids: [fixed_zero, ema_release_0p1, previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100]
+    privacy_ids: [no_dp]
+    tau_over_c: [0.25, 0.5, 1.0]
+    user_clip_norms: [1.4]
+    partition_seeds: [105]
+    training_seeds: [19]

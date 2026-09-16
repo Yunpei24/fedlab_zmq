@@ -1,0 +1,67 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage2_confirmatory_n25_v1
+scope: confirmatory_fmnist_full_participation_no_cifar
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 78
+
+experiments:
+  - id: E11_causal_delay_t80_t120
+    scenarios: [fmnist_b01_n25_t80, fmnist_b01_n25_t120]
+    methods: [dp_fedavg, dp_far_current_matched, dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4]
+    tilts: [boundary]
+    geometries: [gate_u10_d10_r10]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 18
+
+  - id: E11_privacy_delay_frontier
+    scenarios: [fmnist_b01_n25_t80]
+    methods: [dp_far_current_matched, dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps1, eps2, eps4, eps8]
+    tilts: [boundary]
+    geometries: [gate_u10_d10_r10]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 24
+
+  - id: E11_no_noise_matched_controls
+    scenarios: [fmnist_b01_n25_t80]
+    methods: [clipped_fedavg_no_dp, clipped_far_no_dp, dt_no_dp]
+    references: [fcc]
+    threats: [none]
+    privacy: [none_poisson]
+    tilts: [boundary]
+    geometries: [gate_u10_d10_r10]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 9
+
+  - id: E11_mild_heterogeneity_confirmation
+    scenarios: [fmnist_b05_n25_t80]
+    methods: [dp_fedavg, dp_far_current_matched, dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4]
+    tilts: [boundary]
+    geometries: [gate_u10_d10_r10]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 9
+
+  - id: E11_alpha_stress_confirmatory
+    scenarios: [fmnist_b01_n25_t80]
+    methods: [dp_far_current_matched, dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4]
+    tilts: [boundary_k5, stress2_uncertified, stress4_uncertified]
+    geometries: [gate_u10_d10_r10]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 18

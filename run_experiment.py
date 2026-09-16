@@ -85,6 +85,11 @@ from diagnostics.layer_mismatch import LayerMismatchDiagnostic
 from hardware.profiles import make_fleet
 from models.registry import get_model
 from metrics.client_fairness import evaluate_client_loaders
+from metrics.rcig_evaluation import (
+    detach_rcig_evaluation_oracles,
+    external_byzantine_weight_metrics,
+    rcig_reference_oracle_metrics,
+)
 
 # import algorithms.fedmask               # noqa
 # import algorithms.hermes                # noqa
@@ -539,7 +544,8 @@ def run_single_experiment(
         print(f"\n{'='*64}")
         print(f"  {algo_name.upper()} | {dataset} | {model_name}")
         print(
-            f"  {num_clients} clients | {num_rounds} rounds | α={alpha} | "
+            f"  {num_clients} clients | {num_rounds} rounds | "
+            f"Dirichlet β={alpha} | "
             f"partition={partition}"
         )
         print(f"{'='*64}")
@@ -774,14 +780,69 @@ def run_single_experiment(
             # visible only here and in evaluation metadata, never to an honest
             # aggregation rule unless that rule explicitly consumes them.
             client_tuples = apply_configured_attack(
-                client_tuples, round_config.get("attack")
+                client_tuples,
+                round_config.get("attack"),
+                round_num=t,
             )
+            server_client_tuples = client_tuples
+            rcig_clean_oracles = None
+            reference_name = str(round_config.get("robust_reference", "")).lower()
+            rcig_evaluation = algo_name == "ldp_gradient_far" and reference_name in {
+                "rcig_temporal",
+                "rcig_temporal_full",
+                "rcig_temporal_isotropic",
+                "rcig_temporal_euclidean",
+            }
+            external_attack_diagnostics = bool(
+                round_config.get("external_attack_diagnostics", False)
+            )
+            if rcig_evaluation or external_attack_diagnostics:
+                server_client_tuples, rcig_clean_oracles = (
+                    detach_rcig_evaluation_oracles(
+                        client_tuples,
+                        enabled=bool(
+                            rcig_evaluation
+                            and round_config.get("enable_oracle_diagnostics", False)
+                        ),
+                        strip_attack_oracles=external_attack_diagnostics,
+                    )
+                )
+            server_round_config = round_config
+            if external_attack_diagnostics:
+                # The simulator controller keeps attack IDs and schedule, but
+                # the deployed aggregation call has no reason to receive them.
+                server_round_config = dict(round_config)
+                server_round_config.pop("attack", None)
             agg_result = algo.server_aggregate(
                 global_model=global_model,
-                client_updates=client_tuples,
+                client_updates=server_client_tuples,
                 round_num=t,
-                config=round_config,
+                config=server_round_config,
             )
+            external_weight_payload = agg_result.metrics.pop(
+                "_far_external_weight_diagnostics_payload", None
+            )
+            if external_attack_diagnostics:
+                agg_result.metrics.update(
+                    external_byzantine_weight_metrics(
+                        external_weight_payload,
+                        client_tuples,
+                    )
+                )
+            elif external_weight_payload is not None:
+                raise RuntimeError(
+                    "FAR emitted an external weight payload without the external "
+                    "diagnostic boundary"
+                )
+            rcig_payload = agg_result.metrics.pop("_rcig_evaluation_payload", None)
+            if rcig_payload is not None:
+                agg_result.metrics.update(
+                    rcig_reference_oracle_metrics(
+                        rcig_payload,
+                        rcig_clean_oracles,
+                        client_tuples,
+                    )
+                )
             global_model.load_state_dict(
                 {k: v.to(device) for k, v in agg_result.new_weights.items()}
             )
@@ -791,8 +852,10 @@ def run_single_experiment(
         # client_tuples.  The attack labels are evaluation-only: algorithms
         # must not consume them to choose an aggregate.
         _num_participated = len(client_tuples)
-        from metrics.robustness import attack_diagnostics
+        from metrics.robustness import attack_diagnostics, update_norm_diagnostics
+
         _attack_metrics = attack_diagnostics(client_tuples)
+        _update_norm_metrics = update_norm_diagnostics(client_tuples)
         # Energy breakdown summed across participants (before client_tuples freed).
         round_compute_e = sum(
             m.get("energy_compute_j", 0.0) for _, m, _ in client_tuples
@@ -960,6 +1023,7 @@ def run_single_experiment(
         }
         round_metrics.update(fairness_metrics)
         round_metrics.update(_attack_metrics)
+        round_metrics.update(_update_norm_metrics)
         # ── Class-arrival telemetry: coverage + living holders per class ────
         # arrival_extinct_classes counts world-visible classes whose living
         # discovered holders dropped to ZERO — the permanent-loss event the
@@ -1029,7 +1093,17 @@ def run_single_experiment(
         "dataset": dataset,
         "model": model_name,
         "partition": partition,
+        # ``alpha`` is retained for backward compatibility with older result
+        # readers, where it has always meant the Dirichlet partition
+        # parameter.  The explicit fields below prevent confusion with FAR's
+        # tilting coefficient.
         "alpha": alpha,
+        "dirichlet_alpha": alpha,
+        "far_alpha": (
+            float(merged_config["far_alpha"])
+            if merged_config.get("far_alpha") is not None
+            else None
+        ),
         "num_rounds": num_rounds,
         "num_clients": num_clients,
         "sample_fraction": sample_fraction,

@@ -1,0 +1,63 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage20a_fmnist_rfa_support_screen_v1
+scope: preregistered_end_to_end_screen_after_stage19_confirmation
+common: common.yaml
+seed_pair_indices: [9]
+expected_tasks: 12
+
+requires_score_confirmation:
+  evidence: results/dt_ldp_far/score_quality_stage19_rfa_confirmatory_v1/confirmatory_decision.json
+  profile: two_logit_support_50_confirmatory
+  reference: rfa
+
+gates:
+  # Operational screen only. These thresholds were frozen after observing
+  # the uniform control but before any Stage-20A candidate result existed.
+  no_attack_test_accuracy_drop_vs_dp_fedavg_max_pp: 3.0
+  no_attack_worst20_drop_vs_dp_fedavg_max_pp: 5.0
+  separated_test_accuracy_drop_vs_dp_fedavg_mean_max_pp: 2.0
+  separated_byzantine_weight_mass_median_max: 0.20
+  privacy_epsilon_difference_max: 0.01
+  every_weight_cap_must_hold: true
+  rfa_reference_error_excess_over_fcc_max: 0.01
+
+# Stage 20A is a one-seed operational screen, not the final accuracy claim.
+# Every arm uses exactly the same partition/training seed, local-DP budget,
+# ten genuine Poisson steps per round, public 64-coordinate score view and
+# six-round horizon.  Only Stage-19-frozen settings are used.
+experiments:
+  - id: E27_stage20a_uniform_control
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dp_fedavg]
+    references: [fcc]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 3
+
+  - id: E28_stage20a_novelty_only_control
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dt_ldp_far_stage19_novelty_only]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 3
+
+  - id: E29_stage20a_peer_support_reference_ablation
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dt_ldp_far_stage19_peer_support]
+    references: [rfa, fcc]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 6

@@ -1,4 +1,4 @@
-"""Small, explicit RDP accountant for the sampled Gaussian mechanism.
+"""Small, explicit RDP accountant for Gaussian sampling mechanisms.
 
 This module implements the finite-sum expression used in FedFDP for integer
 Renyi orders.  It is intentionally transparent and dependency-free; it is not
@@ -54,6 +54,118 @@ def sampled_gaussian_rdp(
         gaussian = (k * k - k) / (2.0 * noise_multiplier**2)
         log_a = _log_add(log_a, log_binomial + log_probability + gaussian)
     return log_a / (order - 1)
+
+
+def _log_sub_sign(log_x: float, log_y: float) -> tuple[bool, float]:
+    """Return the sign and log-magnitude of ``exp(log_x) - exp(log_y)``."""
+
+    if log_x == log_y:
+        return True, -math.inf
+    if log_x > log_y:
+        return True, log_x + math.log1p(-math.exp(log_y - log_x))
+    return False, log_y + math.log1p(-math.exp(log_x - log_y))
+
+
+def _forward_difference_log_magnitudes(
+    function, order: int
+) -> tuple[list[float], list[bool]]:
+    """Compute forward differences in signed log space.
+
+    This is the dependency-free equivalent of the stable construction used
+    by TensorFlow Privacy for Theorem 27 of Wang, Balle and Kasiviswanathan
+    (AISTATS 2019).  Directly differencing ``exp(function(x))`` overflows at
+    the Renyi orders used by the experiments.
+    """
+
+    values = [0.0] * (order + 3)
+    signs = [True] * (order + 3)
+    differences = [0.0] * (order + 2)
+    difference_signs = [True] * (order + 2)
+    for index in range(1, order + 3):
+        values[index] = float(function(float(index - 1)))
+    for level in range(order + 2):
+        count = order + 2 - level
+        for index in range(count):
+            if signs[index] == signs[index + 1]:
+                new_sign, magnitude = _log_sub_sign(values[index + 1], values[index])
+                if not signs[index + 1]:
+                    new_sign = not new_sign
+                signs[index] = new_sign
+                values[index] = magnitude
+            else:
+                values[index] = _log_add(values[index], values[index + 1])
+                signs[index] = signs[index + 1]
+        differences[level] = values[0]
+        difference_signs[level] = signs[0]
+    return differences, difference_signs
+
+
+def sampled_without_replacement_gaussian_rdp(
+    order: int, sampling_rate: float, noise_multiplier: float
+) -> float:
+    """RDP upper bound for one fixed-size sample without replacement.
+
+    The sample is a uniformly random subset of public size ``m`` from a
+    public dataset of size ``N``, with ``sampling_rate = m / N``.  The
+    neighboring relation is replace-one.  ``noise_multiplier`` is the
+    Gaussian standard deviation divided by the *replace-one sensitivity* of
+    the sum query.  For per-example gradients clipped at ``C``, the caller
+    must therefore pass ``sigma / 2`` when the implementation adds noise with
+    standard deviation ``sigma * C``.
+
+    The expression is Theorem 27 of Wang, Balle and Kasiviswanathan,
+    "Subsampled Renyi Differential Privacy and Analytical Moments
+    Accountant", AISTATS 2019.  Only integer orders up to 256 are needed by
+    this repository and are evaluated with the stable forward-difference
+    construction used by TensorFlow Privacy.
+    """
+
+    if order < 2 or int(order) != order:
+        raise ValueError("Fixed-size WOR accounting supports integer orders >= 2")
+    if order > 256:
+        raise ValueError("Fixed-size WOR accounting supports orders up to 256")
+    if not 0.0 <= sampling_rate <= 1.0:
+        raise ValueError("sampling_rate must lie in [0,1]")
+    if noise_multiplier <= 0:
+        return math.inf
+    q = float(sampling_rate)
+    sigma = float(noise_multiplier)
+    if q == 0.0:
+        return 0.0
+    if q == 1.0:
+        return gaussian_rdp(order, sigma)
+
+    def cgf(x: float) -> float:
+        return x * (x + 1.0) / (2.0 * sigma**2)
+
+    def base_rdp(x: float) -> float:
+        return x / (2.0 * sigma**2)
+
+    log_a = 0.0  # The i=0 and i=1 contribution equals one.
+    base_order_two = base_rdp(2.0)
+    log_f2_minus_one = base_order_two + math.log1p(-math.exp(-base_order_two))
+    differences, _ = _forward_difference_log_magnitudes(cgf, int(order))
+    for index in range(2, int(order) + 1):
+        log_binomial = (
+            math.lgamma(order + 1)
+            - math.lgamma(index + 1)
+            - math.lgamma(order - index + 1)
+        )
+        if index == 2:
+            term = min(
+                math.log(4.0) + log_f2_minus_one,
+                base_order_two + math.log(2.0),
+            )
+        else:
+            lower = differences[2 * math.floor(index / 2.0) - 1]
+            upper = differences[2 * math.ceil(index / 2.0) - 1]
+            term = min(
+                math.log(4.0) + 0.5 * (lower + upper),
+                math.log(2.0) + cgf(index - 1.0),
+            )
+        term += index * math.log(q) + log_binomial
+        log_a = _log_add(log_a, term)
+    return float(log_a) / (order - 1)
 
 
 def gaussian_rdp(order: float, noise_multiplier: float) -> float:
@@ -116,6 +228,61 @@ def calibrate_sampled_gaussian_noise(
         upper *= 2.0
         if upper > 1e6:
             raise RuntimeError("Could not bracket a noise multiplier")
+    if epsilon_at(lower) < target_epsilon:
+        return lower
+    for _ in range(max_iter):
+        middle = (lower + upper) / 2.0
+        epsilon = epsilon_at(middle)
+        if abs(epsilon - target_epsilon) <= tolerance:
+            return middle
+        if epsilon > target_epsilon:
+            lower = middle
+        else:
+            upper = middle
+    return upper
+
+
+def calibrate_sampled_without_replacement_gaussian_noise(
+    *,
+    target_epsilon: float,
+    delta: float,
+    sampling_rate: float,
+    steps: int,
+    sensitivity_multiplier: float = 2.0,
+    orders: tuple[int, ...] = (2, 3, 4, 5, 8, 10, 16, 20, 32, 64),
+    lower: float = 0.05,
+    upper: float = 100.0,
+    tolerance: float = 1e-4,
+    max_iter: int = 100,
+) -> float:
+    """Calibrate the implementation multiplier for fixed-size WOR sampling.
+
+    The returned value multiplies the per-example clipping bound ``C`` in the
+    training code.  Under replace-one adjacency the sensitivity of the sum is
+    ``2C``; hence the accountant receives ``returned / 2`` by default.
+    """
+
+    if target_epsilon <= 0:
+        raise ValueError("target_epsilon must be positive")
+    if steps <= 0:
+        raise ValueError("steps must be positive")
+    if sensitivity_multiplier <= 0:
+        raise ValueError("sensitivity_multiplier must be positive")
+
+    def epsilon_at(implementation_noise: float) -> float:
+        accountant = RDPAccountant(orders=orders)
+        accountant.add_sampled_without_replacement_gaussian(
+            channel="model",
+            sampling_rate=sampling_rate,
+            noise_multiplier=implementation_noise / sensitivity_multiplier,
+            steps=steps,
+        )
+        return accountant.epsilon(delta)[0]
+
+    while epsilon_at(upper) > target_epsilon:
+        upper *= 2.0
+        if upper > 1e6:
+            raise RuntimeError("Could not bracket a fixed-size WOR multiplier")
     if epsilon_at(lower) < target_epsilon:
         return lower
     for _ in range(max_iter):
@@ -268,6 +435,24 @@ class RDPAccountant:
         ledger = self.channels.setdefault(channel, {a: 0.0 for a in self.orders})
         for order in self.orders:
             ledger[order] += steps * sampled_gaussian_rdp(
+                order, sampling_rate, noise_multiplier
+            )
+
+    def add_sampled_without_replacement_gaussian(
+        self,
+        *,
+        channel: str,
+        sampling_rate: float,
+        noise_multiplier: float,
+        steps: int = 1,
+    ) -> None:
+        """Compose fixed-size uniformly sampled Gaussian releases."""
+
+        if steps < 0:
+            raise ValueError("steps cannot be negative")
+        ledger = self.channels.setdefault(channel, {a: 0.0 for a in self.orders})
+        for order in self.orders:
+            ledger[order] += steps * sampled_without_replacement_gaussian_rdp(
                 order, sampling_rate, noise_multiplier
             )
 

@@ -1,0 +1,155 @@
+campaign_id: gaussian_aware_reference_g0b_mps_v1
+scope: preregistered_development_then_locked_holdout_oracle_audit
+
+# G0b is a fresh experiment.  These identities are explicitly excluded from
+# every calibration, development and holdout draw because they were inspected
+# in G0: 28, 36, 54, 107 and 131.
+excluded_prior_seeds: [28, 36, 54, 107, 131]
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      # The two assignments are paired controls: covariance tiers change
+      # client identities while all other random objects remain indexed by
+      # the same pairing seed.
+      permutations: [identity, reverse]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  fcc:
+    radius: 0.13
+  fna_cc:
+    radius: 0.13
+    max_weight_ratio: 2.0
+    variance_floor: 1.0e-12
+  rfa:
+    max_iter: 80
+    tolerance: 1.0e-8
+    smoothing: 1.0e-8
+  f_sigma_huber:
+    standardized_threshold: null
+    null_tail_probability: 0.01
+    influence_cap: [0.065, 0.065, 0.065, 0.065]
+    regularization: 0.20
+    num_steps: 20
+    variance_floor: 1.0e-12
+
+  # The total cap is sqrt(sum_b cap_b^2).  G0 used total cap 0.13 and masked
+  # the covariance branch almost everywhere.  G0b pre-registers a monotone
+  # influence/covariance trade-off; no cap is chosen after holdout inspection.
+  candidates:
+    - id: uniform_mean
+      method: uniform_mean
+    - id: fcc
+      method: fcc
+    - id: fna_cc
+      method: fna_cc
+    - id: rfa
+      method: rfa
+    - id: sigma_huber_g013
+      method: f_sigma_huber
+      influence_cap_total: 0.13
+      regularization: 0.20
+    - id: sigma_huber_g020
+      method: f_sigma_huber
+      influence_cap_total: 0.20
+      regularization: 0.20
+    - id: sigma_huber_g026
+      method: f_sigma_huber
+      influence_cap_total: 0.26
+      regularization: 0.20
+    - id: sigma_huber_g036
+      method: f_sigma_huber
+      influence_cap_total: 0.36
+      regularization: 0.20
+
+score:
+  false_outlier_quantile: 0.95
+  variance_floor: 1.0e-12
+  novelty_start_z: 1.0
+  novelty_full_z: 2.5
+  rejection_start_z: 3.0
+  rejection_full_z: 5.0
+  trust_floor: 0.02
+  alpha: 0.80
+  weight_modes: [reference_only, novelty_only, novelty_confidence]
+
+aggregation:
+  server_clip_norm: 0.42
+  # Match the implemented LDP-Gradient-FAR pipeline: the server bounds each
+  # already-private upload before constructing F, scores or FAR weights.
+  clip_before_reference: true
+
+threats:
+  names: [none, alie, ipm, bitflip_x10, model_replacement]
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+  separated_for_gates: [ipm, bitflip_x10, model_replacement]
+  evasive_controls: [alie]
+  development_severities: [1.0]
+  holdout_severities: [0.75, 1.25]
+
+randomness:
+  null_calibration_seed: 2026091101
+  null_calibration_draws: 48
+  pair_noise_across_tier_permutations: true
+  null_match_regular_honest_subset: true
+  development_seeds: [211, 307, 401]
+  development_draws_per_seed: 3
+  holdout_seeds: [503, 607, 701, 809, 907]
+  holdout_draws_per_seed: 4
+
+# Gates are frozen before either phase.  Invariance uses an excess over the
+# finite-cohort null expectation and a two-sided 95% Student interval across
+# independent seeds; its upper endpoint must remain below the tolerance.
+gates:
+  clean_reference_error_ratio_to_uniform_max: 1.05
+  clean_aggregate_error_ratio_to_uniform_max: 1.05
+  separated_att_reference_error_ratio_to_uniform_max: 0.80
+  separated_aggregate_error_ratio_to_uniform_max: 1.00
+  false_outlier_rate_min: 0.02
+  false_outlier_rate_max: 0.10
+  honest_outlier_recall_min: 0.60
+  honest_outlier_weight_mass_gain_over_uniform_min: 0.01
+  separated_byzantine_weight_mass_max: 0.20
+  evasive_aggregate_error_ratio_to_uniform_max: 1.05
+  evasive_byzantine_weight_mass_max: 0.22
+  abs_correlation_null_excess_ci95_upper_max: 0.08
+  tier_range_null_excess_ci95_upper_max: 0.15
+  gaussian_candidate_fraction_covariance_limited_min: 0.10
+  gaussian_candidate_fraction_covariance_limited_and_tail_min: 0.02
+  gaussian_candidate_covariance_counterfactual_ratio_min: 0.001
+
+selection:
+  candidate_references:
+    [sigma_huber_g013, sigma_huber_g020, sigma_huber_g026, sigma_huber_g036]
+  # Selection is lexicographic: pass all gates, then fewest violations, then
+  # the predeclared normalized excess penalty, then this deterministic order.
+  accuracy_used: false
+  phase: development_only
+  if_no_candidate_passes: lock_least_normalized_gate_violation
+
+execution:
+  required_device: mps
+  allow_cpu_fallback: false

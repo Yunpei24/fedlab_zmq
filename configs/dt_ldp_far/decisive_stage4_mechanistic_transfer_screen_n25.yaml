@@ -1,0 +1,36 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage4_mechanistic_transfer_screen_n25_v1
+scope: paired_current_delay_transfer_screen_after_strict_mechanistic_stress
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 26
+
+experiments:
+  # Exact same-server-path uniform control. At alpha=0 the current and
+  # delayed formulae must coincide; both arms are kept to verify the path.
+  - id: E11_uniform_same_path_n25
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dp_far_current_matched, dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [uniform]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 2
+
+  # Non-private diagnostic transcript: this screen records the local noise
+  # norm oracle needed to test current-round self-selection. It is never
+  # labelled as a publishable LDP transcript.
+  - id: E11_alpha_stress_oracle_diagnostic_n25
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dp_far_current_matched_oracle, dt_ldp_far_oracle]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary, boundary_k10, stress8_uncertified, stress12_uncertified]
+    geometries: [n25_u42_d294_r210, n25_u42_d350_r210, n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 24

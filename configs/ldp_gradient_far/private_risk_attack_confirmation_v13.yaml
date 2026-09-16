@@ -1,0 +1,37 @@
+campaign_id: private_risk_attack_confirmation_v13
+device: mps
+parent_campaign: private_risk_confirmation_v12
+confirmation_seeds: [170601, 170602, 170603, 170604]
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+attacks: [none, abrupt_bf, persistent_alie, slow_ipm]
+byzantine_ids: [0, 1]
+forged_risk: 1.0
+rounds: 120
+expected_runs: 64
+attack_start: 31
+temporary_attack_end: 90
+recovery_rounds: [91, 120]
+bf_multiplier: 10.0
+alie_std_multiplier: 1.5
+ipm_ramp_end: 60
+ipm_final_multiplier: 2.0
+clip: 2.0
+risk_scale: 0.5
+epsilon: 4.0
+delta: 1.0e-5
+primary_controls: [erm_mean, erm_rfa]
+require_clean_confirmation_passed: true
+minimum_worst20_advantage_pp_per_seed: 1.0
+maximum_accuracy_loss_pp_per_seed: 1.0
+maximum_loss_vs_own_clean_accuracy_pp: 5.0
+maximum_loss_vs_own_clean_worst20_pp: 5.0
+paired_t_critical_df3: 3.182446305284263
+primary_endpoints:
+  abrupt_bf: 90
+  persistent_alie: 120
+  slow_ipm: 90
+test_evaluation_rounds: [90, 120]
+validation_evaluation_rounds: [1, 5, 10, 20, 30, 40, 50, 60, 80, 90, 100, 120]
+maximum_solver_gap_diagnostic: 0.001
+automatic_next_campaign: false
+protocol: output/analysis/Private_Risk_Attack_Confirmation_V13_Protocol.md

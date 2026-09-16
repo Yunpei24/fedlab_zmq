@@ -1,0 +1,21 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage0_geometry_final_confirm_class_dirichlet_v1
+scope: partition_ablation_of_confirmed_n10_server_geometry
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 6
+
+experiments:
+  - id: E11_class_dirichlet_geometry_confirmation
+    scenarios: [fmnist_b01_n10_t20_class_dirichlet]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries:
+      - c4_u28_d240_r120
+      - c4_u30_d240_r120
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 6

@@ -1,0 +1,26 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage12_generation5_tier_rank_n25_screen_v1
+scope: frozen_generation5_tier_rank_end_to_end_screen
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 32
+
+# Stage 12 reuses the strictly paired Stage-11 FedAvg, raw-score,
+# excess-energy and generation-4 controls. Only the three new generation-5
+# profiles are executed here, avoiding duplicate client-side computation.
+experiments:
+  - id: E20_generation5_tier_rank_and_trust_split
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_tier_rank_no_trust_oracle
+      - dp_far_current_tier_rank_fairness_oracle
+      - dp_far_current_tier_rank_balanced_oracle
+      - dp_far_current_theil_sen_fairness_oracle
+    references: [fcc, rfa]
+    threats: [none, ipm20_n25, alie20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 32

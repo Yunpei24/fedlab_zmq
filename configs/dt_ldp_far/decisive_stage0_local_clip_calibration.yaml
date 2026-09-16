@@ -1,0 +1,27 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage0_local_clip_v2
+scope: non_private_oracle_paired_calibration_of_local_per_example_clip
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 8
+
+experiments:
+  - id: E11_local_clip_oracle_diagnostic_grid
+    scenarios: [fmnist_b01_n10_t20]
+    methods: [dt_ldp_far_oracle]
+    references: [fcc]
+    threats: [none]
+    privacy:
+      - none_poisson_c1
+      - none_poisson_c2
+      - none_poisson_c4
+      - none_poisson_c8
+      - eps4_c1
+      - eps4_c2
+      - eps4_c4
+      - eps4_c8
+    tilts: [uniform]
+    geometries: [local_clip_server_inactive]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 8

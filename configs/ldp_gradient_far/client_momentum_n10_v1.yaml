@@ -1,0 +1,29 @@
+campaign_id: client_momentum_n10_v1
+protocol: output/analysis/LDP_Client_Momentum_N10_Protocol.md
+scientific_status: exploratory_clean_screen_no_automatic_promotion
+num_clients: 10
+rounds: 40
+batch_size: 120
+public_local_size: 6000
+local_clip_norm: 4.0
+server_clip_norm: 16.0
+server_lr: 0.2
+far_alpha: 0.1
+epsilon: 4.0
+delta: 1.0e-5
+seeds: [933001, 933002, 933003]
+betas: [0.0, 0.9]
+arms: [uniform, rfa_direct, far_rfa]
+noise_regimes:
+  homogeneous: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  heteroscedastic: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+expected_runs: 36
+max_parallel_workers: 2
+warmup_rounds: 0
+initialization: first_private_gradient
+private_and_momentum_device: mps
+server_postprocessing: cpu_float64_historical_precision
+fallback: 0
+attacks: false
+evaluation_clients: all_10_clean_clients
+no_automatic_attack_phase: true

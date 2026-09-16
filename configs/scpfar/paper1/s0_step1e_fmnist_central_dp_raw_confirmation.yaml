@@ -1,0 +1,59 @@
+schema_version: 1
+matrix_id: s0_step1e_fmnist_central_dp_raw_confirmation
+common: common.yaml
+description: >-
+  Sequentially gated central-DP confirmation. Do not execute before Step 1D
+  is complete and its candidate-selection rule has been applied. It compares
+  central DP FedAvg, the two bounded kappa_w=2 score scales, and raw distance
+  with the new public-[0,2C] plus stable-F_CC sensitivity certificate. The raw
+  alpha is divided by 2C so q_max <= kappa_w/n remains a theorem.
+
+experiments:
+  - id: step1e_dp_uniform_control
+    expected_tasks: 3
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [central_dp_fedavg_exact]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [eps3]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}
+      - {partition_seed: 102, training_seed: 36}
+      - {partition_seed: 103, training_seed: 54}
+
+  - id: step1e_dp_bounded_k2
+    expected_tasks: 6
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [scfar_dp_certified]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100]
+    privacy_ids: [eps3]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    distance_score_over_c: [1.0, 1.25]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}
+      - {partition_seed: 102, training_seed: 36}
+      - {partition_seed: 103, training_seed: 54}
+
+  - id: step1e_dp_raw_certified
+    expected_tasks: 6
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [scfar_raw_distance_certified_fcc]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100, k5_r100]
+    privacy_ids: [eps3]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    seed_pairs:
+      - {partition_seed: 101, training_seed: 28}
+      - {partition_seed: 102, training_seed: 36}
+      - {partition_seed: 103, training_seed: 54}

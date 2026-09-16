@@ -1,0 +1,21 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage0_geometry_refined_c4_confirm_v1
+scope: confirm_two_operating_geometries_on_independent_partition_training_seeds
+common: common.yaml
+seed_pair_indices: [1, 2]
+expected_tasks: 4
+
+experiments:
+  - id: E11_refined_public_geometry_gate_c4_confirmation
+    scenarios: [fmnist_b01_n10_t20]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries:
+      - c4_u24_d240_r120
+      - c4_u24_d240_r240
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 4

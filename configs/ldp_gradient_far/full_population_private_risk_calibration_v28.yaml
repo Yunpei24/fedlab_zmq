@@ -1,0 +1,39 @@
+campaign_id: full_population_private_risk_calibration_v28
+device: mps
+seeds: [170501, 170502]
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+expected_runs: 8
+dataset: fashionmnist
+model: lenet5_tanh
+num_clients: 10
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+public_train_size: 4800
+validation_size: 1200
+batch_size: 4800
+gradient_accumulation_block: 240
+rounds: 120
+local_optimizer_steps: 0
+clip: 2.0
+risk_scale: 0.5
+epsilon: 4.0
+delta: 0.00001
+epsilon_risk: 0.25
+adjacency: replace_one
+sampling: full_population
+server_clip: null
+validation_rounds: [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
+eta_early: 2.0
+eta_late: 0.5
+eta_switch_after_round: 60
+paired_randomness_source: results/ldp_gradient_far/recursive_private_risk_calibration_v19/simulator_secret.json
+primary_method: risk_rfa
+minimum_worst20_advantage_pp: 1.0
+maximum_accuracy_loss_pp: 1.0
+controls: [full_erm_mean, full_erm_rfa, v19_fresh_erm_mean, v19_fresh_erm_rfa]
+all_seeds_required: true
+mean_gap_and_variance_must_not_increase: true
+test_evaluated: false
+automatic_confirmation: false
+automatic_attacks: false
+protocol: output/analysis/Full_Population_Private_Risk_Calibration_V28_Protocol.md

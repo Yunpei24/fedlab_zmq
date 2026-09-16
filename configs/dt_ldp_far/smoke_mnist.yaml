@@ -1,0 +1,73 @@
+# Small executable validation of the DT-LDP-FAR causal pipeline.
+# This is not a paper result: use two rounds only to validate installation.
+seed: 28
+output_dir: ./results/dt_ldp_far/smoke_mnist
+device: cpu
+
+data:
+  dataset: mnist
+  model: lenet5
+  partition: dirichlet
+  alpha: 0.5
+  partition_seed: 28
+  data_root: ./data
+
+model:
+  architecture: lenet5
+
+training:
+  num_rounds: 2
+  algorithm: dt_ldp_far
+  algo_config:
+    lr: 0.01
+    momentum: 0.0
+    weight_decay: 0.0
+    local_epochs: 1
+    batch_size: 64
+    max_local_batches: 1
+    per_sample_backend: vectorized
+    sampling_scheme: poisson
+    privacy_adjacency: add_remove
+    privacy_sampling_rate_override: 0.05
+    poisson_steps_per_round: 1
+    # Public padded capacity, not the private realised client cardinality.
+    privacy_public_dataset_size: 60001
+
+    # Client-side sample-level DP-SGD.
+    enable_dp: true
+    clip_norm: 1.0
+    noise_multiplier: 1.2
+    target_epsilon: null
+    delta: 1.0e-5
+
+    # DT-LDP-FAR server post-processing.
+    server_clip_norm: 1.0
+    distance_clip: 2.0
+    tilt_tau: 0.1
+    tilt_delay_rounds: 1
+    kappa_w: 2.0
+    tilt_bound_policy: clip
+    dt_reference: centered_clipping
+    reference_clip_radius: 1.0
+    anchor_update_rate: 0.1
+    anchor_clip_norm: 1.0
+    require_full_participation: true
+    expected_num_clients: 3
+
+    # Off by default: no unaccounted loss, clipping or realised-noise channel.
+    enable_oracle_diagnostics: false
+    client_metrics_every: 1
+    fairness_tail_fraction: 0.2
+
+clients:
+  num_clients: 3
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 3
+  dropout_rate: 0.0
+  fleet:
+    - type: raspberry_pi_4
+      count: 3
+  battery_init:
+    distribution: uniform_soc
+    params: {min_soc: 0.95, max_soc: 0.95}

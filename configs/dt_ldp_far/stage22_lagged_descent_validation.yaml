@@ -1,0 +1,40 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage22_lagged_descent_validation_v1
+scope: preregistered_lagged_robust_descent_alignment_holdout
+common: common.yaml
+seed_pair_indices: [15, 16, 17, 18]
+expected_tasks: 24
+
+analysis_split:
+  integration_screen_seed: 163
+  confirmatory_seeds: [179, 193, 211]
+  screen_must_not_change_confirmatory_gates: true
+
+gates:
+  # All differences are candidate(alpha_max) minus the same pipeline with
+  # alpha=0. Only the three confirmatory seeds enter the final decision.
+  no_attack_test_accuracy_difference_mean_min_pp: -1.0
+  no_attack_test_accuracy_difference_each_min_pp: -3.0
+  separated_test_accuracy_gain_mean_min_pp: 0.5
+  separated_test_accuracy_gain_each_attack_mean_min_pp: 0.25
+  separated_positive_accuracy_gain_rate_min: 0.6666666666666666
+  separated_worst20_difference_mean_min_pp: -1.0
+  byzantine_weight_mass_each_attack_mean_max: 0.2
+  lagged_descent_trust_margin_each_attack_mean_min: 0.02
+  candidate_concentration_median_min: 1.005
+  privacy_epsilon_difference_max: 0.01
+  every_weight_cap_must_hold: true
+  strict_randomness_pair_key_required: true
+
+experiments:
+  - id: E33_stage22_lagged_descent_validation
+    scenarios: [fmnist_b01_n25_t12]
+    methods: [dt_ldp_far_stage22_lagged_descent]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform, boundary]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 24

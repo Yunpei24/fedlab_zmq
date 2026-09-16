@@ -1,0 +1,65 @@
+schema_version: 1
+campaign_id: aggregate_predictor_calibration_v1
+protocol: output/analysis/Aggregate_Predictor_Calibration_Recovery_Protocol.md
+historical_campaigns_read_only: true
+required_device: mps
+mps_fallback: 0
+max_parallel_workers: 2
+rounds: 40
+warmup: 12
+noise_regimes: [homogeneous, heteroscedastic]
+calibration_seeds: [931001, 931002, 931003, 931004, 931005, 931006, 931007, 931008, 931009, 931010, 931011, 931012, 931013, 931014, 931015, 931016, 931017, 931018, 931019]
+evaluation_seeds: [932001, 932002, 932003]
+expected_calibration_runs: 38
+expected_evaluation_runs: 216
+predictors: [ema, rcig]
+controllers: [isotropic_clip, radial_ellipsoid, euclidean_ellipsoid_projection]
+arms: [far_rfa, rfa_direct, ema_smooth, ema_iso, ema_radial, ema_projection, rcig_iso, rcig_radial, rcig_projection]
+calibration:
+  host_rule: far_rfa
+  statistic: maximum_over_rounds_13_to_40
+  target_trajectory_exceedance: 0.05
+  order_statistic: 19
+  geometry: separate_per_predictor_and_noise_regime
+  consumes: private_transcript_scores_only_no_accuracy_no_clean_gradient
+  validity: marginal_rank_bound_under_exchangeable_complete_trajectories_not_conditional_CI
+  transfer: first_correction_coupling_only_not_post_trigger_covariance_guarantee
+  familywise_multiple_policy_guarantee: false
+  threshold_artifact_immutable: true
+ema:
+  predictor_rate: 0.25
+  permanent_smoothing_current_mix: 0.2
+  input: uncorrected_far_aggregate_on_own_model
+rcig:
+  predictor: historical_full_covariance_rolling_RCIG
+  persistent_policy: rolling
+  historical_inner_thresholds: frozen_n10_threshold_artifact
+  never_use_midpoint_as_RCIG: true
+covariance:
+  mode: diagonal_residual_second_moment
+  ema_rate: 0.10
+  ridge: 1.0e-8
+  update: after_current_decision_from_raw_far_minus_past_predictor
+  is_exact_covariance: false
+  attack_inflation_possible: true
+evaluation:
+  fixed_honest_client_ids: [2, 3, 4, 5, 6, 7, 8, 9]
+  same_honest_ids_in_clean_attack_recovery: true
+  no_accuracy_threshold_tuning: true
+  recovery_accuracy_tolerance_pp: 1.0
+  recovery_worst20_tolerance_pp: 2.0
+  recovery_gap_tolerance_pp: 2.0
+  recovery_consecutive_rounds: 3
+  no_recovery_before_end: right_censored_not_zero
+  continuation_after_scientific_negative_result: record_without_promotion
+scenarios:
+  clean: {name: none, start: null, end: null, scale: 1.0}
+  brutal_bf: {name: bf, start: 17, end: 24, scale: 10.0}
+  slow_ipm: {name: ipm, start: 17, end: 28, scale: 1.0, ramp_end: 24}
+  persistent_alie: {name: alie, start: 13, end: 32, scale: 1.0}
+execution:
+  calibration_barrier_before_all_evaluation: true
+  resume_valid_completed_only: true
+  stop_chain_on_invalid_or_cpu: true
+  independent_noise_lanes: true
+  no_automatic_additional_grid: true

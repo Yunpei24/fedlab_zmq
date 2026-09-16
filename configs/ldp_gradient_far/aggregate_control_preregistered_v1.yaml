@@ -1,0 +1,233 @@
+schema_version: 1
+campaign_id: aggregate_control_preregistered_v1
+scientific_status: exploratory_mechanistic_replay_not_confirmatory
+historical_sources_and_metrics_read_only: true
+required_device: mps
+mps_fallback: 0
+base_config: rcig_batch_screen_v1.yaml
+output_root: ../../results/ldp_gradient_far/aggregate_control_preregistered_v1
+
+scientific_question:
+  primary: >-
+    Does a causal correction of the already-private FAR(RFA) aggregate have
+    enough oracle headroom to justify an independently calibrated utility and
+    robustness experiment?
+  exclusions:
+    - No method is promoted from aggregate mean-squared error alone.
+    - Clean replay cannot establish Byzantine robustness.
+    - Three exploratory seeds cannot certify a five-percent false-alarm rate.
+    - Oracle targets and oracle gamma are evaluator-only and never deployed.
+    - Archived aggregation_role_n10_v1 scalars cannot recover missing vectors or cross-products.
+
+fixed_training_contract:
+  dataset: fashionmnist
+  model: lenet5_tanh
+  partition: client_dirichlet_balanced
+  dirichlet_alpha: 0.1
+  num_clients: 10
+  participation: complete
+  rounds: 40
+  public_local_size: 6000
+  batch_size: 120
+  local_steps_per_round: 1
+  local_epoch_interpretation: one_fixed_without_replacement_batch_not_a_dataset_sweep
+  sampling_scheme: fixed_without_replacement
+  privacy_adjacency: replace_one
+  target_epsilon: 4.0
+  delta: 1.0e-5
+  local_clip_norm: 4.0
+  server_clip_norm: 16.0
+  far_alpha: 0.1
+  model_driver: uniform_rounds_1_to_12_then_far_rfa_rounds_13_to_40
+  warmup_reason: exact_comparability_with_aggregation_role_n10_v1
+  rfa_preprocessing: none
+  strict_common_random_numbers: true
+  simulator_seed_warning: deterministic_streams_are_pairing_audit_not_production_dp_randomness
+
+noise_regimes:
+  homogeneous: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  heteroscedastic: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+
+seed_registry:
+  headroom_fit: [930101, 930102, 930103]
+  radius_calibration: [930201, 930202, 930203]
+  untouched_evaluation: [930301, 930302, 930303]
+  require_global_uniqueness: true
+  require_pairing_within_seed_across_noise_and_candidates: true
+
+historical_shadow_dependency:
+  threshold_artifact: ../../results/ldp_gradient_far/rcig_n10_policy_ablation_v1/thresholds_n10.json
+  threshold_artifact_sha256: ff610e08c0b71bb2bb82260efadd451b3d3052c7d95e381ebff8187c68bb36fa
+  role: >-
+    Preserve the previously audited oracle-detachment path only. The temporal
+    RCIG shadow never chooses the model update in this replay.
+
+predictable_state:
+  predictor: exponential_moving_average_of_uncorrected_far_rfa_aggregates
+  predictor_rate: 0.25
+  covariance_proxy: diagonal_exponential_second_moment_of_predictor_residuals
+  covariance_rate: 0.10
+  initial_variance_mode: public_pre_server_clip_uniform_mean_noise_proxy
+  initial_variance_formula: sum_i_public_upload_noise_variance_i_div_num_clients_squared
+  initial_variance_limitation: >-
+    This has the right per-coordinate squared-gradient units but is only the
+    pre-server-clip uniform-mean noise proxy. It is not the covariance of FAR,
+    whose data-dependent clipping and weights alter the exact covariance.
+  variance_ridge: 1.0e-8
+  min_history: 1
+  chronology: snapshot_before_current_candidate_then_commit_uncorrected_candidate
+  corrected_output_never_updates_common_state: true
+  persistent_contamination_caveat: >-
+    Repeated contaminated uncorrected candidates can move both predictor and
+    covariance. This replay measures that failure mode; it does not claim to solve it.
+  covariance_semantics_caveat: >-
+    The online diagonal state is an EMA of squared predictor residuals. It is a
+    causal scale model, not an unbiased or exact covariance estimator.
+
+shadow_controls:
+  unchanged_far_rfa: true
+  ema_current_mixes: [0.2]
+  isotropic_radius:
+    nominal_formula: server_clip_norm_div_sqrt_num_clients
+    uncalibrated_diagnostic_multipliers: [0.5, 1.0, 2.0]
+  mahalanobis_radius:
+    nominal_formula: sqrt_model_dimension
+    uncalibrated_diagnostic_multipliers: [0.5, 1.0, 2.0]
+  radial_ellipsoid:
+    geometry: predictable_diagonal_covariance
+    guarantee: mahalanobis_non_degradation_only_when_clean_target_is_covered
+    euclidean_non_degradation_claimed: false
+  euclidean_ellipsoid_projection:
+    role: required_geometry_control
+    solver: deterministic_lagrange_multiplier_bisection
+    tolerance: 1.0e-10
+    max_iterations: 160
+    guarantee: euclidean_non_degradation_when_clean_target_is_covered
+
+stages:
+  headroom_fit:
+    enabled_in_first_runner: true
+    expected_runs: 6
+    seeds_from: headroom_fit
+    noise_regimes: [homogeneous, heteroscedastic]
+    scenarios: [none]
+    deployed_model_driver: uniform_rounds_1_to_12_then_far_rfa_rounds_13_to_40
+    headroom_fit_window: rounds_13_to_40_only
+    shadow_only: true
+    saved_sufficient_statistics:
+      - base_aggregate_squared_error
+      - predictable_center_squared_error
+      - innovation_squared_norm
+      - innovation_dot_predictor_minus_target
+      - euclidean_oracle_gamma_and_headroom
+      - mahalanobis_oracle_gamma_and_headroom
+      - target_coverage_by_radius
+      - covariance_min_mean_max_condition
+      - each_shadow_correction_and_error
+    decision: descriptive_headroom_only_no_radius_selection_no_promotion
+
+  radius_calibration:
+    enabled_in_first_runner: false
+    locked_until: headroom_report_and_independent_audit
+    seeds_from: radius_calibration
+    calibration_rule: >-
+      Freeze radii from these seeds only, record the complete source artifact
+      and SHA256, and never reopen them after untouched evaluation begins.
+    clean_target_coverage_required: true
+    false_correction_is_estimated_not_certified_with_three_seeds: true
+    false_correction_event: at_least_one_unnecessary_correction_on_a_clean_trajectory
+    target_false_correction_rate: 0.05
+    confidence_level_for_later_claim: 0.95
+    minimum_evidence_warning: >-
+      Three radius-calibration trajectories cannot certify a 5% trajectory-level
+      event probability at 95% confidence. A larger independent calibration set
+      must be preregistered before making that claim.
+
+  untouched_evaluation:
+    enabled_in_first_runner: false
+    locked_until: valid_frozen_radius_artifact
+    seeds_from: untouched_evaluation
+    primary_reference: rfa
+    fixed_honest_target: client_ids_2_to_9_from_round_1_for_attacked_trajectories
+    fixed_honest_target_reason: >-
+      Avoid changing the oracle target from ten clients in the clean prefix to
+      eight clients only after an attack becomes active. Attack identities are
+      evaluator-only and never enter the server aggregation rule.
+    factorized_reference_comparators:
+      - coordinate_median
+      - trimmed_mean
+      - rcig_deployed_variant_to_be_preregistered_before_radius_calibration
+    optional_temporal_control: reference_temporal_midpoint
+    noise_regimes: [homogeneous, heteroscedastic]
+    scenarios:
+      - clean
+      - brutal_bit_flip_x10_persistent
+      - slow_ipm_ramp
+      - alie_persistent
+      - model_replacement_persistent
+      - slow_persistent_from_round_1_with_recovery_window
+    attack_recovery_requirement: >-
+      Every attacked trajectory must include a preregistered end-of-attack and
+      recovery interval; this first clean headroom runner implements none of them.
+    primary_outcomes:
+      - final_test_accuracy
+      - test_loss
+      - worst20_accuracy
+      - best20_worst20_gap
+      - client_accuracy_variance
+      - cumulative_aggregate_error
+      - cumulative_bias
+      - byzantine_mass
+    preliminary_clean_noninferiority_margins:
+      final_test_accuracy_drop_max_pp: 1.0
+      worst20_accuracy_drop_max_pp: 2.0
+      best20_worst20_gap_increase_max_pp: 2.0
+      comparator: unchanged_far_rfa_at_same_dp_budget_and_seed
+      interpretation: >-
+        Engineering tolerances fixed before untouched evaluation, not universal
+        scientific constants. Passing them is necessary but not sufficient.
+    promotion_rule: >-
+      Requires preregistered clean non-inferiority, fairness, robustness and
+      trajectory gates. Lower aggregate MSE alone is never sufficient.
+
+  paired_no_dp_causal_test:
+    enabled_in_first_runner: false
+    separate_from_private_comparison: true
+    purpose: distinguish_noise_correction_from_generic_temporal_smoothing
+    common_random_numbers: true
+
+first_phase_execution:
+  only_phase: headroom_fit
+  only_six_clean_runs: true
+  resume_required: true
+  sequential: true
+  reject_partial_or_invalid_outputs: true
+  never_open_radius_or_evaluation_seeds: true
+  command_plan: >-
+    python3 scripts/run_aggregate_control_replay.py --plan
+  command_launch: >-
+    python3 scripts/run_aggregate_control_replay.py --launch --resume
+  command_status: >-
+    python3 scripts/run_aggregate_control_replay.py --status
+
+interpretation_gates:
+  technical_before_any_scientific_reading:
+    - six_of_six_complete
+    - mps_private_gradient_fraction_equals_one_each_round
+    - zero_mps_fallback
+    - epsilon_within_1e-4_of_four
+    - forty_rounds_and_ten_live_clients
+    - exact_source_and_configuration_hashes
+    - strict_common_random_number_audit
+    - oracle_absent_from_server_inputs_and_model_selection
+    - historical_uniform_warmup_then_unchanged_far_rfa_is_the_only_model_driver
+  headroom_is_only_a_reason_to_continue:
+    - oracle_gamma_not_concentrated_at_one
+    - positive_headroom_repeats_across_seeds_and_both_noise_regimes
+    - candidate_radii_show_nontrivial_coverage_and_correction
+    - covariance_diagnostics_are_finite_and_not_numerically_degenerate
+  forbidden_conclusion:
+    - select_winner_from_clean_mse
+    - claim_robustness_from_clean_runs
+    - claim_false_alarm_control_from_three_seeds
+    - claim_euclidean_safety_for_radial_anisotropic_clipping

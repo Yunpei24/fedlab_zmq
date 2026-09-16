@@ -1,0 +1,308 @@
+campaign_id: gaussian_aware_reference_g0g_k4c_causal_headroom_mps_v1
+scope: preregistered_development_only_nested_mc_current_randomness_conditional_compensatory_headroom
+
+preregistration_lock:
+  path: configs/ldp_gradient_far/gaussian_aware_reference_g0g_k4c_causal_headroom.lock.json
+  verify_before_output_creation: true
+  publish_lock_sha256_before_scientific_run: true
+  external_publication_is_procedural_precondition: true
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  reference_only: true
+  far_weights_used: false
+  accuracy_used: false
+  conditional_loss: squared_l2_reference_error
+  ordinary_l2_error_role: descriptive_only
+  semi_oracle_name: current_randomness_conditional_clean_state_mse_semi_oracle
+  compensatory_headroom_components_separately_identified: false
+  no_noise_no_attack_counterfactual_included: false
+  conditioning_sigma_field: G_t_minus_observable_past_latent_clean_current_state_simulator_labels_and_configured_current_dgp
+  conditions_on_latent_clean_current_state: true
+  uses_simulator_honest_byzantine_labels: true
+  knows_configured_current_noise_and_attack_generator: true
+  arbitrary_adaptive_byzantine_behavior_supported: false
+  semi_oracle_is_observable_past_measurable: false
+  observable_past_only_predictor_constructed: false
+  semi_oracle_is_exact_for_expected_l2_norm: false
+  semi_oracle_is_exact_for_conditional_mse_with_exact_expectations: true
+  semi_oracle_expectations_estimated_by_nested_monte_carlo: true
+  semi_oracle_is_guaranteed_exact_optimum_at_64_children: false
+  semi_oracle_deployable: false
+  semi_oracle_privacy_claimed: false
+  pass_authorizes_holdout_or_promotion: false
+  pass_authorizes_later_transcript_only_predictor_study: true
+  valid_scientific_fail_stops_branch: true
+  pointwise_oracle_role: nondeployable_decision_benchmark_headroom_denominator_only
+  pointwise_oracle_used_for_construction: false
+  pointwise_oracle_used_as_promotion_candidate: false
+  screen_conditioned_on_semi_oracle_anchor: true
+  end_to_end_deployability_claimed: false
+  persistent_authenticated_identities_required: true
+  sybil_resistance_assumed: true
+  compromise_before_enrollment_supported: false
+  base_anchor: exogenous_oracle_common_centre_with_fixed_public_error
+  anchor_is_past_measurable: true
+  covariance_role: authenticated_dp_covariance_only
+  history_gate_uses_current_upload: false
+  history_gate_is_past_measurable: true
+  final_gate_uses_current_upload: true
+  final_gate_is_past_measurable: false
+  final_gate_rule: elementwise_minimum_k2_aware_and_frozen_k4_temporal
+  aggregate_denominator: public_cohort_size_n
+  gate_sum_normalization: false
+  imputation_rule: one_minus_history_gate
+  missing_slot_zero_tolerance_formula: 64_times_machine_epsilon_of_runtime_dtype
+  construction_stream_independent_of_evaluation_stream: true
+  predictor_fixed_across_evaluation_children: true
+  predictor_feedback_from_k4b_or_k4c_output: false
+  predictor_randomness: construction_children_only
+  latent_current_gaussian_noise_read_directly: false
+  influence_cap_depends_on_covariance: false
+  inverse_variance_weighting: false
+  global_l2_cap: true
+  current_cohort_replace_one_only: true
+  conditional_current_replace_one_scope: evaluation_map_with_fixed_anchor_past_history_radii_and_semi_oracle_predictor
+  end_to_end_semi_oracle_sensitivity_claimed: false
+  user_trajectory_sensitivity_claimed: false
+  development_only_screen: true
+
+frozen_calibrations:
+  k2:
+    path: results/ldp_gradient_far/gaussian_aware_reference_g0g_k2_mps_v1/calibration.json
+    sha256: 98a30cad8a2f92e6843346e9a9512bd321e8302b9b6e17b447b2641fffb544a5
+    source_campaign_id: gaussian_aware_reference_g0g_k2_mps_v1
+  k4_temporal:
+    path: results/ldp_gradient_far/gaussian_aware_reference_g0g_k4_tcg_mps_v1/temporal_calibration.json
+    sha256: 6ca81b5b8897ec19509a569b54fdf9edeac8c6dc65c7b0c4a890142882603075
+    source_campaign_id: gaussian_aware_reference_g0g_k4_tcg_mps_v1
+    deployed_c0: 10.823704719543457
+    deployed_c1: 11.615572929382324
+  reuse_thresholds_exactly: true
+  recalibrate: false
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      permutations: [identity, byzantine_high]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  total_client_influence_cap: 0.13
+  current_gate_transition_width: 1.0
+  variance_floor: 1.0e-12
+  fcc_radius: 0.13
+
+temporal:
+  enrollment_rounds: 8
+  monitoring_rounds: 4
+  history_window: 4
+  first_temporal_gate_round: 13
+  total_rounds_needed_for_frozen_pasts: 24
+  assessment_rounds: [17, 24]
+  attack_start_round: 13
+  attack_end_round: 24
+  schedule: persistent
+  standardized_clip_formula: 2_sqrt_dimension
+  standardized_clip_norm: 16.0
+  whitening_covariance: authenticated_dp_block_diagonal_only
+  variance_floor_role: numerical_ridge_only
+  nominal_mean_difference_scale: sqrt_1_over_L_plus_1_over_W0
+
+honest_dynamics:
+  names: [stationary, bounded_drift]
+  offsets_persistent_across_rounds: true
+  drift_direction_fixed_per_identity: true
+  drift_step_mahalanobis: 0.05
+  drift_increments_have_zero_cohort_mean: true
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference_and_temporal_whitening: true
+  imputation_formula: anchor_plus_direct_sum_plus_R_predictor_over_n
+
+threats:
+  names: [bitflip_x10, model_replacement]
+  severity: 1.0
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+
+nested_monte_carlo:
+  construction_children: 64
+  construction_split_a_children: 32
+  construction_split_b_children: 32
+  evaluation_children: 64
+  construction_stream_tag: k4c_ch_construction
+  evaluation_stream_tag: k4c_ch_evaluation
+  streams_are_disjoint_by_seed_derivation: true
+  current_child_randomness:
+    [private_gaussian_upload_noise, model_replacement_direction]
+  frozen_across_children:
+    [outer_history, clean_client_offsets, drift, anchor, covariance,
+     enrollment_baseline, temporal_history_gate, rolling_k4b_predictor]
+  conditional_expectations:
+    conditioning: G_t_minus_frozen_observable_past_plus_fixed_latent_clean_current_state_simulator_labels_and_configured_current_dgp
+    target_direction: arithmetic_mean_over_construction_children
+    direct_sum: arithmetic_mean_over_construction_children
+  projection_rule: once_after_both_conditional_expectations
+  average_pointwise_projected_oracles: false
+
+randomness:
+  development_outer_seeds:
+    [2027043003, 2027043017, 2027043029, 2027043041,
+     2027043053, 2027043067, 2027043079, 2027043091,
+     2027043107, 2027043121, 2027043133, 2027043149]
+  reserved_holdout_seeds:
+    [2027044009, 2027044021, 2027044033, 2027044047,
+     2027044059, 2027044071, 2027044087]
+  holdout_rule: no_holdout_trajectory_or_data_execution_path_registry_metadata_validation_allowed
+  common_random_numbers: strict_across_candidates_within_evaluation_child
+  construction_evaluation_seed_overlap_allowed: false
+  prior_seed_registry_globs:
+    [configs/ldp_gradient_far/*.yaml, configs/dt_ldp_far/*.yaml]
+  replace_one_trials_per_seed_noise_cell: 25
+
+candidates:
+  names:
+    [g0g_k2, g0g_k4_temporal_causal_gate,
+     g0g_k4b_rolling_past_imputation,
+     g0g_k4c_ch_current_randomness_conditional_mse_semi_oracle,
+     g0g_k4b_pointwise_optimal_oracle]
+  semi_oracle_primary: g0g_k4c_ch_current_randomness_conditional_mse_semi_oracle
+  deployable_comparator: g0g_k4b_rolling_past_imputation
+  pointwise_decision_benchmark: g0g_k4b_pointwise_optimal_oracle
+
+statistical_analysis:
+  unit: outer_seed
+  num_independent_units: 12
+  histories_per_outer_seed: 48
+  frozen_histories_total: 576
+  histories_formula: 3_noise_cells_x_2_geometries_x_2_dynamics_x_2_threats_x_2_rounds
+  child_draws_total: 73728
+  child_draws_formula: 576_histories_x_(64_construction_plus_64_evaluation)
+  construction_child_seeds_total: 36864
+  evaluation_child_seeds_total: 36864
+  time_estimand: equal_weight_two_snapshot_integrated_mse_at_rounds_17_and_24
+  snapshot_interpretation:
+    round_17: early_persistent_attack_after_temporal_gate_has_formed
+    round_24: late_persistent_attack_at_end_of_attack_window
+  unassessed_rounds_excluded_from_this_diagnostic: true
+  eligible_history_rule: all_preregistered_histories_with_R_positive_no_outcome_filter
+  seed_contrast: ratio_of_summed_current_randomness_conditional_compensatory_mse_headrooms_within_outer_seed
+  pointwise_headroom: mse_k4_minus_mse_pointwise_oracle
+  semi_oracle_headroom: mse_k4_minus_mse_current_randomness_conditional_semi_oracle
+  headroom_causal_attribution: not_identified_without_no_noise_no_attack_counterfactual
+  capture_fraction: summed_semi_oracle_headroom_over_summed_pointwise_headroom
+  pointwise_relative_mse_headroom_vs_k4: sum_k4_mse_minus_sum_pointwise_mse_over_sum_k4_mse
+  semi_oracle_relative_mse_gain_vs_k4: sum_k4_mse_minus_sum_semi_oracle_mse_over_sum_k4_mse
+  relative_mse_gain_vs_k4b: sum_k4b_mse_minus_sum_semi_oracle_mse_over_sum_k4b_mse
+  regime_relative_mse_gain_vs_k4: ratio_of_sums_within_seed_and_noise_regime
+  regime_capture_fraction: ratio_of_summed_headrooms_within_seed_and_noise_regime_descriptive_only
+  overall_noise_cell_weighting: equal_cells_homogeneous_one_third_heteroscedastic_two_thirds
+  construction_split_diagnostic: sum_squared_R_over_n_scaled_predictor_half_difference_over_sum_k4_mse_per_seed
+  projected_split_diagnostic_interpretation: operational_repeatability_proxy_not_confidence_bound_or_bias_control
+  semi_oracle_projection_cap_saturation_rate: report_only
+  confidence_interval: approximate_two_sided_student_t_95_percent_on_12_outer_seed_ratios
+  confidence_interval_assumptions:
+    [independent_outer_seeds, approximately_normal_seed_level_ratios]
+  multiple_gate_rule: intersection_union_all_gates_must_pass_no_individual_claim_multiplicity_correction
+  t_critical_df11: 2.2009851600916406
+  power_statement:
+    alpha_one_sided_equivalent: 0.025
+    target_power: 0.80
+    standardized_margin_from_null_required: 0.888655145415632
+    implication_at_true_capture_0_50: across_seed_sd_at_most_0.22506
+    observed_capture_seed_sd_reported_descriptively: true
+  no_child_or_history_pseudoreplication: true
+  decision_status_logic:
+    invalid_or_inconclusive_if_any_validity_check_fails: true
+    evaluate_scientific_branch_stop_only_after_all_validity_checks_pass: true
+    all_checks_pass_status: authorize_transcript_only_predictor_study
+    valid_but_scientific_check_fails_status: stop_missing_slot_imputation_branch
+    validity_check_fails_status: invalid_or_inconclusive_screen
+  gate_classification:
+    validity:
+      [complete, matrix_exact, finite, production_device,
+       construction_evaluation_independent,
+       rng_global_unique,
+       predictor_fixed_across_evaluation_children,
+       pointwise_not_used_in_construction, exact_outer_seed_count,
+       positive_finite_mse_denominators, construction_mc_stability,
+       contribution_cap, replace_one, replace_one_complete, k4_manual_formula,
+       k4b_reproduction, no_gate_sum_normalization, fixed_denominator,
+       pointwise_oracle_dominance]
+    scientific:
+      [eligible_R, eligible_noise_cell_composition,
+       positive_finite_pointwise_headroom_denominators,
+       exact_scientific_seed_count, material_pointwise_headroom_mean,
+       material_pointwise_headroom_ci,
+       material_semi_oracle_gain_vs_k4_mean,
+       material_semi_oracle_gain_vs_k4_ci, capture_mean, capture_ci_low,
+       gain_vs_k4b, gain_vs_k4b_ci, ci_vs_k4b,
+       homogeneous_gain_vs_k4_ci, heteroscedastic_gain_vs_k4_ci]
+
+gates:
+  complete_fraction_min: 1.0
+  finite_metric_fraction_min: 1.0
+  production_device_required: mps
+  construction_evaluation_seed_overlap_max: 0
+  global_child_seed_duplicate_max: 0
+  construction_child_seed_exact_count: 36864
+  evaluation_child_seed_exact_count: 36864
+  predictor_variation_across_evaluation_children_max: 0.0
+  pointwise_oracle_used_in_construction_max: 0
+  eligible_R_positive_history_fraction_min: 1.0
+  eligible_histories_per_seed_noise_cell_exact: 16
+  exact_seed_capture_count: 12
+  semi_oracle_capture_fraction_mean_min: 0.50
+  semi_oracle_capture_fraction_ci95_low_strictly_greater_than: 0.30
+  pointwise_relative_mse_headroom_vs_k4_mean_min: 0.10
+  pointwise_relative_mse_headroom_vs_k4_seed_ci95_low_strictly_greater_than: 0.05
+  semi_oracle_relative_mse_gain_vs_k4_mean_min: 0.05
+  semi_oracle_relative_mse_gain_vs_k4_seed_ci95_low_strictly_greater_than: 0.0
+  positive_finite_mse_denominators_required: true
+  positive_finite_pointwise_headroom_denominators_required: true
+  semi_oracle_relative_mse_gain_vs_k4b_min: 0.05
+  semi_oracle_relative_mse_gain_vs_k4b_seed_ci95_low_min: 0.0
+  semi_oracle_minus_k4b_mse_seed_ci95_high_max: 0.0
+  homogeneous_semi_oracle_relative_mse_gain_vs_k4_seed_ci95_low_strictly_greater_than: 0.0
+  heteroscedastic_semi_oracle_relative_mse_gain_vs_k4_seed_ci95_low_strictly_greater_than: 0.0
+  construction_split_disagreement_mse_ratio_max: 0.20
+  contribution_cap_violation_max: 0
+  replace_one_violation_max: 0
+  replace_one_exact_trials: 900
+  k4_manual_formula_abs_error_max: 1.0e-6
+  k4b_comparator_reproduction_abs_error_max: 1.0e-6
+  gate_sum_normalization_violation_max: 0
+  fixed_denominator_violation_max: 0
+  fixed_denominator_formula_abs_error_max: 1.0e-6
+  pointwise_oracle_dominance_excess_mse_max: 1.0e-6
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  allow_cpu_fallback: false
+  development_only: true
+  holdout_code_path_present: false
+  expected_runtime_minutes_mps: [35, 60]

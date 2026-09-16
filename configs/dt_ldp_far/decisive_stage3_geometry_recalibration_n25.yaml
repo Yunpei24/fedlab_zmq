@@ -1,0 +1,33 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage3_geometry_recalibration_n25_v1
+scope: public_joint_recalibration_of_u_dscore_rho_at_n25
+common: common.yaml
+# Seed 28 is the development seed. Independent seeds 36 and 54 are reserved
+# for confirmation after one geometry has been selected by the public gate.
+seed_pair_indices: [0]
+expected_tasks: 12
+
+experiments:
+  - id: E11_public_geometry_recalibration_n25
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries:
+      - n25_u38_d342_r190
+      - n25_u38_d342_r380
+      - n25_u38_d399_r190
+      - n25_u38_d399_r380
+      - n25_u40_d360_r200
+      - n25_u40_d360_r400
+      - n25_u40_d420_r200
+      - n25_u40_d420_r400
+      - n25_u42_d378_r210
+      - n25_u42_d378_r420
+      - n25_u42_d441_r210
+      - n25_u42_d441_r420
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12

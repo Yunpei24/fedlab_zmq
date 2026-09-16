@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "campaign_id": "gaussian_aware_reference_g0g_k4c_causal_headroom_mps_v1",
+  "locked_files": {
+    "algorithms/gaussian_aware_reference_k4c_ch.py": "817b698b1274621d030be90843dc49641d45cd4a2fbfe0d3860a1e842e875980",
+    "configs/ldp_gradient_far/gaussian_aware_reference_g0g_k4c_causal_headroom.yaml": "1acafbf05f3997f6ea4c3af5cff3ab983efc688e9d29220dd0b717012cea524f",
+    "output/analysis/Gaussian_Aware_G0g_K4c_Causal_Headroom_Protocol_PreRun.md": "84d93a22736ac5058a93520aa288b2f0d93f596b7b817616e39e57d03f8c8a51",
+    "scripts/audit_gaussian_aware_reference_g0g_k4c_ch.py": "3b0ce4a4f7050e93d134aa81ccb59bddf64bc8a195e46929e2f3bf53f4105160",
+    "scripts/run_gaussian_aware_reference_g0g_k4c_causal_headroom.py": "b08d7d724a2577ef250ab3d3061cb5604f30216b3e1147250b1a806b35796139",
+    "tests/test_audit_gaussian_aware_reference_g0g_k4c_ch.py": "68b3b03e3c4a40f0cf20d50efda50e948fa90b950fbdb39dbc932fb731e779e8",
+    "tests/test_gaussian_aware_reference_g0g_k4c_ch.py": "1d9ed7f57b9772ee9846c091447dba93d0710a596f33604356ce21d7dcb7d0dc",
+    "tests/test_run_gaussian_aware_reference_g0g_k4c_causal_headroom.py": "363aa73f4568f78d6da70c59a88cb36db1bb9307b50bec5442f083d3d403c74c"
+  },
+  "dependencies": {
+    "algorithms/gaussian_aware_reference.py": "35b352d8a550fcbf75a71a7d64e74029d613f3548609469ee3727d7f11efb15f",
+    "algorithms/gaussian_aware_reference_k4b.py": "e8fbf2ea02d46937b804435cbb2fb8b2d598dde14ef3e1a2e26f2dcfce5118fd",
+    "robustness/aggregators.py": "1918b6ad9301c46d6ce8d5813320f322ff24b7db4adef31c2bc97de27794257f",
+    "results/ldp_gradient_far/gaussian_aware_reference_g0g_k2_mps_v1/calibration.json": "98a30cad8a2f92e6843346e9a9512bd321e8302b9b6e17b447b2641fffb544a5",
+    "results/ldp_gradient_far/gaussian_aware_reference_g0g_k4_tcg_mps_v1/temporal_calibration.json": "6ca81b5b8897ec19509a569b54fdf9edeac8c6dc65c7b0c4a890142882603075",
+    "scripts/run_gaussian_aware_reference_g0g_k1.py": "ed0b2865d964ed77c2495e31f9a614f4e98d7312cce6a322287d392326e4133d",
+    "scripts/run_gaussian_aware_reference_g0g_k2.py": "1b4b2becc927b7e207ee63561cb56b2dde05682f369c38992a08c707500de818",
+    "scripts/run_gaussian_aware_reference_g0g_k4_tcg.py": "4da1338e86ae9f6c587c181f4ca4738c1f08c9c1f7a27f4b3dbd20a64c3f2bd6",
+    "scripts/run_gaussian_aware_reference_g0g_k4b_past_imputation.py": "4042f63a0aecd081e4510f1ec15d56724312d01637224f13b45f5032481dd632",
+    "scripts/run_gaussian_aware_reference_oracle.py": "913aa40897c272c5c1995c9a1aac7674904c0abe7b7a297d0944d18c10228974"
+  },
+  "lock_file_self_hash_embedded": false,
+  "publication_requirement": "publish_this_lock_file_sha256_in_research_log_or_chat_before_run"
+}

@@ -1,0 +1,61 @@
+schema_version: 1
+campaign_id: aggregate_control_e2e_pilot_v1
+scientific_status: exploratory_clean_utility_pilot_not_robustness_confirmation
+required_device: mps
+mps_fallback: 0
+historical_campaigns_read_only: true
+historical_contract: aggregate_control_preregistered_v1.yaml
+protocol: output/analysis/Aggregate_Control_EndToEnd_Pilot_Protocol.md
+seeds: [930401, 930402, 930403]
+noise_regimes: [homogeneous, heteroscedastic]
+arms: [far_rfa, ema_far_rfa, uniform, rfa_direct]
+expected_runs: 24
+scenario: none
+rounds: 40
+warmup_uniform_rounds: 12
+predictor_rate: 0.25
+ema_current_mix: 0.20
+predictor_input: uncorrected_far_rfa_on_own_model_trajectory
+predictor_initialization: first_uniform_aggregate
+model_update: apply_selected_aggregate_to_model_not_shadow
+private_training_contract:
+  dataset: fashionmnist
+  model: lenet5_tanh
+  clients: 10
+  partition: client_dirichlet_balanced
+  dirichlet_alpha: 0.1
+  public_local_size: 6000
+  batch_size: 120
+  local_steps: 1
+  local_clip_norm: 4.0
+  server_clip_norm: 16.0
+  alpha: 0.1
+  server_learning_rate: 0.2
+  sampling: fixed_without_replacement
+  adjacency: sample_replace_one
+  epsilon_max_target: 4.0
+  delta: 1.0e-5
+evaluation:
+  primary_model_metrics: [test_accuracy, worst20_accuracy_pct, best20_worst20_gap_pct]
+  secondary_model_metrics: [test_loss, client_accuracy_variance_pct2, mean_client_balanced_accuracy_pct]
+  mechanism_metrics: [applied_mse, uncorrected_far_mse, predictor_mse, cumulative_error_norm_sq, correction_norm]
+  endpoint: round_40_no_best_checkpoint_selection
+  mechanism_window: rounds_13_to_40
+  unit_of_replication: seed_not_round
+  baseline: far_rfa_same_seed_same_noise
+  descriptive_noninferiority:
+    accuracy_drop_max_pp: 1.0
+    worst20_drop_max_pp: 2.0
+    gap_increase_max_pp: 2.0
+    require_each_seed_in_each_noise_regime: true
+    statistical_noninferiority_claim: false
+  advancement: human_review_required_no_automatic_next_phase
+exclusions:
+  - No oracle information enters predictor, weights, correction or tuning.
+  - No test-accuracy selection of beta, gamma, radius, epoch or checkpoint.
+  - No RCIG predictor deployed in this pilot.
+  - No ellipsoidal threshold calibration in this pilot.
+  - No attack or robustness claim in this clean pilot.
+  - Old radius_calibration and untouched_evaluation seeds remain unopened.
+  - Paired Gaussian draws and batches do not imply identical gradients after models diverge.
+  - Simulator seeds and oracle diagnostics are not a production-private release.

@@ -1,0 +1,405 @@
+schema_version: 2
+campaign_id: ldp_gradient_far_positioning_v2
+base_config: positioning_base.yaml
+output_root: ../../results/ldp_gradient_far/positioning_v2
+required_device: mps
+
+# No v1 metric is copied into this campaign.  The first v2 phase is executable
+# independently and re-audits local clipping under DP before the DP treatments.
+inherited_lock:
+  source_matrix: positioning_v1.yaml
+  source_campaign_id: ldp_gradient_far_positioning_v1
+  reused_scientific_decisions:
+    activation: lenet5_tanh
+    local_clip_candidate_to_reaudit_under_dp: 8.0
+    alpha_reference_screen_status: diagnosed_in_v1_not_reexecuted_in_v2
+  metric_reuse: none
+  dependency_policy: >-
+    A-C from v1 are documented context only. The first v2 phase has no runtime
+    dependency on v1 gates, so no v1 metrics or gate files are copied.
+
+# N=60,000 and q=0.05 are held fixed. Consequently, changing n also changes
+# N_i=N/n and B_i=q*N_i (n=10: N_i=6000,B_i=300; n=25:
+# N_i=2400,B_i=120). Cross-n contrasts therefore mix n, local cardinality and
+# batch size. Causal comparisons are paired within n; cross-n results are
+# reported as transfer diagnostics only.
+scale_and_estimand_lock:
+  global_train_size: 60000
+  equal_client_cardinality: true
+  sampling_fraction: 0.05
+  n10: {public_local_size: 6000, fixed_batch_size: 300}
+  n25: {public_local_size: 2400, fixed_batch_size: 120}
+  primary_comparison_scope: within_n
+  cross_n_confound: [num_clients, public_local_size, fixed_batch_size]
+
+randomness:
+  development_seeds: [137]
+  confirmation_seeds: [28, 36, 54]
+  partition_seed_equals_training_seed: true
+  paired_within_phase: true
+  noise_assignment_pairing: identity_and_reverse
+
+expected_task_counts:
+  b2_local_clip_dp_screen: 6
+  d_privacy_screen_v2: 24
+  d2_noise_assignment_dev: 16
+  d2_noise_assignment_confirmation: 48
+  e_byzantine_identification_screen: 70
+  f_confirmation_t20: 180
+  f2_horizon_extension_t40: 36
+
+phases:
+  - id: b2_local_clip_dp_screen
+    role: development_screen
+    description: Re-audit C in the epsilon=4 mechanism before selecting a DP clip.
+    depends_on: []
+    requires_approval_for_dependents: true
+    seeds: [137]
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0, description: All registered arms are complete.}
+      - {id: invalid_runs, op: "==", threshold: 0, description: No protocol-invalid run.}
+      - {id: max_abs_epsilon_error, op: "<=", threshold: 0.05, description: Realized epsilon matches the target.}
+      - {id: c8_auc_gain_over_c4_pp, op: ">=", threshold: 0.5, description: C=8 improves privacy-constrained utility over C=4.}
+      - {id: c8_auc_loss_vs_c16_pp, op: "<=", threshold: 0.5, description: C=8 is near C=16 while halving sensitivity scale.}
+    common_overrides:
+      data: {dataset: fashionmnist, model: lenet5_tanh}
+      model: {architecture: lenet5_tanh}
+      training:
+        num_rounds: 20
+        algo_config:
+          enable_dp: true
+          enable_oracle_diagnostics: true
+          target_epsilon: 4.0
+          noise_multiplier: 1.0
+          far_alpha: 0.0
+          robust_reference: centered_clipping
+    axes:
+      - &client_axis
+        name: clients
+        values:
+          - id: n10
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 300
+                  privacy_public_dataset_size: 6000
+                  fixed_batch_size: 300
+                  expected_num_clients: 10
+                  num_byzantine: 2
+              clients:
+                num_clients: 10
+                min_clients: 10
+                fleet: [{type: raspberry_pi_4, count: 10}]
+          - id: n25
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 120
+                  privacy_public_dataset_size: 2400
+                  fixed_batch_size: 120
+                  expected_num_clients: 25
+                  num_byzantine: 5
+              clients:
+                num_clients: 25
+                min_clients: 25
+                fleet: [{type: raspberry_pi_4, count: 25}]
+      - name: local_clip
+        values:
+          - {id: c4, overrides: {training: {algo_config: {clip_norm: 4.0}}}}
+          - {id: c8, overrides: {training: {algo_config: {clip_norm: 8.0}}}}
+          - {id: c16, overrides: {training: {algo_config: {clip_norm: 16.0}}}}
+
+  - id: d_privacy_screen_v2
+    role: development_screen
+    description: Privacy budget by signed tilt and reference after the DP clip gate.
+    depends_on: [b2_local_clip_dp_screen]
+    requires_approval_for_dependents: true
+    seeds: [137]
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0, description: All registered arms are complete.}
+      - {id: invalid_runs, op: "==", threshold: 0, description: No protocol-invalid run.}
+      - {id: max_abs_epsilon_error, op: "<=", threshold: 0.05, description: Realized epsilon matches each target.}
+      - {id: oracle_decomposition_residual_max, op: "<=", threshold: 0.00001, description: The diagnostic decomposition is numerically closed.}
+    common_overrides:
+      data: {dataset: fashionmnist, model: lenet5_tanh}
+      model: {architecture: lenet5_tanh}
+      training:
+        num_rounds: 20
+        algo_config:
+          enable_dp: true
+          enable_oracle_diagnostics: true
+          noise_multiplier: 1.0
+          clip_norm: 8.0
+    axes:
+      - *client_axis
+      - name: privacy
+        values:
+          - {id: eps8, overrides: {training: {algo_config: {target_epsilon: 8.0}}}}
+          - {id: eps4, overrides: {training: {algo_config: {target_epsilon: 4.0}}}}
+          - {id: eps2, overrides: {training: {algo_config: {target_epsilon: 2.0}}}}
+      - name: treatment
+        values:
+          - {id: fcc_am2, overrides: {training: {algo_config: {far_alpha: -2.0, robust_reference: centered_clipping}}}}
+          - {id: fcc_ap2, overrides: {training: {algo_config: {far_alpha: 2.0, robust_reference: centered_clipping}}}}
+          - {id: rfa_am2, overrides: {training: {algo_config: {far_alpha: -2.0, robust_reference: rfa}}}}
+          - {id: rfa_ap2, overrides: {training: {algo_config: {far_alpha: 2.0, robust_reference: rfa}}}}
+
+  - id: d2_noise_assignment_dev
+    role: development_screen
+    description: Identity/reverse public noise tiers on one paired development seed.
+    depends_on: [d_privacy_screen_v2]
+    requires_approval_for_dependents: true
+    seeds: [137]
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0, description: All registered arms are complete.}
+      - {id: invalid_runs, op: "==", threshold: 0, description: No protocol-invalid run.}
+      - {id: identity_reverse_coverage, op: "==", threshold: 1.0, description: Every public tier multiset has identity and reverse assignments.}
+      - {id: max_abs_epsilon_error, op: "<=", threshold: 0.05, description: The least-private clients remain at epsilon 4.}
+    common_overrides: &d2_common
+      data: {dataset: fashionmnist, model: lenet5_tanh}
+      model: {architecture: lenet5_tanh}
+      training:
+        num_rounds: 20
+        algo_config:
+          enable_dp: true
+          enable_oracle_diagnostics: true
+          target_epsilon: 4.0
+          noise_multiplier: 1.0
+          clip_norm: 8.0
+    axes:
+      - &noise_assignment_axis
+        name: clients_noise_assignment
+        values:
+          - id: n10_mild_identity
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 300
+                  privacy_public_dataset_size: 6000
+                  fixed_batch_size: 300
+                  expected_num_clients: 10
+                  num_byzantine: 2
+                  privacy_noise_multiplier_scale_by_client: [1, 1, 1, 1, 1, 1.5, 1.5, 1.5, 1.5, 1.5]
+              clients: {num_clients: 10, min_clients: 10, fleet: [{type: raspberry_pi_4, count: 10}]}
+          - id: n10_mild_reverse
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 300
+                  privacy_public_dataset_size: 6000
+                  fixed_batch_size: 300
+                  expected_num_clients: 10
+                  num_byzantine: 2
+                  privacy_noise_multiplier_scale_by_client: [1.5, 1.5, 1.5, 1.5, 1.5, 1, 1, 1, 1, 1]
+              clients: {num_clients: 10, min_clients: 10, fleet: [{type: raspberry_pi_4, count: 10}]}
+          - id: n10_strong_identity
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 300
+                  privacy_public_dataset_size: 6000
+                  fixed_batch_size: 300
+                  expected_num_clients: 10
+                  num_byzantine: 2
+                  privacy_noise_multiplier_scale_by_client: [1, 1, 1, 1, 1, 2, 2, 2, 2, 2]
+              clients: {num_clients: 10, min_clients: 10, fleet: [{type: raspberry_pi_4, count: 10}]}
+          - id: n10_strong_reverse
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 300
+                  privacy_public_dataset_size: 6000
+                  fixed_batch_size: 300
+                  expected_num_clients: 10
+                  num_byzantine: 2
+                  privacy_noise_multiplier_scale_by_client: [2, 2, 2, 2, 2, 1, 1, 1, 1, 1]
+              clients: {num_clients: 10, min_clients: 10, fleet: [{type: raspberry_pi_4, count: 10}]}
+          - id: n25_mild_identity
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 120
+                  privacy_public_dataset_size: 2400
+                  fixed_batch_size: 120
+                  expected_num_clients: 25
+                  num_byzantine: 5
+                  privacy_noise_multiplier_scale_by_client: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+              clients: {num_clients: 25, min_clients: 25, fleet: [{type: raspberry_pi_4, count: 25}]}
+          - id: n25_mild_reverse
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 120
+                  privacy_public_dataset_size: 2400
+                  fixed_batch_size: 120
+                  expected_num_clients: 25
+                  num_byzantine: 5
+                  privacy_noise_multiplier_scale_by_client: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+              clients: {num_clients: 25, min_clients: 25, fleet: [{type: raspberry_pi_4, count: 25}]}
+          - id: n25_strong_identity
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 120
+                  privacy_public_dataset_size: 2400
+                  fixed_batch_size: 120
+                  expected_num_clients: 25
+                  num_byzantine: 5
+                  privacy_noise_multiplier_scale_by_client: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+              clients: {num_clients: 25, min_clients: 25, fleet: [{type: raspberry_pi_4, count: 25}]}
+          - id: n25_strong_reverse
+            overrides:
+              training:
+                algo_config:
+                  batch_size: 120
+                  privacy_public_dataset_size: 2400
+                  fixed_batch_size: 120
+                  expected_num_clients: 25
+                  num_byzantine: 5
+                  privacy_noise_multiplier_scale_by_client: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+              clients: {num_clients: 25, min_clients: 25, fleet: [{type: raspberry_pi_4, count: 25}]}
+      - &d2_reference_axis
+        name: reference
+        values:
+          - {id: fcc, overrides: {training: {algo_config: {far_alpha: 2.0, robust_reference: centered_clipping}}}}
+          - {id: rfa, overrides: {training: {algo_config: {far_alpha: 2.0, robust_reference: rfa}}}}
+
+  - id: d2_noise_assignment_confirmation
+    role: confirmation
+    description: Multi-seed confirmation of identity/reverse noise-tier assignment.
+    depends_on: [d2_noise_assignment_dev]
+    requires_approval_for_dependents: true
+    seeds: [28, 36, 54]
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0, description: All registered arms are complete.}
+      - {id: invalid_runs, op: "==", threshold: 0, description: No protocol-invalid run.}
+      - {id: identity_reverse_seed_coverage, op: "==", threshold: 1.0, description: Every assignment is paired on all three confirmation seeds.}
+      - {id: max_abs_epsilon_error, op: "<=", threshold: 0.05, description: The least-private clients remain at epsilon 4.}
+    common_overrides: *d2_common
+    axes:
+      - *noise_assignment_axis
+      - *d2_reference_axis
+
+  - id: e_byzantine_identification_screen
+    role: development_screen
+    description: Separate attack, DP and FAR effects with none, alpha-zero and no-DP controls.
+    depends_on: [d2_noise_assignment_confirmation]
+    requires_approval_for_dependents: true
+    seeds: [137]
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0, description: All registered arms are complete.}
+      - {id: invalid_runs, op: "==", threshold: 0, description: No protocol-invalid run.}
+      - {id: required_control_coverage, op: "==", threshold: 1.0, description: none, alpha-zero and no-DP controls are all paired.}
+      - {id: oracle_decomposition_residual_max, op: "<=", threshold: 0.00001, description: The diagnostic decomposition is numerically closed.}
+    common_overrides:
+      data: {dataset: fashionmnist, model: lenet5_tanh}
+      model: {architecture: lenet5_tanh}
+      training:
+        num_rounds: 20
+        algo_config:
+          enable_dp: true
+          enable_oracle_diagnostics: true
+          target_epsilon: 4.0
+          noise_multiplier: 1.0
+          clip_norm: 8.0
+    axes:
+      - *client_axis
+      - &attack_dev_axis
+        name: attack
+        values:
+          - {id: none, overrides: {training: {algo_config: {attack: {enabled: false, name: none, scale: 1.0}}}}}
+          - {id: bitflip, overrides: {training: {algo_config: {attack: {enabled: true, name: bf, scale: 1.0}}}}}
+          - {id: ipm, overrides: {training: {algo_config: {attack: {enabled: true, name: ipm, scale: 1.0}}}}}
+          - {id: alie, overrides: {training: {algo_config: {attack: {enabled: true, name: alie, scale: 1.0}}}}}
+          - id: minmax
+            overrides:
+              training:
+                algo_config:
+                  attack: {enabled: true, name: minmax, scale: 1.0, direction: negative_mean, search_steps: 40, max_scale: 1.0e4}
+      - name: treatment
+        values:
+          - {id: dp_uniform, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 0.0, robust_reference: centered_clipping}}}}
+          - {id: nodp_uniform, overrides: {training: {algo_config: {enable_dp: false, target_epsilon: null, noise_multiplier: 0.0, far_alpha: 0.0, robust_reference: centered_clipping}}}}
+          - {id: dp_cm_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: coordinate_median}}}}
+          - {id: dp_trmean_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: trimmed_mean}}}}
+          - {id: dp_rfa_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: rfa}}}}
+          - {id: dp_fcc_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: centered_clipping}}}}
+          - {id: nodp_fcc_ap2, overrides: {training: {algo_config: {enable_dp: false, target_epsilon: null, noise_multiplier: 0.0, far_alpha: 2.0, robust_reference: centered_clipping}}}}
+
+  - id: f_confirmation_t20
+    role: confirmation
+    description: Main three-seed confirmation at the same 20-round horizon as development.
+    depends_on: [e_byzantine_identification_screen]
+    requires_approval_for_dependents: true
+    seeds: [28, 36, 54]
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0, description: All registered arms are complete.}
+      - {id: invalid_runs, op: "==", threshold: 0, description: No protocol-invalid run.}
+      - {id: paired_seed_coverage, op: "==", threshold: 1.0, description: Every treatment has the same three seeds.}
+      - {id: finite_primary_metric_fraction, op: "==", threshold: 1.0, description: Accuracy and fairness endpoints are finite.}
+    common_overrides:
+      data: {dataset: fashionmnist, model: lenet5_tanh}
+      model: {architecture: lenet5_tanh}
+      training:
+        num_rounds: 20
+        algo_config:
+          enable_dp: true
+          enable_oracle_diagnostics: true
+          target_epsilon: 4.0
+          noise_multiplier: 1.0
+          clip_norm: 8.0
+    axes:
+      - *client_axis
+      - name: attack
+        values:
+          - {id: none, overrides: {training: {algo_config: {attack: {enabled: false, name: none, scale: 1.0}}}}}
+          - {id: bitflip, overrides: {training: {algo_config: {attack: {enabled: true, name: bf, scale: 1.0}}}}}
+          - {id: ipm, overrides: {training: {algo_config: {attack: {enabled: true, name: ipm, scale: 1.0}}}}}
+          - {id: alie, overrides: {training: {algo_config: {attack: {enabled: true, name: alie, scale: 1.0}}}}}
+          - id: minmax
+            overrides:
+              training:
+                algo_config:
+                  attack: {enabled: true, name: minmax, scale: 1.0, direction: negative_mean, search_steps: 40, max_scale: 1.0e4}
+      - &confirmation_treatment_axis
+        name: treatment
+        values:
+          - {id: dp_uniform, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 0.0, robust_reference: centered_clipping}}}}
+          - {id: dp_cm_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: coordinate_median}}}}
+          - {id: dp_trmean_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: trimmed_mean}}}}
+          - {id: dp_fcc_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: centered_clipping}}}}
+          - {id: dp_rfa_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: rfa}}}}
+          - {id: nodp_fcc_ap2, overrides: {training: {algo_config: {enable_dp: false, target_epsilon: null, noise_multiplier: 0.0, far_alpha: 2.0, robust_reference: centered_clipping}}}}
+
+  - id: f2_horizon_extension_t40
+    role: confirmation
+    description: Separate 40-round extension; never mixed with the primary T=20 estimate.
+    depends_on: [f_confirmation_t20]
+    requires_approval_for_dependents: false
+    seeds: [28, 36, 54]
+    common_overrides:
+      data: {dataset: fashionmnist, model: lenet5_tanh}
+      model: {architecture: lenet5_tanh}
+      training:
+        num_rounds: 40
+        algo_config:
+          enable_dp: true
+          enable_oracle_diagnostics: true
+          target_epsilon: 4.0
+          noise_multiplier: 1.0
+          clip_norm: 8.0
+    axes:
+      - *client_axis
+      - name: attack
+        values:
+          - {id: none, overrides: {training: {algo_config: {attack: {enabled: false, name: none, scale: 1.0}}}}}
+          - id: minmax
+            overrides:
+              training:
+                algo_config:
+                  attack: {enabled: true, name: minmax, scale: 1.0, direction: negative_mean, search_steps: 40, max_scale: 1.0e4}
+      - name: treatment
+        values:
+          - {id: dp_uniform, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 0.0, robust_reference: centered_clipping}}}}
+          - {id: dp_fcc_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: centered_clipping}}}}
+          - {id: dp_rfa_ap2, overrides: {training: {algo_config: {enable_dp: true, target_epsilon: 4.0, noise_multiplier: 1.0, far_alpha: 2.0, robust_reference: rfa}}}}

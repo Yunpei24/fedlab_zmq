@@ -1,0 +1,46 @@
+campaign_id: public_temporal_noise_confirmation_v25
+device: mps
+confirmation_seeds: [180601, 180602, 180603, 180604]
+grid_indices: [0, 13]
+selected_grid_index: 13
+selected_method: risk_rfa
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+expected_runs: 32
+primary_control_methods: [erm_mean, erm_rfa]
+primary_control_grid_indices: [0, 13]
+dataset: fashionmnist
+model: lenet5_tanh
+num_clients: 10
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+public_train_size: 4800
+validation_size: 1200
+batch_size: 240
+rounds: 120
+clip: 2.0
+risk_scale: 0.5
+epsilon: 4.0
+delta: 0.00001
+risk_epsilon: 0.25
+learning_rates: [2.0, 0.5]
+local_optimizer_steps: 0
+server_clip: null
+recursive_memory: false
+adjacency: replace_one
+sampling: fixed_without_replacement
+primary_endpoint: final_test_round_120
+test_evaluation_rounds: [120]
+minimum_worst20_advantage_pp_per_seed: 1.0
+maximum_accuracy_loss_pp_per_seed: 1.0
+confidence_level: 0.95
+paired_t_critical_df3: 3.182446305284263
+prospective_confirmation_wave: 0
+one_sided_alpha: 0.025
+future_wave_alpha_rule: 0.025*2**(-wave)
+require_positive_worst20_ci_lower: true
+require_accuracy_ci_lower_ge_minus_one: true
+require_nonpositive_mean_gap_change: true
+require_nonpositive_mean_variance_change: true
+attacks: none
+automatic_attacks: false
+automatic_retry: false

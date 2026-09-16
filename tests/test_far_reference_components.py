@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import math
 import copy
+import math
 
+import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from algorithms.base import ClientState, get_algorithm
 from algorithms.reference_utils import empirical_loss
-from attacks import apply_attack
+from attacks import apply_attack, apply_configured_attack, scheduled_attack_phase
 from datasets.partitioner import (
     client_dirichlet_balanced_partition,
     matched_dirichlet_partition,
@@ -22,7 +23,11 @@ from metrics.client_fairness import (
 from metrics.robustness import attack_diagnostics
 from models.registry import get_model
 from privacy.rdp import RDPAccountant, sampled_gaussian_rdp
-from robustness.aggregators import aggregate_vectors, nearest_neighbor_mixing
+from robustness.aggregators import (
+    aggregate_vectors,
+    guarded_aggregate,
+    nearest_neighbor_mixing,
+)
 from robustness.tensor_ops import flatten_update
 
 
@@ -50,6 +55,22 @@ def test_rfa_and_nbs_resist_one_large_outlier():
     assert abs(float(aggregate_vectors(vectors, "nbs", screening_fraction=0.25))) < 0.1
 
 
+def test_guarded_aggregate_projects_around_reference_and_has_certificate():
+    reference = torch.tensor([1.0, -1.0], dtype=torch.float64)
+    aggregate = torch.tensor([4.0, 3.0], dtype=torch.float64)
+    guarded = guarded_aggregate(aggregate, reference, radius=2.0)
+    assert torch.allclose(
+        torch.linalg.vector_norm(guarded - reference),
+        torch.tensor(2.0, dtype=torch.float64),
+    )
+    target = torch.tensor([0.5, -0.5], dtype=torch.float64)
+    bound = torch.linalg.vector_norm(reference - target) + 2.0
+    assert torch.linalg.vector_norm(guarded - target) <= bound + 1e-12
+    assert torch.equal(
+        guarded_aggregate(aggregate, reference, radius=0.0), reference
+    )
+
+
 def test_attacks_do_not_change_honest_updates():
     source = _updates([1.0, 1.1, 0.9, 1.05])
     for name in ("alie", "ipm", "minmax", "minsum", "bf"):
@@ -59,6 +80,41 @@ def test_attacks_do_not_change_honest_updates():
                 attacked[honest_idx]["weight"], source[honest_idx]["weight"]
             )
         assert not torch.equal(attacked[0]["weight"], source[0]["weight"])
+
+
+def test_scheduled_attack_has_clean_attack_recovery_phases():
+    config = {
+        "enabled": True,
+        "name": "bf",
+        "scale": 2.0,
+        "num_byzantine": 1,
+        "client_ids": [0],
+        "active_round_start": 2,
+        "active_round_end": 3,
+    }
+    assert scheduled_attack_phase(config, 0) == "clean"
+    assert scheduled_attack_phase(config, 1) == "attack"
+    assert scheduled_attack_phase(config, 2) == "attack"
+    assert scheduled_attack_phase(config, 3) == "recovery"
+
+    states = [ClientState(client_id=i, battery_j=1.0) for i in range(3)]
+    tuples = [
+        (
+            {"weight": torch.tensor([float(i + 1)])},
+            {"client_id": i},
+            states[i],
+        )
+        for i in range(3)
+    ]
+    clean = apply_configured_attack(tuples, config, round_num=0)
+    attacked = apply_configured_attack(tuples, config, round_num=1)
+    recovery = apply_configured_attack(tuples, config, round_num=3)
+    assert all(not metadata["is_byzantine"] for _, metadata, _ in clean)
+    assert attacked[0][1]["is_byzantine"] is True
+    assert attacked[0][0]["weight"].item() == pytest.approx(-2.0)
+    assert all(not metadata["is_byzantine"] for _, metadata, _ in recovery)
+    assert clean[0][1]["attack_schedule_phase"] == "clean"
+    assert recovery[0][1]["attack_schedule_phase"] == "recovery"
 
 
 def test_attack_diagnostics_are_oracle_reporting_only():
@@ -428,6 +484,24 @@ def test_fedfdp_runs_true_per_example_step():
     assert set(state.custom["fedfdp_accountant"]["channels"]) == {"model", "loss"}
 
 
+def test_fedfdp_uses_one_sampling_rate_for_calibration_and_online_accounting():
+    dataset = TensorDataset(torch.randn(20, 2), torch.randint(0, 2, (20,)))
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=False)
+    algo = get_algorithm("fedfdp")
+    assert math.isclose(
+        algo._accounting_sampling_rate(
+            dataloader, {"batch_size": 4, "privacy_sampling_rate_override": None}
+        ),
+        0.2,
+    )
+    assert math.isclose(
+        algo._accounting_sampling_rate(
+            dataloader, {"batch_size": 4, "privacy_sampling_rate_override": 0.05}
+        ),
+        0.05,
+    )
+
+
 def test_fedfair_is_dynamic_lr_without_hidden_dp_clipping():
     torch.manual_seed(31)
     source = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(4, 2))
@@ -494,3 +568,57 @@ def test_fedfdp_without_noise_remains_a_fair_clipping_ablation():
     assert metadata["clip_rate"] == 1.0
     assert metadata["privacy_epsilon"] is None
     assert metadata["privacy_accounting_assumption"] == "not_applicable"
+
+
+def test_fedfdp_negative_scale_ablation_is_measured_and_marked_uncertified():
+    """The raw lane must be observable without being mislabeled as DP-certified."""
+
+    torch.manual_seed(41)
+    source = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(4, 2))
+    loader = DataLoader(
+        TensorDataset(torch.randn(4, 1, 2, 2), torch.tensor([0, 1, 0, 1])),
+        batch_size=4,
+        shuffle=False,
+    )
+    algo = get_algorithm("fedfdp")
+    common = {
+        **algo.get_default_config(),
+        "enable_dp": False,
+        "adaptive_loss_clip": False,
+        "batch_size": 4,
+        "fairness_lambda": 1.0,
+        # Cross-entropy is far below this value, so Delta and 1+lambda*Delta
+        # are negative for every example in this deterministic stress test.
+        "fair_global_loss": 20.0,
+    }
+
+    _, raw_meta = algo.client_update(
+        copy.deepcopy(source),
+        loader,
+        ClientState(client_id=0, battery_j=100.0),
+        {**common, "fair_scale_policy": "allow_negative_uncertified"},
+    )
+    _, clamp_meta = algo.client_update(
+        copy.deepcopy(source),
+        loader,
+        ClientState(client_id=1, battery_j=100.0),
+        {**common, "fair_scale_policy": "clip_nonnegative"},
+    )
+
+    assert raw_meta["fedfdp_loss_deviation_negative_rate"] == 1.0
+    assert raw_meta["fedfdp_raw_fair_scale_negative_rate"] == 1.0
+    assert raw_meta["fedfdp_applied_scale_negative_rate"] == 1.0
+    assert raw_meta["fedfdp_raw_fair_scale_min"] < 0.0
+    assert raw_meta["fedfdp_norm_precondition_valid"] is False
+    assert raw_meta["privacy_guarantee_status"] == (
+        "not_certified_raw_negative_scale_policy"
+    )
+
+    assert clamp_meta["fedfdp_loss_deviation_negative_rate"] == 1.0
+    assert clamp_meta["fedfdp_raw_fair_scale_negative_rate"] == 1.0
+    assert clamp_meta["fedfdp_applied_scale_negative_rate"] == 0.0
+    assert clamp_meta["fedfdp_applied_scale_min"] == 0.0
+    assert clamp_meta["fedfdp_norm_precondition_valid"] is True
+    assert clamp_meta["privacy_guarantee_status"] == (
+        "not_asserted_accounting_and_adjacency_require_separate_validation"
+    )

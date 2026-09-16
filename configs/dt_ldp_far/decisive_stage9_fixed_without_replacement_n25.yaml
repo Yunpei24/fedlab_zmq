@@ -1,0 +1,30 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage9_fixed_wor_n25_v1
+scope: paired_fixed_size_without_replacement_replace_one_ablation
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 36
+
+# Stage 9 changes only the local sampler/privacy contract relative to the
+# promoted Stage-8 debiased-distance arms. It compares current versus delayed
+# weighting under exactly the same fixed-size subsets, initialization, DP
+# noise and attack randomness. The Poisson Stage-8 campaign remains the
+# external reference and is not rerun.
+experiments:
+  - id: E17_fixed_wor_current_vs_delayed_oracle_diagnostic
+    scenarios: [fmnist_b01_n25_t6]
+    methods:
+      - dp_far_current_debiased_distance_oracle
+      - dt_ldp_far_debiased_distance_oracle
+    references: [fcc, rfa]
+    threats: [none, ipm20_n25, alie20_n25]
+    privacy: [eps4_c4_hetero_noise_n25_fixed_wor]
+    tilts: [boundary]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 36
+    clients:
+      num_clients: 25
+      min_clients: 25
+      fleet: [{type: raspberry_pi_4, count: 25}]

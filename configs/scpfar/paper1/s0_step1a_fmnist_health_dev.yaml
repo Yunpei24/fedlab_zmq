@@ -1,0 +1,36 @@
+schema_version: 1
+matrix_id: s0_step1a_fmnist_health_dev
+common: common.yaml
+description: >-
+  Development-only non-private health check and public user-clipping
+  calibration for the Fashion-MNIST SC-FAR-DP pipeline. The development
+  seeds are disjoint from the frozen confirmatory seeds.
+
+experiments:
+  - id: step1a_fedavg_native
+    expected_tasks: 1
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [fedavg]
+    reference_ids: [fcc]
+    anchor_ids: [fixed_zero]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [null]
+    partition_seeds: [104]
+    training_seeds: [17]
+
+  - id: step1a_uniform_user_clipped
+    expected_tasks: 4
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [central_dp_fedavg_exact]
+    reference_ids: [fcc]
+    anchor_ids: [fixed_zero]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.0, 2.0, 4.0, 8.0]
+    partition_seeds: [104]
+    training_seeds: [17]

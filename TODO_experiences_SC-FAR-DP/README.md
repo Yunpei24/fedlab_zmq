@@ -1,6 +1,6 @@
 # Registre des expériences SC-FAR-DP
 
-Dernière mise à jour : 2026-08-31.
+Dernière mise à jour : 2026-09-08.
 
 Ce fichier est la source de vérité opérationnelle pour les expériences liées à
 SC-FAR-DP. Il distingue strictement :
@@ -89,6 +89,53 @@ configuration exécutable, le test de conformité et les résultats existent.
 | S0.3 | Transport F_CC vers variation des scores, poids et agrégat | Oui | ✅ | Audit end-to-end exécuté sur 4 800 paires replace-one ; CSV et certificats dans `results/scpfar/sensitivity_s0_3` |
 | S0.4 | Huber régularisé à nombre public d'itérations | Partiel | 🟡 | Tests unitaires présents ; ajouter sweep itérations/tolérance/erreur solveur |
 | S0.5 | Comparateurs moyenne, CM, trMean et RFA | Oui | ✅ | Audit aléatoire et cohortes de stress exécutés ; résultats dans `results/scpfar/sensitivity_s0_5` |
+| S0.6 | Faisabilité DP-FedAvg full-update, `T={5,10,20,40}`, `epsilon={3,6,10}` | Oui | ✅ | Aucun régime privé ne passe les gates ; voir `output/analysis/SC_FAR_Step1F_DP_FedAvg_Privacy_Feasibility_Analysis.md` |
+| S0.7 | Écran sans DP de la dimension privée effective | Oui | ✅ | `classifier_head`, `classifier_tail` et `last_layer` passent ; `bias_only` échoue ; voir `output/analysis/SC_FAR_Step1G_Effective_Dimension_Screen.md` |
+| S0.8 | DP-FedAvg masqué à `epsilon=10`, `C=1.4`, `T=40` | Oui | ✅ | Aucun masque ne passe les trois gates ; les budgets inférieurs et SC-FAR ne sont pas lancés ; voir `output/analysis/SC_FAR_Step1H_Masked_DPFedAvg_Analysis.md` |
+| S0.9 | Recalibration masque–clipping sans DP à `T=20` | Oui | ✅ | `classifier_tail`, `C=1.631041` passe ; `last_layer` échoue sur Worst-20 ; voir `output/analysis/SC_FAR_Step1IR_Mask_Clip_Refinement.md` |
+| S0.10 | Écran conjoint `classifier_tail`, `C=1.631041`, `T={5,10,20}`, `epsilon={infini,10}` | Oui | ✅ | Aucun horizon privé ne passe ; voir `output/analysis/SC_FAR_Step1J_Joint_Horizon_Screen.md` |
+
+#### Verdict de faisabilité avant SC-FAR privé
+
+L'écran S0.7 utilise des masques statiques déterminés uniquement par
+l'architecture. Les coordonnées gelées ne dépendent pas des données clientes,
+ne sont pas transmises et ne reçoivent pas de bruit. À 40 rounds, les plafonds
+sans DP restent utilisables pour les trois masques promus : `74.85 %` pour la
+tête fully connected, `70.97 %` pour les deux dernières couches linéaires et
+`65.91 %` pour la dernière couche seule. Cette dernière ne libère que `850`
+coordonnées au lieu de `61 706`.
+
+S0.8 isole ensuite l'effet de cette dimension à sensibilité, horizon et budget
+fixés. À `epsilon = 10`, la norme médiane du bruit baisse de `94.46` en
+full-update à `39.93` pour le tail et `11.09` pour la dernière couche. Cela
+confirme l'effet en racine de la dimension, mais les rapports médians
+bruit/agrégat propre restent respectivement `56.94` et `25.53`, au-dessus du
+gate `20`. Les Test Accuracy finales privées restent `22.82 %` et `28.78 %` ;
+le Worst-20 de la dernière couche tombe à `3.85 %`.
+
+La décision préenregistrée est donc **de ne pas descendre à epsilon 6 ou 3 et
+de ne pas introduire encore le tilting SC-FAR**. La dimension seule ne ferme
+pas la faisabilité pour `(C,T)=(1.4,40)`. La prochaine étude doit modifier
+conjointement, avec des règles publiques, la dimension active, le seuil de
+clipping et le nombre de publications. Ce résultat ne réfute ni la central-DP
+en général ni une extension partial-training ; il rejette cette instanciation
+précise.
+
+S0.9 et S0.10 exécutent cette recalibration conjointe. Une grille grossière
+`C={0.7,1.4,2.8,5.6}` révèle la distribution des normes avant clipping. Le
+seuil quantile est ensuite fixé sans regarder l'accuracy privée par
+`C_ref=median_t(median_i ||u_i,t||_2)`. Seul `classifier_tail`, avec 11 014
+coordonnées et `C=1.631041`, conserve à `T=20` une Test Accuracy de `64.18 %`,
+un Worst-20 de `30.45 %` et un clipping médian de `72 %`.
+
+À `epsilon=10`, aucun des horizons `T={5,10,20}` ne passe. Les horizons 5 et
+10 échouent déjà dans leur contrôle sans DP. À `T=20`, le contrôle est utile,
+mais le bras privé tombe à `21.51 %` de Test Accuracy et `3.90 %` de Worst-20 ;
+la norme médiane du bruit est `32.91`, soit `36.68` fois celle de l'agrégat
+propre sur sa trajectoire. La décision reste donc **de ne pas descendre à
+epsilon 6 ou 3, de ne pas lancer une confirmation multi-seed de cette grille
+et de ne pas introduire le tilting SC-FAR**. L'analyse consolidée est dans
+`output/analysis/SC_FAR_Recalibration_Conjointe_Dimension_C_T.md`.
 
 #### Certificats et résultats de S0.3
 

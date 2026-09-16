@@ -1,0 +1,445 @@
+schema_version: 2
+campaign_id: rcig_ldp_gradient_far_end_to_end_v2
+required_device: mps
+base_config: positioning_base.yaml
+output_root: ../../results/ldp_gradient_far/rcig_end_to_end_v2
+
+# This matrix is intentionally self-contained and immutable once the first run
+# starts.  The four phases use disjoint seed blocks.  Within a phase, the same
+# seed identifies a paired block across every regime/reference/attack cell.
+scientific_scope:
+  dataset: fashionmnist
+  model: lenet5_tanh
+  num_clients: 25
+  num_byzantine: 5
+  fixed_local_dataset_size: 2400
+  fixed_batch_size: 120
+  local_clip_norm: 4.0
+  target_privacy: {epsilon: 4.0, delta: 1.0e-5}
+  privacy_adjacency: replace_one
+  sampling: fixed_without_replacement
+  private_releases_per_client_round: 1
+  rounds: 40
+  attack_client_ids: [0, 1, 2, 3, 4]
+  private_gradient_device: mps
+  server_postprocessing_device: cpu
+  server_postprocessing_dtype: float64
+  covariance_under_attack: authenticated_nominal_honest_channel_model
+  covariance_never_uses: [realised_noise, attack_labels, byzantine_mask]
+
+execution:
+  pytorch_device: mps
+  pytorch_enable_mps_fallback: "0"
+  resume_required: true
+  overwrite: false
+  fail_closed: true
+  lock_verified_before_each_subrun: true
+  resolved_config_hash_required: true
+
+randomness:
+  calibration_seeds: &calibration_seeds
+    [
+      810001, 810002, 810003, 810004, 810005, 810006, 810007, 810008,
+      810009, 810010, 810011, 810012, 810013, 810014, 810015, 810016,
+      810017, 810018, 810019, 810020, 810021, 810022, 810023, 810024,
+      810025, 810026, 810027, 810028, 810029, 810030, 810031, 810032,
+      810033, 810034, 810035, 810036, 810037, 810038, 810039, 810040,
+      810041, 810042, 810043, 810044, 810045, 810046, 810047, 810048,
+      810049, 810050, 810051, 810052, 810053
+    ]
+  null_validation_seeds: &null_validation_seeds
+    [
+      820001, 820002, 820003, 820004, 820005, 820006, 820007, 820008,
+      820009, 820010, 820011, 820012, 820013, 820014, 820015, 820016,
+      820017, 820018, 820019, 820020, 820021, 820022, 820023, 820024,
+      820025, 820026, 820027, 820028, 820029, 820030, 820031, 820032,
+      820033, 820034, 820035, 820036
+    ]
+  mechanism_seeds: &mechanism_seeds
+    [830001, 830002, 830003, 830004, 830005, 830006, 830007, 830008, 830009, 830010, 830011, 830012]
+  confirmation_seeds: &confirmation_seeds
+    [840001, 840002, 840003, 840004, 840005, 840006, 840007, 840008, 840009, 840010, 840011, 840012]
+  pairing:
+    unit: seed_block
+    same_partition_initialization_batches_noise_attack_ids_and_schedule: true
+    same_seed_across_cells_within_phase: true
+    phase_seed_registries_are_disjoint: true
+
+threshold_rule:
+  source_phase: r0_dynamic_calibration
+  statistic_within_seed: maximum_post_warmup_innovation_over_rounds
+  threshold_across_53_seed_blocks: maximum
+  cells: [homogeneous/full, homogeneous/isotropic, homogeneous/euclidean,
+          heteroscedastic/full, heteroscedastic/isotropic, heteroscedastic/euclidean]
+  population_null_coverage: 0.90
+  simultaneous_confidence: 0.975
+  proof: "1 - 6*(0.90^53) = 0.9774573872 >= 0.975"
+  immutable_artifact: _gates/r0_dynamic_calibration.json
+
+anisotropy_rule:
+  statistical_unit: seed_by_attack_cell_after_round_aggregation
+  statistic: median_attacked_round_rcig_max_covariance_anisotropy_ratio
+  identifiable_if: ">= 1.10"
+  required_fraction_in_heteroscedastic_primary_cells: 0.90
+  full_vs_isotropic_claim_if_not_identifiable: stopped
+
+definitions:
+  dynamic_rcig: &dynamic_rcig
+    data:
+      dataset: fashionmnist
+      model: lenet5_tanh
+      partition: client_dirichlet_balanced
+      alpha: 0.1
+    model: {architecture: lenet5_tanh}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      sample_fraction: 1.0
+      dropout_rate: 0.0
+      fleet: [{type: raspberry_pi_4, count: 25}]
+    eval: {eval_every: 1, honest_clients_only: true}
+    training:
+      num_rounds: 40
+      algorithm: ldp_gradient_far
+      algo_config:
+        batch_size: 120
+        local_epochs: 1
+        fixed_steps_per_round: 1
+        sampling_scheme: fixed_without_replacement
+        privacy_adjacency: replace_one
+        privacy_public_dataset_size: 2400
+        privacy_sampling_rate_override: 0.05
+        fixed_batch_size: 120
+        per_sample_backend: vectorized
+        enable_dp: true
+        target_epsilon: 4.0
+        noise_multiplier: 1.0
+        privacy_num_rounds: 40
+        delta: 1.0e-5
+        clip_norm: 4.0
+        far_server_lr: 0.2
+        far_server_clip_norm: 16.0
+        far_score_mode: raw_distance
+        noise_score_standardization: none
+        noise_score_include_server_contraction: false
+        score_subspace_mode: full
+        # The calibration, independent null validation and attack mechanism
+        # use the same tilting dynamics as the final algorithm.
+        far_alpha: 0.1
+        kappa_w: 2.0
+        tilt_bound_policy: diagnostic
+        robust_reference: rcig_temporal
+        num_byzantine: 5
+        reference_clip_radius: 4.0
+        anchor_update_rate: 0.1
+        anchor_clip_norm: 16.0
+        rfa_max_iter: 100
+        rfa_tol: 1.0e-6
+        expected_num_clients: 25
+        client_metrics_every: 1
+        fairness_tail_fraction: 0.2
+        suppress_private_client_diagnostics: true
+        external_attack_diagnostics: true
+        enable_oracle_diagnostics: true
+        rcig_oracle_separation_required: true
+        rcig_covariance_mode: full
+        rcig_calibration_mode: false
+        rcig_innovation_threshold: null
+        rcig_isotropic_innovation_threshold: null
+        rcig_euclidean_innovation_threshold: null
+        rcig_gate_window: 4
+        rcig_old_window: 4
+        rcig_new_window: 4
+        rcig_public_subspace_dimension: 64
+        rcig_public_subspace_seed: 20260911
+        rcig_gate_inner_mad: 2.5
+        rcig_gate_outer_mad: 4.5
+        rcig_min_accepted_mass: 0.6
+        rcig_covariance_ridge: 1.0e-6
+        rcig_process_variance: 1.0e-6
+        rcig_warmup_policy: uniform
+        rcig_reference_output_radius: 16.0
+        rcig_persistent_policy: freeze_hysteresis
+        rcig_recovery_threshold_ratio: 0.8
+        rcig_recovery_patience: 2
+        attack: {enabled: false, name: none, scale: 1.0, num_byzantine: 0, client_ids: []}
+
+  e2e: &e2e
+    data:
+      dataset: fashionmnist
+      model: lenet5_tanh
+      partition: client_dirichlet_balanced
+      alpha: 0.1
+    model: {architecture: lenet5_tanh}
+    clients:
+      num_clients: 25
+      min_clients: 25
+      sample_fraction: 1.0
+      dropout_rate: 0.0
+      fleet: [{type: raspberry_pi_4, count: 25}]
+    eval: {eval_every: 1, honest_clients_only: true}
+    training:
+      num_rounds: 40
+      algorithm: ldp_gradient_far
+      algo_config:
+        batch_size: 120
+        local_epochs: 1
+        fixed_steps_per_round: 1
+        sampling_scheme: fixed_without_replacement
+        privacy_adjacency: replace_one
+        privacy_public_dataset_size: 2400
+        privacy_sampling_rate_override: 0.05
+        fixed_batch_size: 120
+        per_sample_backend: vectorized
+        enable_dp: true
+        target_epsilon: 4.0
+        noise_multiplier: 1.0
+        privacy_num_rounds: 40
+        delta: 1.0e-5
+        clip_norm: 4.0
+        far_server_lr: 0.2
+        far_server_clip_norm: 16.0
+        far_score_mode: raw_distance
+        noise_score_standardization: none
+        noise_score_include_server_contraction: false
+        score_subspace_mode: full
+        far_alpha: 0.1
+        kappa_w: 2.0
+        tilt_bound_policy: diagnostic
+        robust_reference: centered_clipping
+        num_byzantine: 5
+        reference_clip_radius: 4.0
+        anchor_update_rate: 0.1
+        anchor_clip_norm: 16.0
+        rfa_max_iter: 100
+        rfa_tol: 1.0e-6
+        expected_num_clients: 25
+        client_metrics_every: 1
+        fairness_tail_fraction: 0.2
+        suppress_private_client_diagnostics: true
+        external_attack_diagnostics: true
+        enable_oracle_diagnostics: false
+        rcig_oracle_separation_required: false
+        rcig_covariance_mode: full
+        rcig_calibration_mode: false
+        rcig_innovation_threshold: null
+        rcig_isotropic_innovation_threshold: null
+        rcig_euclidean_innovation_threshold: null
+        rcig_gate_window: 4
+        rcig_old_window: 4
+        rcig_new_window: 4
+        rcig_public_subspace_dimension: 64
+        rcig_public_subspace_seed: 20260911
+        rcig_gate_inner_mad: 2.5
+        rcig_gate_outer_mad: 4.5
+        rcig_min_accepted_mass: 0.6
+        rcig_covariance_ridge: 1.0e-6
+        rcig_process_variance: 1.0e-6
+        rcig_warmup_policy: uniform
+        rcig_reference_output_radius: 16.0
+        rcig_persistent_policy: freeze_hysteresis
+        rcig_recovery_threshold_ratio: 0.8
+        rcig_recovery_patience: 2
+        attack: {enabled: false, name: none, scale: 1.0, num_byzantine: 0, client_ids: []}
+
+  homogeneous: &homogeneous
+    training:
+      algo_config:
+        privacy_noise_multiplier_scale_by_client: null
+
+  heteroscedastic: &heteroscedastic
+    training:
+      algo_config:
+        privacy_noise_multiplier_scale_by_client:
+          [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1]
+
+  attack_none: &attack_none
+    training:
+      algo_config:
+        attack: {enabled: false, name: none, scale: 1.0, num_byzantine: 0, client_ids: []}
+
+  attack_bf_warmup: &attack_bf_warmup
+    training:
+      algo_config:
+        attack: {enabled: true, name: bf, scale: 10.0, active_round_start: 17, active_round_end: 40}
+  attack_ipm_warmup: &attack_ipm_warmup
+    training:
+      algo_config:
+        attack: {enabled: true, name: ipm, scale: 1.0, active_round_start: 17, active_round_end: 40}
+  attack_alie_warmup: &attack_alie_warmup
+    training:
+      algo_config:
+        attack: {enabled: true, name: alie, scale: 1.0, active_round_start: 17, active_round_end: 40}
+
+  attack_bf_round1: &attack_bf_round1
+    training:
+      algo_config:
+        attack: {enabled: true, name: bf, scale: 10.0, active_round_start: 1, active_round_end: 40}
+  attack_ipm_round1: &attack_ipm_round1
+    training:
+      algo_config:
+        attack: {enabled: true, name: ipm, scale: 1.0, active_round_start: 1, active_round_end: 40}
+  attack_alie_round1: &attack_alie_round1
+    training:
+      algo_config:
+        attack: {enabled: true, name: alie, scale: 1.0, active_round_start: 1, active_round_end: 40}
+
+expected_task_counts:
+  r0_dynamic_calibration: 106
+  r1_dynamic_null: 72
+  r2_attack_mechanism: 144
+  r3_e2e_confirmation: 384
+
+phases:
+  - id: r0_dynamic_calibration
+    role: dynamic_null_calibration
+    seed_registry: calibration_seeds
+    description: Dynamic T40 no-attack calibration; one run emits all three paired counterfactual RCIG modes.
+    depends_on: []
+    gate_required: true
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0}
+      - {id: invalid_runs, op: "==", threshold: 0}
+      - {id: rcig_private_gradient_mps_fraction, op: "==", threshold: 1.0}
+      - {id: server_cpu_float64_postprocess_fraction, op: "==", threshold: 1.0}
+      - {id: strict_past_fraction, op: "==", threshold: 1.0}
+      - {id: covariance_psd_fraction, op: "==", threshold: 1.0}
+      - {id: nominal_covariance_provenance_fraction, op: "==", threshold: 1.0}
+      - {id: finite_threshold_fraction, op: "==", threshold: 1.0}
+      - {id: calibration_blocks_per_cell_min, op: "==", threshold: 53}
+      - {id: simultaneous_distribution_free_confidence_lower, op: ">=", threshold: 0.975}
+    seeds: *calibration_seeds
+    common_overrides: *dynamic_rcig
+    axes:
+      - name: noise_regime
+        values:
+          - {id: homogeneous, overrides: *homogeneous}
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: reference
+        values:
+          - id: rcig_calibration
+            overrides:
+              training:
+                algo_config:
+                  rcig_calibration_mode: true
+                  enable_oracle_diagnostics: false
+                  rcig_innovation_threshold: 1.0e30
+                  rcig_isotropic_innovation_threshold: 1.0e30
+                  rcig_euclidean_innovation_threshold: 1.0e30
+
+  - id: r1_dynamic_null
+    role: independent_dynamic_null_validation
+    seed_registry: null_validation_seeds
+    description: Independent T40 null blocks; the unit is a seed-wise union over six regime/mode cells.
+    depends_on: [r0_dynamic_calibration]
+    gate_required: true
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0}
+      - {id: invalid_runs, op: "==", threshold: 0}
+      - {id: global_union_false_activation_count, op: "==", threshold: 0}
+      - {id: global_union_cp97_5_upper, op: "<=", threshold: 0.10}
+      - {id: no_attack_reference_loss_one_sided_97_5_upper, op: "<=", threshold: 0.02}
+      - {id: paired_seed_blocks, op: "==", threshold: 36}
+      - {id: strict_past_fraction, op: "==", threshold: 1.0}
+      - {id: covariance_psd_fraction, op: "==", threshold: 1.0}
+    seeds: *null_validation_seeds
+    common_overrides: *dynamic_rcig
+    axes:
+      - name: noise_regime
+        values:
+          - {id: homogeneous, overrides: *homogeneous}
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: reference
+        values:
+          - {id: rcig_full, overrides: {training: {algo_config: {rcig_covariance_mode: full, enable_oracle_diagnostics: true}}}}
+
+  - id: r2_attack_mechanism
+    role: real_private_gradient_attack_validation
+    seed_registry: mechanism_seeds
+    description: Real private Fashion-MNIST gradients; within-seed aggregation of attacked rounds, never round-wise pseudoreplication.
+    depends_on: [r1_dynamic_null]
+    gate_required: true
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0}
+      - {id: invalid_runs, op: "==", threshold: 0}
+      - {id: primary_cell_count, op: "==", threshold: 6}
+      - {id: min_primary_cell_seed_gain_successes, op: ">=", threshold: 11}
+      - {id: min_primary_cell_gate_successes, op: ">=", threshold: 11}
+      - {id: min_primary_full_vs_euclidean_ci_low, op: ">=", threshold: -0.02}
+      - {id: heteroscedastic_anisotropy_identifiable_fraction, op: ">=", threshold: 0.90}
+      - {id: min_heteroscedastic_full_vs_isotropic_ci_low, op: ">=", threshold: 0.0}
+      - {id: strict_past_fraction, op: "==", threshold: 1.0}
+      - {id: covariance_psd_fraction, op: "==", threshold: 1.0}
+    seeds: *mechanism_seeds
+    common_overrides: *dynamic_rcig
+    axes:
+      - name: noise_regime
+        values:
+          - {id: homogeneous, overrides: *homogeneous}
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: attack
+        values:
+          - {id: bf_x10, overrides: {}}
+          - {id: ipm, overrides: {}}
+          - {id: alie, overrides: {}}
+      - name: schedule
+        values:
+          - id: persistent_after_clean_warmup
+            overrides: {}
+          - id: persistent_from_round1
+            overrides: {}
+
+  - id: r3_e2e_confirmation
+    role: conditional_end_to_end_confirmation
+    seed_registry: confirmation_seeds
+    description: Confirmatory paired RCIG-full versus RFA comparison; FCC and uniform are secondary controls.
+    depends_on: [r2_attack_mechanism]
+    gate_required: true
+    gate_criteria:
+      - {id: complete_fraction, op: "==", threshold: 1.0}
+      - {id: invalid_runs, op: "==", threshold: 0}
+      - {id: max_abs_epsilon_error, op: "<=", threshold: 0.05}
+      - {id: clean_noise_cell_count, op: "==", threshold: 2}
+      - {id: min_clean_rcig_vs_rfa_test_accuracy_ci_low_pp, op: ">=", threshold: -3.0}
+      - {id: attacked_primary_cell_count, op: "==", threshold: 6}
+      - {id: min_attacked_rcig_vs_rfa_test_accuracy_ci_low_pp, op: ">=", threshold: 0.0}
+      - {id: min_attacked_rcig_vs_rfa_worst20_ci_low_pp, op: ">=", threshold: 0.0}
+      - {id: min_attacked_rcig_vs_rfa_gap_reduction_ci_low_pp, op: ">=", threshold: 0.0}
+    seeds: *confirmation_seeds
+    common_overrides: *e2e
+    axes:
+      - name: noise_regime
+        values:
+          - {id: homogeneous, overrides: *homogeneous}
+          - {id: heteroscedastic, overrides: *heteroscedastic}
+      - name: reference
+        values:
+          - id: uniform
+            overrides:
+              training:
+                algo_config:
+                  far_alpha: 0.0
+                  robust_reference: centered_clipping
+          - id: fcc
+            overrides:
+              training:
+                algo_config:
+                  robust_reference: centered_clipping
+          - id: rfa
+            overrides:
+              training:
+                algo_config:
+                  robust_reference: rfa
+          - id: rcig_full
+            overrides:
+              training:
+                algo_config:
+                  robust_reference: rcig_temporal
+                  rcig_covariance_mode: full
+                  rcig_oracle_separation_required: true
+      - name: schedule
+        values:
+          - {id: none, overrides: *attack_none}
+          - {id: bf_x10_persistent_after_clean_warmup, overrides: *attack_bf_warmup}
+          - {id: ipm_persistent_after_clean_warmup, overrides: *attack_ipm_warmup}
+          - {id: alie_persistent_after_clean_warmup, overrides: *attack_alie_warmup}

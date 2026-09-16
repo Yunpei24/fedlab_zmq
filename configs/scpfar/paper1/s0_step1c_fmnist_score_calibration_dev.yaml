@@ -1,0 +1,53 @@
+schema_version: 1
+matrix_id: s0_step1c_fmnist_score_calibration_dev
+common: common.yaml
+description: >-
+  Paired development screen of the public bounded-score scale D_score and an
+  untransformed raw-distance FAR ablation. C=1.4, the centered-clipping
+  reference, the previous public release anchor and tau/C=1 are frozen before
+  this screen. The raw-distance arm uses the same numerical alpha as the
+  bounded arms but is not claimed to satisfy their kappa_w weight certificate.
+
+experiments:
+  - id: step1c_uniform_control
+    expected_tasks: 1
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [central_dp_fedavg_exact]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [uniform_k1]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    partition_seeds: [106]
+    training_seeds: [23]
+
+  - id: step1c_bounded_score_scale
+    expected_tasks: 5
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [scfar_no_dp]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    distance_score_over_c: [0.5, 0.75, 1.0, 1.25, 2.0]
+    partition_seeds: [106]
+    training_seeds: [23]
+
+  - id: step1c_raw_distance_ablation
+    expected_tasks: 1
+    scenario_ids: [fmnist_lenet5_b01]
+    method_ids: [far_raw_distance_fcc]
+    reference_ids: [fcc]
+    anchor_ids: [previous_release]
+    threat_ids: [clean]
+    tilt_ids: [k2_r100]
+    privacy_ids: [no_dp]
+    tau_over_c: [1.0]
+    user_clip_norms: [1.4]
+    partition_seeds: [106]
+    training_seeds: [23]

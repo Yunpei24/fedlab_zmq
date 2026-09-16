@@ -1,0 +1,184 @@
+campaign_id: gaussian_aware_reference_g0f_mps_v1
+scope: preregistered_reference_only_global_covariance_budget_allocation
+
+# Every calibration/evaluation identity is fresh relative to G0--G0e.  The
+# holdout identities are execution-gated unless all development gates pass.
+# The separate registry prevents accidental programmatic access; it is not a
+# claim that the plaintext seed values are cryptographically hidden from humans.
+excluded_prior_seeds:
+  [28, 36, 54, 107, 131, 211, 307, 401, 503, 607, 701, 809, 907,
+   1009, 1103, 1201, 1301, 1409, 2203, 2309, 2411, 2503, 2609,
+   3001, 3109, 3203, 3301, 3407, 3511, 3607,
+   4001, 4103, 4201, 4303, 4409,
+   5003, 5101, 5209, 5303, 5407, 5501, 5609,
+   6007, 6101, 6203, 6301, 6407,
+   7001, 7103, 7207, 7307, 7411, 7507, 7603,
+   2026090901, 2026091101, 2026091301,
+   2026091701, 2026091703,
+   2026092301, 2026092309, 2026092411, 2026092423]
+
+scientific_contract:
+  estimand: equal_client_mean_of_clean_honest_updates
+  reference_only: true
+  far_weights_used: false
+  accuracy_used: false
+  inverse_variance_estimand_forbidden: true
+  base_reference: fcc
+  correction_is_bounded_around_fcc: true
+  calibration_chain: server_clip_then_leave_one_out_fcc
+  calibration_is_offline_and_cross_fitted: true
+  crossfit_references_are_not_online_solver_inputs: true
+  allocation_radii: deployed_public_radii_before_cap
+  allocation_radius_semantics: effective_null_radius
+  allocation_radius_components: dp_variance_plus_heterogeneity_plus_reference_variance_plus_floor
+  allocation_radii_are_public_authenticated: true
+  client_declared_covariance_forbidden: true
+  parameters_are_derived_from_public_budgets: true
+  holdout_used_for_selection: false
+  holdout_blocked_until_development_passes: true
+
+cohort:
+  num_clients: 25
+  num_byzantine: 5
+  dimension: 64
+  block_sizes: [16, 16, 16, 16]
+  honest_mean_norm: 0.08
+  heterogeneity_std_by_block: [0.012, 0.018, 0.025, 0.035]
+  honest_outliers:
+    count: 5
+    shift_norm: 0.10
+    geometries: [aligned, orthogonal]
+
+privacy_noise:
+  base_std: 0.012
+  block_std_multipliers: [0.70, 1.00, 1.35, 1.70]
+  regimes:
+    - name: homogeneous
+      client_std_multipliers: [1.0]
+      permutations: [identity]
+    - name: heteroscedastic
+      client_std_multipliers: [1.0, 1.5, 2.0]
+      # The last two assignments put the fixed Byzantine identities on the
+      # highest/lowest public noise tiers while preserving the tier multiset.
+      permutations: [identity, reverse, byzantine_high, byzantine_low]
+
+references:
+  public_anchor: lagged_public_proxy
+  public_anchor_error_norm: 0.02
+  fcc:
+    radius: 0.13
+  rfa:
+    max_iter: 80
+    tolerance: 1.0e-8
+    smoothing: 1.0e-8
+  trimmed_mean:
+    trim_count: 5
+
+  # No quantity below is tuned on reference error or accuracy.  G, gamma,
+  # beta and K follow the same public budget equations as G0e.  G0f changes
+  # only the allocation of G over authenticated client/block radii.
+  g0f_public_budgets:
+    regular_honest_false_tail_rate: 0.10
+    correction_contamination_budget_fraction_of_fcc: 1.0
+    correction_radius_budget_fraction_of_fcc_radius: 0.20
+    target_solver_contraction: 0.3333333333333333
+    solver_error_tolerance: 1.0e-6
+    replace_one_bound_max: 0.030
+    variance_floor: 1.0e-12
+
+aggregation:
+  server_clip_norm: 0.42
+  clip_before_reference: true
+
+threats:
+  names: [none, alie, ipm, bitflip_x10, model_replacement]
+  separated_for_gates: [ipm, bitflip_x10, model_replacement]
+  evasive_controls: [alie]
+  alie_z: 1.5
+  ipm_scale: 3.0
+  bitflip_scale: 10.0
+  model_replacement_scale: 5.0
+  development_severities: [0.75, 1.0, 1.25]
+  holdout_severities: [0.60, 0.90, 1.10, 1.40]
+
+randomness:
+  calibration_folds:
+    - [2026092701, 2026092711]
+    - [2026092803, 2026092817]
+  calibration_draws_per_seed: 32
+  calibration_contexts:
+    - name: regular_only
+      include_outliers: false
+      geometry: orthogonal
+    - name: bounded_outliers_aligned
+      include_outliers: true
+      geometry: aligned
+    - name: bounded_outliers_orthogonal
+      include_outliers: true
+      geometry: orthogonal
+  # One standard-normal tensor Z is reused and rescaled in every registered
+  # noise regime/tier assignment for an exactly paired comparison.
+  pair_noise_across_regimes: true
+  pair_noise_across_tier_permutations: true
+  development_seeds: [2026101001, 2026101013, 2026101027, 2026101039, 2026101051]
+  development_draws_per_seed: 1
+  holdout_draws_per_seed: 2
+  replace_one_trials_per_seed_cell: 4
+
+# This registry is neither opened nor copied to resolved outputs before every
+# development gate passes.  The commitment is over the exact file bytes.
+holdout_registry:
+  path: configs/ldp_gradient_far/gaussian_aware_reference_g0f_holdout.yaml
+  sha256: 5c6f65adb249f095519dbb06c0a3e5ed834e77f2fb46cb6d33bbe8e34d9fe6a0
+  expected_seed_count: 7
+
+gates:
+  complete_fraction_min: 1.0
+  stability_complete_fraction_min: 1.0
+  finite_primary_metric_fraction_min: 1.0
+  # G0f must not degrade the certified FCC pilot by more than 2% in any
+  # seed-aggregated clean diagnostic cell.
+  clean_reference_error_ratio_to_fcc_max: 1.02
+  attacked_reference_error_ratio_to_fcc_max: 1.05
+  evasive_reference_error_ratio_to_fcc_max: 1.05
+  # The global allocation must improve with an upper 95% CI no larger than
+  # zero against FCC, G0e/equal-cap, and per-client normalization.
+  heteroscedastic_attacked_difference_ci95_high_max: 0.0
+  # Seed is the unit of replication: require at least 5% mean relative gain
+  # against both FCC and the equal-cap counterfactual.
+  heteroscedastic_attacked_relative_gain_min: 0.05
+  regular_honest_false_tail_upper_excess_max: 0.05
+  # Honest-outlier top-k recall remains reported as a secondary diagnostic;
+  # it is deliberately not a promotion gate for this reference-only estimand.
+  # Evaluated specifically in the byzantine_high public noise assignment.
+  # This is the norm share of endpoint Huber gradients Psi_i(p_K), not a
+  # causal decomposition of the full finite-K trajectory.
+  separated_byzantine_endpoint_clipped_gradient_share_max: 0.25
+  separated_byzantine_endpoint_clipped_gradient_share_per_block_max: 0.25
+  allocation_shape_deviation_min: 0.05
+  global_allocation_ratio_range_max: 1.0e-6
+  complete_client_budget_max: 0.13
+  g0e_equal_cap_equivalence_tolerance: 1.0e-6
+  replace_one_bound_max: 0.030
+  empirical_replace_one_violation_max: 0
+  solver_gradient_residual_max: 1.0e-6
+  correction_radius_violation_max: 0
+  diagnostic_group_observations_min: 5
+  diagnostic_group_seed_clusters_min: 5
+  regular_tier_clients_per_observation_min: 2
+
+selection:
+  phase: development_gate_only
+  primary_candidate: g0f_global_covariance
+  reported_candidates:
+    [uniform_mean, fcc, rfa, trimmed_mean, coordinate_median, g0e,
+     g0f_equal_cap, g0f_global_covariance, g0f_per_client_scale_blind]
+  candidate_grid: forbidden
+  holdout_used_for_selection: false
+  if_development_fails: stop_without_reading_or_generating_holdout
+  promotion_rule: all_preregistered_development_and_holdout_gates_pass
+
+execution:
+  required_device: mps
+  tensor_dtype: float32
+  allow_cpu_fallback: false

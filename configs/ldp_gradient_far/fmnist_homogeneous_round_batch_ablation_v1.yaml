@@ -1,0 +1,141 @@
+schema_version: 1
+campaign_id: ldp_gradient_far_fmnist_homogeneous_round_batch_ablation_v1
+base_config: fmnist_pilot.yaml
+output_root: ../../results/ldp_gradient_far/fmnist_homogeneous_round_batch_ablation_v1
+seeds: [28, 36, 54]
+
+# Scientific question
+# -------------------
+# For the homogeneous, uniformly weighted private-gradient baseline, does
+# increasing the number of global releases T and/or the fixed public batch
+# cardinality B improve utility at the SAME sample-level local-DP budget?
+#
+# Confirmatory contract shared by the four primary cells:
+#   Fashion-MNIST / LeNet-5; n=10; full participation; no client dropout;
+#   fixed-size sampling without replacement; replace-one adjacency;
+#   public local cardinality N=6000; one release per client and round;
+#   (epsilon, delta)=(4, 1e-5), recalibrated independently in every cell;
+#   per-example clipping C=8; server clipping U=16; server_lr=0.2;
+#   alpha=0, hence exactly uniform aggregation.
+#
+# Expected implementation noise multipliers from privacy/rdp.py (recorded for
+# audit, never hard-coded in the target-epsilon cells):
+#   T40_B300: 2.0736382484     T40_B600: 3.5022906303
+#   T80_B300: 2.6638581276     T80_B600: 4.6548970222
+# The accountant uses sigma_impl/2 because replace-one sensitivity is 2C/B.
+
+jobs:
+  - id: primary_t40_b300_eps4
+    analysis_role: primary_equal_privacy
+    factors:
+      rounds: 40
+      fixed_batch_size: 300
+      expected_noise_multiplier: 2.073638248443603
+    overrides:
+      training:
+        num_rounds: 40
+        algo_config:
+          fixed_batch_size: 300
+          privacy_sampling_rate_override: 0.05
+          privacy_num_rounds: 40
+          target_epsilon: 4.0
+          delta: 1.0e-5
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 0.0
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+
+  - id: primary_t40_b600_eps4
+    analysis_role: primary_equal_privacy
+    factors:
+      rounds: 40
+      fixed_batch_size: 600
+      expected_noise_multiplier: 3.5022906303405756
+    overrides:
+      training:
+        num_rounds: 40
+        algo_config:
+          fixed_batch_size: 600
+          privacy_sampling_rate_override: 0.10
+          privacy_num_rounds: 40
+          target_epsilon: 4.0
+          delta: 1.0e-5
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 0.0
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+
+  - id: primary_t80_b300_eps4
+    analysis_role: primary_equal_privacy
+    factors:
+      rounds: 80
+      fixed_batch_size: 300
+      expected_noise_multiplier: 2.6638581275939943
+    overrides:
+      training:
+        num_rounds: 80
+        algo_config:
+          fixed_batch_size: 300
+          privacy_sampling_rate_override: 0.05
+          privacy_num_rounds: 80
+          target_epsilon: 4.0
+          delta: 1.0e-5
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 0.0
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+
+  - id: primary_t80_b600_eps4
+    analysis_role: primary_equal_privacy
+    factors:
+      rounds: 80
+      fixed_batch_size: 600
+      expected_noise_multiplier: 4.654897022247315
+    overrides:
+      training:
+        num_rounds: 80
+        algo_config:
+          fixed_batch_size: 600
+          privacy_sampling_rate_override: 0.10
+          privacy_num_rounds: 80
+          target_epsilon: 4.0
+          delta: 1.0e-5
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 0.0
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0
+
+  # Diagnostic only: same implementation sigma as T=40,B=300, but twice as
+  # many releases. Its realised epsilon is about 5.524, not 4. This arm may
+  # isolate an optimisation-horizon effect, but MUST NOT be used as an
+  # equal-privacy comparison or promoted as the main result.
+  - id: diagnostic_t80_b300_fixed_sigma_t40
+    analysis_role: diagnostic_unequal_privacy
+    factors:
+      rounds: 80
+      fixed_batch_size: 300
+      expected_noise_multiplier: 2.073638248443603
+    overrides:
+      training:
+        num_rounds: 80
+        algo_config:
+          fixed_batch_size: 300
+          privacy_sampling_rate_override: 0.05
+          privacy_num_rounds: 80
+          target_epsilon: null
+          noise_multiplier: 2.073638248443603
+          delta: 1.0e-5
+          clip_norm: 8.0
+          far_server_clip_norm: 16.0
+          far_server_lr: 0.20
+          far_alpha: 0.0
+          reference_clip_radius: 8.0
+          anchor_clip_norm: 16.0

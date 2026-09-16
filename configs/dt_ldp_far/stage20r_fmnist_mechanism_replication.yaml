@@ -1,0 +1,40 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage20r_fmnist_mechanism_replication_v1
+scope: preregistered_independent_replication_of_stage20c_mechanism_result
+common: common.yaml
+seed_pair_indices: [10, 11]
+expected_tasks: 12
+
+requires_score_confirmation:
+  evidence: results/dt_ldp_far/score_quality_stage19_rfa_confirmatory_v1/confirmatory_decision.json
+  profile: two_logit_support_50_confirmatory
+  reference: rfa
+
+gates:
+  # Final end-to-end acceptability gates, frozen before the independent
+  # seeds 83 and 97 are run. Differences are paired boundary - uniform.
+  no_attack_test_accuracy_difference_mean_min_pp: -1.0
+  no_attack_test_accuracy_difference_each_min_pp: -3.0
+  no_attack_worst20_difference_mean_min_pp: -3.0
+  separated_test_accuracy_gain_mean_min_pp: 0.5
+  separated_positive_accuracy_gain_rate_min: 0.75
+  separated_byzantine_weight_mass_mean_max: 0.20
+  separated_byzantine_mass_not_above_uniform_rate_min: 0.75
+  privacy_epsilon_difference_max: 0.01
+  every_weight_cap_must_hold: true
+
+# The two arms share every mechanism component, including server clipping,
+# RFA, the public score subspace, privacy parameters, delay and RNG seeds.
+# Only the public tilt changes: alpha=0 versus alpha=alpha_max.
+experiments:
+  - id: E31_stage20r_paired_uniform_vs_candidate
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dt_ldp_far_stage19_peer_support]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform, boundary]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12

@@ -1,0 +1,21 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage0_geometry_refined_c4_final_confirm_v1
+scope: confirm_smallest_operating_server_radius_on_remaining_seeds
+common: common.yaml
+seed_pair_indices: [0, 1]
+expected_tasks: 4
+
+experiments:
+  - id: E11_refined_public_geometry_final_confirmation
+    scenarios: [fmnist_b01_n10_t20]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries:
+      - c4_u28_d240_r120
+      - c4_u30_d240_r120
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 4

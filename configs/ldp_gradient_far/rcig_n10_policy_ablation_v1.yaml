@@ -1,0 +1,32 @@
+campaign_id: rcig_n10_policy_ablation_v1
+scientific_status: exploratory_policy_ablation_not_confirmatory
+base_config: rcig_batch_screen_v1.yaml
+protocol: output/analysis/RCIG_N10_Policy_Ablation_Protocol.md
+num_clients: 10
+num_byzantine: 2
+rounds: 40
+batch_size: 120
+public_local_size: 6000
+calibration_seeds: [910001, 910002, 910003, 910004, 910005, 910006]
+comparison_seeds: [920001, 920002, 920003]
+arms: [recent, rolling, freeze, midpoint, rfa]
+scenarios: [none, bf_persistent, ipm_persistent, alie_persistent]
+noise_regimes:
+  homogeneous: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  heteroscedastic: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+attack:
+  client_ids: [0, 1]
+  active_round_start: 17
+  active_round_end: 40
+threshold_rule:
+  source: clean_recent_reference_calibration_only
+  modes: [full, isotropic, euclidean]
+  within_seed: maximum_rounds_13_to_40
+  across_seeds: maximum
+  inference: six_seeds_are_not_a_formal_false_alarm_certificate
+far_alpha: 0.1
+local_clip_norm: 4.0
+server_clip_norm: 16.0
+epsilon: 4.0
+delta: 1.0e-5
+extra_recovery_runs: false

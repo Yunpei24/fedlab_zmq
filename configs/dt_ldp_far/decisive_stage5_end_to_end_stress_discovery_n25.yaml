@@ -1,0 +1,57 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage5_end_to_end_stress_discovery_n25_v1
+scope: multi_seed_paired_end_to_end_fresh_noise_self_selection_discovery
+common: common.yaml
+seed_pair_indices: [0, 1, 2]
+expected_tasks: 24
+
+experiments:
+  # The four cells form a targeted fractional design.  Final accuracy is
+  # recorded but is forbidden as a promotion criterion.
+  - id: E12_alpha_stress_effective_noise_oracle_diagnostic_full_eps1
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dp_far_current_matched_oracle, dt_ldp_far_oracle]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps1_c4]
+    tilts: [stress12_uncertified]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 6
+
+  - id: E12_alpha_stress_effective_noise_oracle_diagnostic_hetero_eps4
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dp_far_current_matched_oracle, dt_ldp_far_oracle]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [stress12_uncertified]
+    geometries: [n25_u42_d441_r210]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 6
+
+  - id: E12_alpha_stress_effective_noise_oracle_diagnostic_last_layer_eps1
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dp_far_current_matched_oracle, dt_ldp_far_oracle]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps1_c4]
+    tilts: [stress12_uncertified]
+    geometries: [n25_u42_last_d035_r018]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 6
+
+  - id: E12_alpha_stress_effective_noise_oracle_diagnostic_coord256_eps1
+    scenarios: [fmnist_b01_n25_t6]
+    methods: [dp_far_current_matched_oracle, dt_ldp_far_oracle]
+    references: [fcc]
+    threats: [none]
+    privacy: [eps1_c4]
+    tilts: [stress12_uncertified]
+    geometries: [n25_u42_coord256_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 6

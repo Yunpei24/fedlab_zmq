@@ -1,0 +1,62 @@
+schema_version: 1
+campaign_id: dt_ldp_far_stage24_multikrum_admissibility_validation_v1
+scope: preregistered_delayed_multikrum_core_end_to_end_holdout
+common: common.yaml
+seed_pair_indices: [23, 24, 25, 26]
+expected_tasks: 36
+
+analysis_split:
+  integration_screen_seed: 307
+  confirmatory_seeds: [311, 313, 317]
+  screen_must_not_change_confirmatory_gates: true
+
+analysis:
+  stage_label: Stage 24
+  artifact_prefix: stage24
+  control_method: dt_ldp_far_stage19_peer_support
+  candidate_method: dt_ldp_far_stage24_multikrum_far
+
+gates:
+  integrated_no_attack_accuracy_mean_min_pp: -1.5
+  integrated_no_attack_accuracy_each_min_pp: -4.0
+  integrated_attacked_accuracy_gain_mean_min_pp: 0.5
+  integrated_attacked_accuracy_gain_each_attack_mean_min_pp: 0.25
+  integrated_attacked_positive_gain_rate_min: 0.6666666666666666
+  integrated_attacked_worst20_difference_mean_min_pp: -1.0
+
+  tilt_no_attack_accuracy_mean_min_pp: -1.0
+  tilt_attacked_accuracy_gain_mean_min_pp: 0.0
+  tilt_attacked_positive_gain_rate_min: 0.5
+  candidate_concentration_median_min: 1.002
+
+  # Uniform Byzantine mass is f/n=0.20. The robust core must reduce it.
+  candidate_byzantine_weight_mass_each_attack_mean_max: 0.16
+  candidate_byzantine_eligibility_rate_each_attack_mean_max: 0.6
+  privacy_epsilon_difference_max: 0.01
+  every_weight_cap_must_hold: true
+  strict_randomness_pair_key_required: true
+
+experiments:
+  - id: E36_stage24_unfiltered_uniform_control
+    scenarios: [fmnist_b01_n25_t12]
+    methods: [dt_ldp_far_stage19_peer_support]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 12
+
+  - id: E37_stage24_multikrum_core_and_far
+    scenarios: [fmnist_b01_n25_t12]
+    methods: [dt_ldp_far_stage24_multikrum_far]
+    references: [rfa]
+    threats: [none, ipm20_n25, bf20_n25_s10]
+    privacy: [eps4_c4_hetero_noise_n25]
+    tilts: [uniform, boundary]
+    geometries: [n25_u42_coord64_d025_r013]
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 24

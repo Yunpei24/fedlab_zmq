@@ -1,0 +1,21 @@
+schema_version: 1
+campaign_id: dt_ldp_far_decisive_stage1_server_clip_ablation_n25_c4_v1
+scope: isolate_server_upload_clipping_beyond_client_sample_clipping
+common: common.yaml
+seed_pair_indices: [0]
+expected_tasks: 6
+
+experiments:
+  - id: E11_server_clip_ablation_n25_screen
+    scenarios: [fmnist_b01_n25_t20]
+    methods: [dt_ldp_far]
+    references: [fcc]
+    threats: [none, bf20_n25_s10, alie20_n25]
+    privacy: [eps4_c4]
+    tilts: [boundary]
+    geometries:
+      - c4_u28_d240_r120
+      - c4_uinactive10_d240_r120_anchor280
+    local_epochs: [10]
+    delays: [1]
+    expected_tasks: 6

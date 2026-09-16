@@ -1,0 +1,68 @@
+campaign_id: fair_objective_screen_v1
+device: mps
+dataset: fashionmnist
+model: lenet5_tanh
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+num_clients: 10
+public_train_size: 4800
+validation_size: 1200
+batch_size: 240
+rounds: 20
+local_gradient_releases_per_round: 1
+local_optimizer_steps: 0
+server_aggregation: uniform
+server_clip: null
+attacks: none
+data_augmentation: none
+calibration_seed: 170101
+evaluation_seeds: [170201, 170202, 170203, 170204]
+budgets: [null, 4.0]
+delta: 1.0e-5
+privacy_adjacency: replace_one
+accountant: wang_balle_kasiviswanathan_2019_generic_theorem_9
+noise_regime: homogeneous
+methods:
+  ce:
+    loss: ce
+    mode: erm
+    beta: 0.0
+    clip_norm: 4.0
+    server_lr: 0.2
+  brier_erm:
+    loss: brier
+    mode: erm
+    beta: 0.0
+    clip_norm: 0.5
+    server_lr: 2.0
+  brier_naive:
+    loss: brier
+    mode: naive
+    beta: 2.0
+    clip_norm: 0.5
+    server_lr: 1.0526315789473684
+  brier_unbiased:
+    loss: brier
+    mode: unbiased
+    beta: 2.0
+    clip_norm: 0.5
+    server_lr: 1.0526315789473684
+audit:
+  population_per_client: 512
+  batches: [16, 64, 240]
+  monte_carlo_repeats: 24
+  beta: 2.0
+  clip_norm: 0.5
+  parameter_source: final_brier_calibration_model
+  uses_training_only: true
+gate:
+  # A learnability sanity gate, NOT a demonstration of a new method.
+  brier_validation_accuracy_gain_min_pp: 5.0
+  brier_vs_ce_validation_max_drop_pp: 5.0
+  max_nonfinite: 0
+  all_math_checks_required: true
+  no_attack_or_recursive_promotion: true
+  automatic_clean_screen_after_health_pass: true
+expected_calibration_runs: 2
+expected_clean_screen_runs_if_gate_passes: 32
+protocol: output/analysis/Fair_Objective_Screen_V1_Protocol.md

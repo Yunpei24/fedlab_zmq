@@ -1,0 +1,41 @@
+campaign_id: public_temporal_noise_training_v24
+device: mps
+seeds: [170501, 170502]
+seed_role: already_observed_calibration_only
+public_grid_indices: [7, 13]
+candidate_order: [7, 13]
+ratio_formula: 2**(grid_index/16)
+expected_runs: 16
+methods: [erm_mean, erm_rfa, risk_mean, risk_rfa]
+dataset: fashionmnist
+model: lenet5_tanh
+num_clients: 10
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+public_train_size: 4800
+validation_size: 1200
+batch_size: 240
+rounds: 120
+boundary_round: 60
+learning_rates: [2.0, 0.5]
+local_optimizer_steps: 0
+clip: 2.0
+server_clip: null
+recursive_memory: false
+epsilon: 4.0
+delta: 0.00001
+risk_epsilon: 0.25
+risk_scale: 0.5
+adjacency: replace_one
+sampling: fixed_without_replacement
+paired_randomness_source: results/ldp_gradient_far/recursive_private_risk_calibration_v19/simulator_secret.json
+minimum_worst20_advantage_pp: 1.0
+maximum_accuracy_loss_pp: 1.0
+gate_controls: [both_new_allocations, unchanged_v19, historical_v11]
+gate_control_methods: [erm_mean, erm_rfa]
+mean_gap_and_variance_must_not_increase: true
+primary_checkpoint: 120
+attacks: none
+test_evaluated: false
+automatic_confirmation: false
+automatic_attacks: false

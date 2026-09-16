@@ -6,6 +6,10 @@ models that construct malicious vectors from honest submissions.  Keeping
 them here avoids pretending that an honest worker would possess that view.
 """
 
-from .byzantine import apply_attack, apply_configured_attack
+from .byzantine import (
+    apply_attack,
+    apply_configured_attack,
+    scheduled_attack_phase,
+)
 
-__all__ = ["apply_attack", "apply_configured_attack"]
+__all__ = ["apply_attack", "apply_configured_attack", "scheduled_attack_phase"]

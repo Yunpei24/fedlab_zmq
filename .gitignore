@@ -57,6 +57,7 @@ docs/*
 !docs/methodology_fr.md
 !docs/methodology_en.md
 !docs/dmd_toubkal.md
+!docs/DT_LDP_FAR_LOCAL_RUN_GUIDE.md
 examples/
 
 # ── Local / private ───────────────────────────────────────────────────────────
@@ -87,3 +88,4 @@ TODO_experiences_SC-FAR-DP/*
 
 # Shipped SC-FAR reference methodology.
 !docs/far_reference_suite.md
+.vscode

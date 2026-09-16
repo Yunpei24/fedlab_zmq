@@ -1,0 +1,5 @@
+campaign_id: gaussian_aware_reference_g0f_mps_v1
+purpose: preregistered_execution_gated_holdout_identities
+holdout_seeds:
+  [2026102003, 2026102019, 2026102031, 2026102047,
+   2026102059, 2026102071, 2026102083]

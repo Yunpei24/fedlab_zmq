@@ -1,0 +1,80 @@
+schema_version: 1
+campaign_id: ldp_gradient_far_fmnist_recalibration_v1
+base_config: fmnist_pilot.yaml
+output_root: ../../results/ldp_gradient_far/fmnist_recalibration_v1
+
+# Stage A is a single-seed, paired calibration screen.  It deliberately keeps
+# alpha=0 in the utility controls so the optimizer and server clipping can be
+# diagnosed before attributing any effect to FAR or to the robust reference.
+jobs:
+  - id: nodp_uniform_u2_lr010
+    overrides:
+      training:
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          far_server_clip_norm: 2.0
+          far_server_lr: 0.10
+
+  - id: nodp_uniform_u2_lr020
+    overrides:
+      training:
+        algo_config:
+          enable_dp: false
+          target_epsilon: null
+          noise_multiplier: 0.0
+          far_alpha: 0.0
+          far_server_clip_norm: 2.0
+          far_server_lr: 0.20
+
+  - id: dp_uniform_u15_lr010
+    overrides:
+      training:
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 1.5
+          far_server_lr: 0.10
+
+  - id: dp_uniform_u18_lr010
+    overrides:
+      training:
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 1.8
+          far_server_lr: 0.10
+
+  - id: dp_uniform_u2_lr005
+    overrides:
+      training:
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 2.0
+          far_server_lr: 0.05
+
+  - id: dp_uniform_u2_lr010
+    overrides:
+      training:
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 2.0
+          far_server_lr: 0.10
+
+  - id: dp_uniform_u2_lr020
+    overrides:
+      training:
+        algo_config:
+          far_alpha: 0.0
+          far_server_clip_norm: 2.0
+          far_server_lr: 0.20
+
+  - id: dp_far_fna_u2_rho1_lr010_a010
+    overrides:
+      training:
+        algo_config:
+          far_alpha: 0.10
+          far_server_clip_norm: 2.0
+          reference_clip_radius: 1.0
+          anchor_clip_norm: 2.0
+          far_server_lr: 0.10

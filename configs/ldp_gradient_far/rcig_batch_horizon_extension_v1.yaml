@@ -1,0 +1,263 @@
+# DECLARATIVE PLAN ONLY. Not accepted as an executable training campaign.
+# Do not pass this document to any existing campaign launcher.
+schema_version: rcig_batch_horizon_extension_plan/v1
+artifact_kind: declarative_non_executable_plan
+campaign_id: rcig_batch_horizon_extension_v1
+scientific_status: exploratory_not_confirmatory
+training_executable: false
+source_design_reference: configs/ldp_gradient_far/rcig_end_to_end_v2.yaml
+source_design_is_read_only: true
+independent_result_namespace: results/ldp_gradient_far/rcig_batch_horizon_extension_v1
+
+deferred_trigger:
+  predecessor_campaign: rcig_r2_r3_exploratory_v1
+  predecessor_result_root: results/ldp_gradient_far/rcig_r2_r3_exploratory_v1
+  predecessor_read_only_status_command: python3 scripts/run_rcig_r2_r3_exploratory.py --status
+  predecessor_phase: r3_e2e_confirmation
+  required_valid_completed_runs: 384
+  required_active_campaign_processes: 0
+  completion_is_not_scientific_success: true
+  predecessor_negative_findings_must_be_preserved: true
+  preconditions_are_not_checked_by_this_planner: true
+  requires_new_executor_and_control_validation: true
+  never_modify_active_source_configs_results_or_gates: true
+
+scientific_scope:
+  dataset: fashionmnist
+  model: lenet5_tanh
+  partition: client_dirichlet_balanced
+  dirichlet_alpha: 0.1
+  num_clients: 25
+  num_byzantine: 5
+  attack_client_ids: [0, 1, 2, 3, 4]
+  fixed_local_dataset_size: 2400
+  full_client_participation: true
+  dropout_rate: 0.0
+  local_clip_norm: 4.0
+  server_clip_norm: 16.0
+  server_learning_rate: 0.2
+  one_fixed_wor_step_and_release_per_client_round: true
+  private_gradient_device_for_future_execution: mps
+  server_postprocessing_device: cpu
+  server_postprocessing_dtype: float64
+  covariance_under_attack: authenticated_nominal_honest_channel_model
+  covariance_never_uses: [realised_noise, attack_labels, byzantine_mask]
+
+grid:
+  batch_sizes: [120, 240, 480]
+  horizons: [40, 115, 268]
+  noise_regimes:
+    homogeneous:
+      client_scales: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    heteroscedastic:
+      client_scales: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1]
+
+privacy:
+  target_epsilon: 4.0
+  delta: 1.0e-5
+  adjacency: replace_one
+  sampling_scheme: fixed_without_replacement
+  sampling_rate_formula: B / 2400
+  private_releases_per_client_round: 1
+  total_private_steps_formula: T
+  sensitivity_multiplier: 2.0
+  sum_query_sensitivity_formula: 2 * C
+  implementation_noise_formula: sigma * C
+  released_average_noise_sd_formula: C * sigma * client_scale / B
+  accountant_noise_multiplier_formula: sigma * client_scale / 2
+  calibration_scope: independently_per_batch_and_horizon_at_minimum_client_scale
+  calibrator: privacy.rdp.calibrate_sampled_without_replacement_gaussian_noise
+  accountant: privacy.rdp.RDPAccountant.add_sampled_without_replacement_gaussian
+  orders: [2, 3, 4, 5, 8, 10, 16, 20, 32, 64]
+  epsilon_tolerance: 1.0e-4
+  recompute_epsilon_for_every_client_scale: true
+  record: [sigma, sampling_rate, released_average_noise_sd, per_client_epsilon,
+           minimum_client_epsilon, maximum_client_epsilon, max_epsilon_absolute_error,
+           maximum_epsilon_within_tolerance, accountant_orders]
+  interpretation: per_client_per_run_budget_not_composed_across_repeated_experiments
+
+algorithm_contract:
+  score_mode: raw_distance
+  noise_score_standardization: none
+  score_subspace_mode: full
+  tilt_bound_policy: diagnostic
+  far_alpha_except_uniform: 0.1
+  kappa_w: 2.0
+  reference_clip_radius: 4.0
+  anchor_update_rate: 0.1
+  anchor_clip_norm: 16.0
+  rfa_max_iter: 100
+  rfa_tol: 1.0e-6
+  rcig_covariance_mode: full
+  rcig_gate_window: 4
+  rcig_old_window: 4
+  rcig_new_window: 4
+  rcig_public_subspace_dimension: 64
+  rcig_public_subspace_seed: 20260911
+  rcig_gate_inner_mad: 2.5
+  rcig_gate_outer_mad: 4.5
+  rcig_min_accepted_mass: 0.6
+  rcig_covariance_ridge: 1.0e-6
+  rcig_process_variance: 1.0e-6
+  rcig_reference_output_radius: 16.0
+  rcig_persistent_policy: freeze_hysteresis
+  rcig_recovery_threshold_ratio: 0.8
+  rcig_recovery_patience: 2
+  temporal_reference_warmup_rounds: 12
+  temporal_reference_warmup_policy: uniform
+  strict_past_only: true
+  oracle_diagnostics_are_offline_only: true
+  oracle_information_cannot_affect_updates_or_selection: true
+  suppress_private_client_diagnostics: true
+
+references:
+  - id: rcig_full
+    robust_reference: rcig_temporal
+    covariance_mode: full
+    far_alpha: 0.1
+    uniform_warmup_rounds: 12
+    implementation_status: existing_reference_requires_extension_validation
+  - id: recent_reference
+    proposed_reference_control: identity_new
+    robust_reference: null
+    far_alpha: 0.1
+    uniform_warmup_rounds: 12
+    definition: strict_past_robust_gated_recent_window_view_projected_to_output_radius
+    same_recent_window_subspace_output_clipping_and_warmup_as_rcig: true
+    same_client_gate_as_rcig: true
+    temporal_fusion: false
+    freeze_policy: false
+    recovery_policy: false
+    implementation_status: implementation_required
+    implementation_required: true
+    deployable: false
+    unsupported_control_must_never_silently_fall_back: true
+  - id: uniform
+    robust_reference: centered_clipping
+    far_alpha: 0.0
+    uniform_warmup_rounds: 0
+    implementation_status: existing_reference_requires_extension_validation
+  - id: fcc
+    robust_reference: centered_clipping
+    far_alpha: 0.1
+    uniform_warmup_rounds: 0
+    implementation_status: existing_reference_requires_extension_validation
+  - id: rfa
+    robust_reference: rfa
+    far_alpha: 0.1
+    uniform_warmup_rounds: 0
+    implementation_status: existing_reference_requires_extension_validation
+
+scenarios:
+  include_no_attack: true
+  attacks:
+    - {id: bf_x10, name: bf, scale: 10.0}
+    - {id: ipm, name: ipm, scale: 1.0}
+    - {id: alie, name: alie, scale: 1.0}
+  schedules:
+    - {id: persistent, first_round: 17, last_round: T}
+    - {id: recovery, first_round: 17, last_round: floor(0.6*T)}
+  interval_endpoints_are_inclusive: true
+
+randomness:
+  calibration: {first_seed: 950001, count: 63}
+  null_validation: {first_seed: 960001, count: 36}
+  evaluation: {first_seed: 970001, default_count: 4, optional_count: 12}
+  evaluation_count_4_is_explicit_user_choice: true
+  optional_evaluation_expansion_requires_user_choice: true
+  disjoint_from_predecessor_seed_registries: true
+  phases_are_disjoint: true
+  pairing_unit: seed_block
+  paired_across_references: [partition, model_initialization, batches, base_noise,
+                              attack_client_ids, attack_schedule]
+  cross_batch_or_horizon_pairing: common_seed_and_prefix_where_mathematically_defined
+
+threshold_rule:
+  source: fresh_extension_calibration_only
+  import_predecessor_r0_thresholds: false
+  calibrated_mode: deployed_full_only
+  independently_per: [batch_size, horizon, noise_regime]
+  number_of_cells: 18
+  statistic_within_seed: maximum_deployed_full_innovation_over_rounds_13_through_T
+  statistic_across_seeds: maximum_of_63_seed_maxima
+  calibration_reference: identity_new_no_activation
+  deployed_reference: rcig_full
+  calibration_mode: dedicated_identity_new_no_activation_trajectory
+  calibration_control_implementation_required: true
+  calibration_scenario: no_attack
+  same_far_alpha_as_deployment: true
+  first_activation_coupling_required: true
+  first_activation_coupling_status: requires_implementation_and_validation
+  first_activation_coupling_contract: >-
+    Under paired releases, the no-activation calibration control and finite-threshold
+    deployed full reference must produce identical states, model updates and full
+    innovation statistics up to the first threshold activation. This is a required
+    validation condition, not an established implementation property.
+  post_activation_closed_loop_trajectory_equivalence_claimed: false
+  same_12_round_uniform_warmup_as_deployment: true
+  population_null_coverage: 0.90
+  simultaneous_confidence_required: 0.975
+  confidence_lower_formula: 1 - 18 * 0.90 ** 63
+  assumptions: independent_exchangeable_null_seed_blocks_within_each_cell
+  cross_cell_independence_required: false
+  union_bound_is_over_18_cellwise_coverage_statements: true
+  not_a_90_percent_simultaneous_no_alarm_probability_across_cells: true
+  freeze_before_null_validation_and_evaluation: true
+  no_retuning_from_null_or_attack_evaluation: true
+  exclude_isotropic_and_euclidean_threshold_calibration: true
+
+phases:
+  - id: fresh_calibration
+    seed_registry: calibration
+    references: [identity_new_no_activation]
+    scenarios: [no_attack]
+    grid_cells: 18
+    expected_runs: 1134
+  - id: independent_null_validation
+    seed_registry: null_validation
+    references: [rcig_full]
+    scenarios: [no_attack]
+    grid_cells: 18
+    expected_runs: 648
+    no_fitting_or_threshold_changes: true
+  - id: exploratory_comparison
+    seed_registry: evaluation
+    references: all_five
+    scenarios: all_seven
+    grid_cells: 18
+    expected_runs_default: 2520
+    expected_runs_optional_12_seeds: 7560
+    scientific_status: exploratory_even_if_12_seeds
+
+expected_task_counts:
+  fresh_calibration: 1134
+  independent_null_validation: 648
+  exploratory_comparison_4_seeds: 2520
+  total_4_seeds: 4302
+  exploratory_comparison_12_seeds: 7560
+  total_12_seeds: 9342
+
+analysis_plan:
+  unit_of_inference: paired_seed_block_not_individual_rounds
+  model_metrics: [test_accuracy, test_loss, honest_client_mean_accuracy,
+                  honest_client_accuracy_variance_pp2, honest_worst20_accuracy,
+                  honest_best20_accuracy, honest_best20_minus_worst20_gap_pp,
+                  learning_curve_area, final_10_round_mean_accuracy,
+                  post_attack_recovery_accuracy]
+  client_accuracy_variance_units: percentage_points_squared
+  fairness_gap_definition: honest_best20_mean_accuracy_minus_honest_worst20_mean_accuracy
+  fairness_gap_is_not_best_single_client_minus_worst_single_client: true
+  mechanistic_metrics: [null_false_activation, innovation_statistic,
+                        accepted_honest_mass, accepted_byzantine_mass,
+                        effective_client_weight_mass, reference_error,
+                        reference_utility_gain, persistent_gate_duration,
+                        recovery_delay, covariance_anisotropy,
+                        clipping_contraction, actual_privacy_epsilon]
+  reference_errors_and_attack_labels: offline_oracle_diagnostics_only
+  independent_null_reporting: per_cell_and_seedwise_union_with_97_5_percent_intervals
+  paired_effects: rcig_full_minus_each_of_recent_reference_uniform_fcc_rfa
+  report_each_batch_horizon_noise_scenario_cell: true
+  integrity_checks_and_scientific_findings_are_distinct: true
+  negative_results_must_remain_negative: true
+  failed_null_or_mechanistic_findings_cannot_be_relabelled_as_passing_gates: true
+  exploratory_comparison_is_not_confirmatory_evidence: true

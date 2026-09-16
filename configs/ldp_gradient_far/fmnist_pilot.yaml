@@ -1,0 +1,84 @@
+seed: 28
+output_dir: ./results/ldp_gradient_far/fmnist_pilot_seed28
+device: cpu
+
+data:
+  dataset: fashionmnist
+  model: lenet5
+  partition: client_dirichlet_balanced
+  alpha: 0.1
+  partition_seed: 28
+  data_root: ./data
+
+model:
+  architecture: lenet5
+
+training:
+  num_rounds: 40
+  cost_model: measured
+  algorithm: ldp_gradient_far
+  algo_config:
+    # One fixed-cardinality private gradient per client and round.
+    batch_size: 64
+    local_epochs: 1
+    fixed_steps_per_round: 1
+    sampling_scheme: fixed_without_replacement
+    privacy_adjacency: replace_one
+    privacy_public_dataset_size: 6000
+    privacy_sampling_rate_override: 0.05
+    fixed_batch_size: 300
+    per_sample_backend: vectorized
+
+    enable_dp: true
+    target_epsilon: 4.0
+    privacy_num_rounds: 40
+    delta: 1.0e-5
+    clip_norm: 1.0
+
+    # The client sends a private gradient. The learning rate is applied once
+    # at the server after FAR aggregation.
+    far_server_lr: 0.01
+    far_server_clip_norm: 1.0
+
+    # Raw FAR distance: no d/D_score normalization and no [0,1] saturation.
+    far_score_mode: raw_distance
+    noise_score_standardization: none
+    noise_score_include_server_contraction: false
+    score_subspace_mode: full
+    far_alpha: 0.1
+    kappa_w: 2.0
+    # Optional robustness diagnostic only: local privacy already holds before
+    # the server computes FAR weights.  Future alpha limits must be justified
+    # by the aggregation-error/convergence analysis, not by this chosen cap.
+    tilt_bound_policy: diagnostic
+
+    # Main candidate F_NA-CC. With homogeneous privacy noise this reduces
+    # exactly to ordinary one-step centered clipping; heterogeneous public
+    # multipliers should be tested in the registered ablation matrix.
+    robust_reference: noise_aware_centered_clipping
+    reference_clip_radius: 1.0
+    noise_aware_reference_kappa: 2.0
+    noise_aware_reference_variance_floor: 1.0e-12
+    anchor_update_rate: 0.1
+    anchor_clip_norm: 1.0
+
+    expected_num_clients: 10
+    client_metrics_every: 2
+    fairness_tail_fraction: 0.2
+
+clients:
+  num_clients: 10
+  sample_fraction: 1.0
+  sampling_strategy: random
+  min_clients: 10
+  dropout_rate: 0.0
+  fleet:
+    - type: raspberry_pi_4
+      count: 10
+  battery_init:
+    distribution: uniform_soc
+    params: {min_soc: 0.95, max_soc: 0.95}
+
+eval:
+  eval_every: 2
+  honest_clients_only: true
