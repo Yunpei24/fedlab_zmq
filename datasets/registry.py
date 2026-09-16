@@ -174,8 +174,32 @@ INPUT_SHAPE = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+_RAW_DATASET_CACHE: dict[tuple, object] = {}
+
+
 def _load_raw_dataset(name: str, split: str, data_root: str):
-    """Load raw torchvision dataset (no partitioning)."""
+    """Load raw torchvision dataset (no partitioning), cached per split.
+
+    A federated run builds one loader per client, and every call used to
+    construct a fresh torchvision dataset holding its own full copy of the
+    images in memory: ten EMNIST/ByClass clients meant ten times 671k images,
+    about 6.5 GB resident for a run that only ever reads 6.5k of them.
+    Partitioning wraps the raw dataset in ``Subset`` and never mutates it, so
+    one instance per (name, split, root) is safe to share, and the transform is
+    a function of exactly that key.
+    """
+
+    cache_key = (name, split, str(data_root))
+    cached = _RAW_DATASET_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    dataset = _build_raw_dataset(name, split, data_root)
+    _RAW_DATASET_CACHE[cache_key] = dataset
+    return dataset
+
+
+def _build_raw_dataset(name: str, split: str, data_root: str):
+    """Construct a raw torchvision dataset; see ``_load_raw_dataset``."""
     root = Path(data_root)
     root.mkdir(parents=True, exist_ok=True)
     train = split == "train"

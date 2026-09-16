@@ -21,6 +21,18 @@ class DMDConfig:
     mean_mu: float = 0.15
     dispersion_mu: float = 0.0375
     cvar_tail_mass: float = 0.2
+    # "empirical" reproduces the historical behaviour: eta is the exact weighted
+    # upper-VaR of the previous cohort.  With |A| survivors and equal weights
+    # that order statistic collapses onto the cohort maximum whenever
+    # tail_mass <= 1/|A| (4 survivors, tail_mass=0.2 -> eta = max), which leaves
+    # the hinge inert.  "dual" instead carries eta across rounds and moves it by
+    # Rockafellar-Uryasev dual ascent, so the threshold converges to the
+    # (1 - tail_mass) quantile by averaging over rounds rather than by ranking
+    # four points.
+    cvar_eta_mode: str = "empirical"
+    # Dimensionless: the dual step is scaled by the cohort mean deficit so the
+    # same value works whatever the magnitude of the margins.
+    cvar_eta_lr: float = 0.1
     class_weight_mode: str = "uniform"
     min_profile_count: int = 1
     reference_method: str = "median"
@@ -41,6 +53,10 @@ class DMDConfig:
             raise ValueError("DMD coefficients must be non-negative")
         if not 0.0 < self.cvar_tail_mass <= 1.0:
             raise ValueError("cvar_tail_mass must lie in (0, 1]")
+        if self.cvar_eta_mode not in {"empirical", "dual"}:
+            raise ValueError("cvar_eta_mode must be empirical or dual")
+        if self.cvar_eta_lr < 0:
+            raise ValueError("cvar_eta_lr must be non-negative")
         if self.class_weight_mode not in {"uniform", "frequency"}:
             raise ValueError("class_weight_mode must be uniform or frequency")
         if self.reference_method not in {"median", "trimmed_mean"}:

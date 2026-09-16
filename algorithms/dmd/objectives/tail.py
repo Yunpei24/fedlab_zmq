@@ -24,7 +24,14 @@ def tail_objective(
     ).detach()
     if threshold.numel() != 1 or not bool(torch.isfinite(threshold)):
         raise ValueError("eta must be finite and scalar")
-    risk = threshold + torch.relu(deficit - threshold) / tail_mass
+    # Rockafellar-Uryasev writes CVaR_b(D) = min_eta eta + [D-eta]_+ / b.  Here
+    # eta is detached, so the leading ``eta`` is a constant: it contributes no
+    # gradient, but it did add mu_V * eta to every logged ``local_dmd_addend``
+    # even for clients strictly below the threshold, which made the loss traces
+    # incomparable with the mean/USV variants.  We drop it; the optimisation is
+    # unchanged and the CVaR level itself stays available as ``dmd_cvar_eta``
+    # and ``dmd_deficit_cvar`` in the server audit.
+    risk = torch.relu(deficit - threshold) / tail_mass
     return make_terms(mean_mu * deficit, dispersion_mu * risk)
 
 
