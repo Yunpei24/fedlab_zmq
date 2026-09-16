@@ -30,5 +30,5 @@ python3 scripts/gen_emnist_phase2.py --step calibrate >> logs/_chain.txt 2>&1
 export FEDLAB_NUM_WORKERS=0
 echo "$(date +%H:%M:%S) lancement 2a" >> logs/_chain.txt
 scripts/run_campaign.sh 'configs/dmd_emnist_p2/*_mu*_p*.yaml' \
-  results/emnist_phase2_cal phase2_cal 4 >> logs/_chain.txt 2>&1
+  results/emnist_phase2_cal phase2_cal 1 4 >> logs/_chain.txt 2>&1
 echo "$(date +%H:%M:%S) 2a terminee" >> logs/_chain.txt
