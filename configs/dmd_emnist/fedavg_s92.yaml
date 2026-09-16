@@ -27,8 +27,8 @@ training:
     max_train_samples: 500
     max_anchor_samples: 150
     min_train_samples: 50
-    client_metrics_every: 5
-    global_eval_every: 5
+    client_metrics_every: 10
+    global_eval_every: 10
     client_eval_max_batches: 12
     device: cpu
     device_profile: null
