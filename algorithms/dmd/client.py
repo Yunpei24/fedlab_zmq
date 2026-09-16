@@ -43,6 +43,7 @@ def evaluate_margin_report(
     dataset_size: int,
     reference: torch.Tensor | None,
     class_weight_mode: str,
+    margin_space: str = "logit",
 ) -> DMDClientReport:
     """Evaluate a global/local model without changing its mode."""
 
@@ -63,6 +64,7 @@ def evaluate_margin_report(
         torch.cat(targets_all),
         num_classes,
         min_count=min_count,
+        space=margin_space,
     )
     values, counts = profile_to_wire(profile)
     deficit = None
@@ -141,6 +143,7 @@ def client_update(
             else None
         ),
         class_weight_mode=cfg.class_weight_mode,
+        margin_space=cfg.margin_space,
     )
     context_active = context is not None and server_round >= cfg.warmup_rounds
     model.train()
@@ -179,7 +182,9 @@ def client_update(
                     configured_counts = config.get("client_class_counts")
                     if configured_counts is None:
                         deficit = class_balanced_example_margin_deficit(
-                            true_class_margin(logits, targets),
+                            true_class_margin(
+                                logits, targets, space=cfg.margin_space
+                            ),
                             targets,
                             reference,
                             class_reliability=(
@@ -208,6 +213,7 @@ def client_update(
                             reference,
                             class_weights=numerator,
                             normalization_class_weights=inverse,
+                            margin_space=cfg.margin_space,
                         )
                 else:
                     deficit = example_quadratic_dmd_loss(
@@ -216,6 +222,7 @@ def client_update(
                         reference,
                         class_weights=class_weights,
                         normalization_class_weights=normalization_weights,
+                        margin_space=cfg.margin_space,
                     )
                 threshold = (
                     context.cvar_eta
@@ -298,6 +305,8 @@ def client_update(
         ),
         "dmd_profile_timing": "pre_training_global_model",
         "dmd_anchor_size": len(anchor.dataset),
+        "dmd_margin_space": cfg.margin_space,
+        "dmd_margin_target": cfg.margin_target,
         "dmd_client_report": report.to_wire(),
     }
     del optimizer, current, w_before

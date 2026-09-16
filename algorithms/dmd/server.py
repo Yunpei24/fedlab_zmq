@@ -88,8 +88,15 @@ def build_next_round_context(
         min_clients=config.min_reference_clients,
     )
     if config.reference_mode == "fixed_zero":
+        # A fixed scalar reference for every class.  ``margin_target`` defaults
+        # to 0.0, which is the published "reference zero" behaviour: penalise a
+        # class only once it is on the wrong side of the boundary.  A positive
+        # target makes the criterion satisficing -- clear the boundary by this
+        # much, then stop -- and is only meaningful in a bounded margin space.
         reference = torch.where(
-            torch.isfinite(reference), torch.zeros_like(reference), reference
+            torch.isfinite(reference),
+            torch.full_like(reference, config.margin_target),
+            reference,
         )
     reliability = class_reference_reliability(
         support,

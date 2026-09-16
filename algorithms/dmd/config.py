@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from .contracts import DMDVariant
+from .profiles import MARGIN_BOUND, MARGIN_SPACES
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,14 @@ class DMDConfig:
     # Dimensionless: the dual step is scaled by the cohort mean deficit so the
     # same value works whatever the magnitude of the margins.
     cvar_eta_lr: float = 0.1
+    # Decision-margin space; see algorithms/dmd/profiles.py.  "logit" is the
+    # historical, unbounded definition used by the published tables.
+    margin_space: str = "logit"
+    # Satisficing target: the penalty is [margin_target - m]_+^2, so the class
+    # must clear the boundary by this much before its gradient switches off.
+    # 0.0 reproduces the published "reference zero" behaviour.  A positive value
+    # only makes sense in a bounded space, where it is on a comparable scale.
+    margin_target: float = 0.0
     class_weight_mode: str = "uniform"
     min_profile_count: int = 1
     reference_method: str = "median"
@@ -57,6 +66,15 @@ class DMDConfig:
             raise ValueError("cvar_eta_mode must be empirical or dual")
         if self.cvar_eta_lr < 0:
             raise ValueError("cvar_eta_lr must be non-negative")
+        if self.margin_space not in MARGIN_SPACES:
+            raise ValueError(f"margin_space must be one of {MARGIN_SPACES}")
+        bound = MARGIN_BOUND[self.margin_space]
+        if bound is not None and not 0.0 <= self.margin_target < bound:
+            raise ValueError(
+                f"margin_target must lie in [0, {bound}) for {self.margin_space}"
+            )
+        if self.margin_target < 0:
+            raise ValueError("margin_target must be non-negative")
         if self.class_weight_mode not in {"uniform", "frequency"}:
             raise ValueError("class_weight_mode must be uniform or frequency")
         if self.reference_method not in {"median", "trimmed_mean"}:
