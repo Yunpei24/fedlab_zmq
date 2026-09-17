@@ -1,0 +1,17 @@
+# Copy and fill AFTER calibration. Nulls intentionally block confirmation.
+# No automatic selection on final-test accuracy. Same B/T/eta/U/rho across
+# DP/no-DP and alpha/reference arms within each dataset.
+calibration_report: null  # path to a local calibration decision report
+datasets:
+  mnist:
+    batch: null
+    rounds: null
+    learning_rate: null
+    server_clip: null
+    fcc_radius: null
+  fashionmnist:
+    batch: null
+    rounds: null
+    learning_rate: null
+    server_clip: null
+    fcc_radius: null

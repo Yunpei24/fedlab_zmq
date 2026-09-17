@@ -1,5 +1,6 @@
 import copy
 
+import pytest
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -114,3 +115,65 @@ def test_client_applies_injected_context_and_server_builds_next_context() -> Non
     )
     assert result.metrics["dmd_reference_published_classes"] == 2
     assert len(result.metrics["dmd_tail_weights"]) == 2
+
+
+def _client_update(name: str, initial: dict, config: dict) -> dict:
+    algorithm = get_algorithm(name)
+    model = _model()
+    model.load_state_dict(initial)
+    state = ClientState(client_id=0, battery_j=100.0)
+    update, _ = algorithm.client_update(
+        model, _loader(), state, {**algorithm.get_default_config(), **config}
+    )
+    return update
+
+
+def test_class_balanced_ce_without_penalty_is_cb_ce_exactly() -> None:
+    # Margin-on-CB-CE arms are read against a mean_mu=0 control, which is only a
+    # control if it is the CB-CE objective itself, update for update.
+    initial = copy.deepcopy(_model().state_dict())
+    shared = {"device": "cpu", "num_classes": 2, "client_class_counts": [14, 6],
+              "lr": 0.03, "momentum": 0.9, "weight_decay": 1e-4, "local_epochs": 1}
+    cb_ce = _client_update("cb_ce", initial, shared)
+    dmd = _client_update(
+        "dmd_mean", initial, {**shared, "ce_class_weighting": "inverse_frequency"}
+    )
+    assert cb_ce.keys() == dmd.keys()
+    assert all(torch.equal(cb_ce[key], dmd[key]) for key in cb_ce)
+
+
+@pytest.mark.parametrize(
+    "name, base_loss",
+    [("cb_loss", "effective_number"), ("balanced_softmax", "balanced_softmax"),
+     ("fedlc", "fedlc")],
+)
+def test_label_skew_base_loss_without_penalty_is_the_baseline_exactly(
+    name: str, base_loss: str
+) -> None:
+    # Baselines are compared through the DMD client at mean_mu=0 so every arm
+    # shares the anchor pass and random draws; that only holds if the client
+    # then trains exactly like the standalone baseline.
+    initial = copy.deepcopy(_model().state_dict())
+    shared = {"device": "cpu", "num_classes": 2, "client_class_counts": [14, 6],
+              "lr": 0.03, "momentum": 0.9, "weight_decay": 1e-4, "local_epochs": 1,
+              "label_skew_beta": 0.99, "label_skew_tau": 1.5}
+    baseline = _client_update(name, initial, shared)
+    dmd = _client_update("dmd_mean", initial, {**shared, "base_loss": base_loss})
+    assert baseline.keys() == dmd.keys()
+    assert all(torch.equal(baseline[key], dmd[key]) for key in baseline)
+
+
+def test_class_balanced_ce_reweights_and_requires_counts() -> None:
+    initial = copy.deepcopy(_model().state_dict())
+    base = {"device": "cpu", "num_classes": 2}
+    plain = _client_update("dmd_mean", initial, base)
+    weighted = _client_update(
+        "dmd_mean",
+        initial,
+        {**base, "ce_class_weighting": "inverse_frequency", "client_class_counts": [14, 6]},
+    )
+    assert any(not torch.equal(plain[key], weighted[key]) for key in plain)
+    with pytest.raises(ValueError, match="client_class_counts"):
+        _client_update("dmd_mean", initial, {**base, "ce_class_weighting": "inverse_frequency"})
+    with pytest.raises(ValueError, match="ce_class_weighting"):
+        _client_update("dmd_mean", initial, {**base, "ce_class_weighting": "sqrt"})

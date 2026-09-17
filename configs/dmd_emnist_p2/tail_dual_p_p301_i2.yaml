@@ -1,5 +1,5 @@
 seed: 2
-output_dir: ./results/emnist_phase2/tail_dual_p
+output_dir: ./results/emnist_phase2/tail_dual_p/p301
 device: cpu
 cost_model: phi
 layer_mismatch: false

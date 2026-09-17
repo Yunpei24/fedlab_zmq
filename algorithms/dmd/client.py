@@ -154,6 +154,19 @@ def client_update(
         weight_decay=cfg.weight_decay,
     )
     criterion = nn.CrossEntropyLoss()
+    if cfg.effective_base_loss != "ce":
+        # Imported here rather than at module level: algorithms.label_skew pulls
+        # in the FedAvg adapter, which this module otherwise has no need for.
+        from algorithms.label_skew import label_skew_criterion
+
+        criterion = label_skew_criterion(
+            cfg.effective_base_loss,
+            config.get("client_class_counts"),
+            cfg.num_classes,
+            device=device,
+            beta=cfg.label_skew_beta,
+            tau=cfg.label_skew_tau,
+        )
     reference = None
     reliability = None
     if context_active:
@@ -163,6 +176,8 @@ def client_update(
     total_loss = 0.0
     total_ce = 0.0
     total_fair = 0.0
+    total_slope = 0.0
+    context_batches = 0
     num_batches = 0
     for _ in range(cfg.local_epochs):
         for features, targets in dataloader:
@@ -237,6 +252,24 @@ def client_update(
                     mode=variant,
                     cvar_tail_mass=cfg.cvar_tail_mass,
                 )
+                # Effective intensity: the slope d(penalty)/dD this batch
+                # actually applied -- mu_M for the mean, plus 2*mu_V*[D-a]_+
+                # for USV, plus mu_V/b above eta for the tail.  Its average is
+                # what a matched-intensity DMD-Mean control has to reproduce.
+                # Probed on a detached CPU copy so the training graph and the
+                # device stay untouched.
+                probe = deficit.detach().cpu().requires_grad_(True)
+                probe_total, _, _ = deficit_distribution_objective(
+                    probe,
+                    threshold,
+                    mean_mu=cfg.mean_mu,
+                    dispersion_mu=cfg.dispersion_mu,
+                    mode=variant,
+                    cvar_tail_mass=cfg.cvar_tail_mass,
+                )
+                (slope,) = torch.autograd.grad(probe_total.sum(), probe)
+                total_slope += float(slope.sum())
+                context_batches += 1
             loss = ce + fairness
             loss.backward()
             max_norm = config.get("max_grad_norm")
@@ -297,6 +330,9 @@ def client_update(
         "local_loss": total_loss / max(num_batches, 1),
         "local_ce": total_ce / max(num_batches, 1),
         "local_dmd_addend": total_fair / max(num_batches, 1),
+        "local_dmd_effective_mu": (
+            total_slope / context_batches if context_batches else None
+        ),
         "compression_ratio": 1.0,
         "dataset_size": dataset_size,
         "dmd_context_applied": context_active,

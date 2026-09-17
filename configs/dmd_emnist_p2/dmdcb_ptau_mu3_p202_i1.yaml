@@ -1,5 +1,5 @@
 seed: 1
-output_dir: ./results/emnist_phase2_cal/dmdcb_ptau_mu3
+output_dir: ./results/emnist_phase2_cal/dmdcb_ptau_mu3/p202
 device: cpu
 cost_model: phi
 layer_mismatch: false

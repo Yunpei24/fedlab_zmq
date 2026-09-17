@@ -78,7 +78,7 @@ import algorithms  # noqa: F401 — load every registered algorithm once
 # import algorithms.fed_resonance_plus    # noqa
 from attacks import apply_configured_attack
 from algorithms.base import ClientState, get_algorithm, list_algorithms
-from core.seeding import seed_everything
+from core.seeding import round_client_seed, seed_everything, seed_torch
 from datasets.registry import get_dataloader, INPUT_SHAPE
 from datasets.anchor_split import dataset_targets, split_train_anchor_loader
 from diagnostics.layer_mismatch import LayerMismatchDiagnostic
@@ -694,6 +694,13 @@ def run_single_experiment(
                     "client_class_counts": client_train_class_counts[cid],
                 }
                 _battery_before = client_states[cid].battery_j
+
+                # Opt-in common random numbers: every torch draw of this local
+                # update is fixed by (seed, round, client), whatever earlier
+                # rounds or clients consumed.  Off by default, which keeps the
+                # single continuous stream every existing result was run with.
+                if merged_config.get("round_client_seeding", False):
+                    seed_torch(round_client_seed(seed, t, cid))
 
                 _t_client = time.time()
                 update, metadata = algo.client_update(

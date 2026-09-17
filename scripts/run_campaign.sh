@@ -21,14 +21,19 @@ mkdir -p "$LOGDIR"
 export RESULTS_ROOT LOGDIR THREADS
 
 run_one() {
-  local cfg="$1" name arm seed rc
+  local cfg="$1" name arm seed rc done_glob
   name=$(basename "$cfg" .yaml)
   # Config names are <arm>_p<partition>_i<init> or <arm>_s<seed>; the results
   # subdirectory is the arm, which is everything before the seed marker.
   arm=$(echo "$name" | sed -E 's/_(p[0-9]+_i[0-9]+|s[0-9]+)$//')
   seed=$(echo "$name" | sed -E 's/.*_(p[0-9]+_i[0-9]+|s[0-9]+)$/\1/')
-  if compgen -G "${RESULTS_ROOT}/${arm}/*/metrics.json" > /dev/null \
-     && [ -f "${LOGDIR}/${name}.done" ]; then
+  # A partition/init run sits one level deeper, under its partition, and its
+  # run directory is named after the init seed (scripts/gen_emnist_phase2.py).
+  case "$seed" in
+    p*) done_glob="${RESULTS_ROOT}/${arm}/${seed%%_*}/*_s${seed##*_i}/metrics.json" ;;
+    *)  done_glob="${RESULTS_ROOT}/${arm}/*/metrics.json" ;;
+  esac
+  if compgen -G "$done_glob" > /dev/null && [ -f "${LOGDIR}/${name}.done" ]; then
     echo "$(date +%H:%M:%S) SKIP ${name}" >> "${LOGDIR}/_progress.txt"
     return 0
   fi

@@ -220,6 +220,13 @@ def server_aggregate(
     states = [state for _, _, state in client_updates]
     participations = [1.0 if state.battery_j > 0 else 0.0 for state in states]
     count = len(client_updates)
+    # Averaged over the clients that applied the penalty only: warmup rounds and
+    # context-less clients carry no intensity rather than a zero one.
+    slopes = [
+        meta["local_dmd_effective_mu"]
+        for _, meta, _ in client_updates
+        if meta.get("local_dmd_effective_mu") is not None
+    ]
     jain = (
         sum(participations) ** 2
         / (count * sum(value * value for value in participations))
@@ -242,6 +249,7 @@ def server_aggregate(
             meta.get("local_dmd_addend", 0.0) for _, meta, _ in client_updates
         )
         / count,
+        "avg_local_dmd_effective_mu": sum(slopes) / len(slopes) if slopes else None,
         "dmd_context_clients": sum(
             bool(meta.get("dmd_context_applied", False))
             for _, meta, _ in client_updates

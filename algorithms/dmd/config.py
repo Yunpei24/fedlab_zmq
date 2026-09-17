@@ -42,6 +42,19 @@ class DMDConfig:
     # 0.0 reproduces the published "reference zero" behaviour.  A positive value
     # only makes sense in a bounded space, where it is on a comparable scale.
     margin_target: float = 0.0
+    # Weighting of the cross-entropy the penalty is added to.  "none" is the
+    # plain CE of every published DMD run.  "inverse_frequency" is the CB-CE
+    # objective of algorithms/cb_ce.py, so a margin arm built on it differs from
+    # a mean_mu=0 control by the penalty alone.
+    ce_class_weighting: str = "none"
+    # Local loss the penalty is added to, one of algorithms.label_skew's
+    # LABEL_SKEW_LOSSES.  At mean_mu=0 the client trains exactly like the matching
+    # standalone baseline, so baselines compared through this client share the
+    # anchor pass and the random draws.  ce_class_weighting=inverse_frequency is
+    # the earlier spelling of base_loss=inverse_frequency and stays valid.
+    base_loss: str = "ce"
+    label_skew_beta: float = 0.999
+    label_skew_tau: float = 1.0
     class_weight_mode: str = "uniform"
     min_profile_count: int = 1
     reference_method: str = "median"
@@ -75,6 +88,22 @@ class DMDConfig:
             )
         if self.margin_target < 0:
             raise ValueError("margin_target must be non-negative")
+        if self.ce_class_weighting not in {"none", "inverse_frequency"}:
+            raise ValueError("ce_class_weighting must be none or inverse_frequency")
+        from algorithms.label_skew import LABEL_SKEW_LOSSES
+
+        if self.base_loss not in LABEL_SKEW_LOSSES:
+            raise ValueError(f"base_loss must be one of {LABEL_SKEW_LOSSES}")
+        if self.ce_class_weighting == "inverse_frequency" and self.base_loss not in {
+            "ce", "inverse_frequency"
+        }:
+            raise ValueError(
+                f"ce_class_weighting=inverse_frequency conflicts with base_loss={self.base_loss}"
+            )
+        if not 0.0 <= self.label_skew_beta < 1.0:
+            raise ValueError("label_skew_beta must lie in [0, 1)")
+        if self.label_skew_tau < 0:
+            raise ValueError("label_skew_tau must be non-negative")
         if self.class_weight_mode not in {"uniform", "frequency"}:
             raise ValueError("class_weight_mode must be uniform or frequency")
         if self.reference_method not in {"median", "trimmed_mean"}:
@@ -90,6 +119,12 @@ class DMDConfig:
         if self.warmup_rounds < 1:
             raise ValueError("warmup_rounds must be at least one")
         return self
+
+    @property
+    def effective_base_loss(self) -> str:
+        if self.ce_class_weighting == "inverse_frequency":
+            return "inverse_frequency"
+        return self.base_loss
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -1,5 +1,5 @@
 seed: 2
-output_dir: ./results/emnist_phase2/dmdcb_norm
+output_dir: ./results/emnist_phase2/dmdcb_norm/p302
 device: cpu
 cost_model: phi
 layer_mismatch: false
