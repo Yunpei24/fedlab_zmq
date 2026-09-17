@@ -3,7 +3,10 @@
 # One array chunk per invocation: never launches an entire 88k-run grid.
 set -euo pipefail
 : "${FEDLAB_REPO:?Set FEDLAB_REPO}"
-: "${FEDLAB_ACCOUNT:?Set the exact authorised premium CPU account}"
+export FEDLAB_ACCOUNT="${FEDLAB_ACCOUNT:-manapy-1wabcjwe938-premium-cpu}"
+export FEDLAB_PARTITION="${FEDLAB_PARTITION:-compute}"
+export FEDLAB_QOS="${FEDLAB_QOS:-premium-cpu}"
+export PYTHONNOUSERSITE=1
 : "${FAR_MANIFEST:?Set FAR_MANIFEST}"
 : "${FAR_DATA_ROOT:?Set FAR_DATA_ROOT}"
 PYTHON_BIN="${PYTHON_BIN:-python}"

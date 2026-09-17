@@ -6,8 +6,9 @@ Un job SLURM = un entraînement complet ; les 10 clients sont simulés
 séquentiellement dans ce processus. Les jobs sont parallélisés entre eux par
 SLURM. Ce n'est pas un déploiement ZMQ à dix processus.
 
-Le compte « premium », sa partition et sa QoS ne sont pas devinés. Renseigner
-les noms exacts fournis par Toubkal. **Aucun job n'est soumis depuis cette conversation.**
+L'association premium a été confirmée le 17 septembre 2026 : compte
+`manapy-1wabcjwe938-premium-cpu`, QoS `premium-cpu`, partitions `compute` et
+`himem`. Ce guide utilise `compute`. **La mise à jour de ce guide ne soumet aucun job.**
 
 ## 1. Fichiers et protocole
 
@@ -61,13 +62,14 @@ ne télécharge ni packages ni datasets. Pour activer un environnement Conda dan
 le job, `CONDA_ENV` est optionnel ; sinon `PYTHON_BIN` doit pointer sur le bon Python.
 
 ```bash
-export FEDLAB_REPO="/chemin/absolu/vers/fedlab_zmq"
-export FAR_WORK="/chemin/absolu/sur/lustre/far_dp_effect_cpu_v1"
-export FAR_DATA_ROOT="/chemin/absolu/sur/lustre/datasets"
-export FEDLAB_ACCOUNT="NOM_EXACT_DU_COMPTE_CPU_PREMIUM"
-# Seulement si requis par ton allocation :
-export FEDLAB_PARTITION="NOM_EXACT_DE_LA_PARTITION"
-export FEDLAB_QOS="NOM_EXACT_DE_LA_QOS"
+export FEDLAB_REPO="$HOME/fedlab_zmq"
+export FEDLAB_PROJECT="$HOME/lustre/manapy-um6p-st-msda-1wabcjwe938"
+export FEDLAB_WORK="$FEDLAB_PROJECT/users/$USER/fedlab_zmq"
+export FAR_WORK="$FEDLAB_WORK/results/far_dp_effect_cpu_v1"
+export FAR_DATA_ROOT="$FEDLAB_WORK/datasets"
+export FEDLAB_ACCOUNT="manapy-1wabcjwe938-premium-cpu"
+export FEDLAB_PARTITION="compute"
+export FEDLAB_QOS="premium-cpu"
 
 export CONDA_ENV="fedlab-zmq"
 export CONDA_MODULE="Anaconda3/2025.06-1"
@@ -76,10 +78,12 @@ export PYTHONNOUSERSITE=1
 cd "$FEDLAB_REPO"
 ```
 
-Remplacer les chemins/noms d'exemple ; ne pas utiliser les chaînes `NOM_EXACT...`
-telles quelles. Si partition/QoS n'est pas nécessaire, ne pas exporter la variable
-(ou `unset FEDLAB_QOS` / `unset FEDLAB_PARTITION`). Ne pas reprendre l'ancien
-compte `low-cpu` du guide historique alors que l'objectif est premium.
+Le compte de facturation change, pas automatiquement le chemin Lustre du projet.
+Vérifier que ces répertoires sont accessibles. Si l'archive a été extraite dans
+un nouveau dossier, adapter seulement `FEDLAB_REPO`. Ne pas réutiliser un root
+de campagne dont le manifeste a été préparé avec une autre version du code.
+Le wrapper utilise aussi premium/compute par défaut, mais une variable exportée
+antérieurement (par exemple `low-cpu`) reste prioritaire : réexécuter ce bloc.
 
 Avec un venv : ne pas définir `CONDA_ENV`, et définir par exemple
 `PYTHON_BIN=/chemin/absolu/venv/bin/python`. L'environnement doit être activé
@@ -91,11 +95,54 @@ qui permet cette requête, on peut consulter :
 
 ```bash
 sacctmgr show assoc where user="$USER" format=Account,Partition,QOS
+sacctmgr -nP show qos where name=premium-cpu \
+  format=Name,Priority,MaxWall,MaxTRESPJ,MaxTRESPU,MaxJobsPU
 sinfo -o '%P %a %l %c %m'
 ```
 
 Ces commandes sont en lecture seule, mais leur disponibilité dépend de Toubkal.
 Si refusées, demander les paramètres au support ; ne pas contourner la restriction.
+
+La sortie premium communiquée indique une priorité QoS de 10000, une durée
+maximale de **36 h par job**, et des plafonds par utilisateur de **3584 CPU et
+64 nœuds**. Ce ne sont pas des ressources réservées : disponibilité, limites
+de partition, mémoire et autres associations restent applicables. Les champs
+vides ne prouvent pas un accès illimité. `mybalance` ayant présenté un affichage
+incohérent sur l'ancien compte, ne pas engager toute la grille sur cette seule base.
+
+### Allocation interactive et activation effective
+
+Depuis le login node, après le bloc de variables :
+
+```bash
+srun --account="$FEDLAB_ACCOUNT" --partition="$FEDLAB_PARTITION" \
+  --qos="$FEDLAB_QOS" --time=01:00:00 --ntasks=1 \
+  --cpus-per-task=8 --mem=16G --pty bash
+```
+
+Une fois le nœud alloué, activer aussi Conda pour les tests et la préparation :
+
+```bash
+module purge
+module load "$CONDA_MODULE"
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "$CONDA_ENV"
+export PYTHONNOUSERSITE=1
+cd "$FEDLAB_REPO"
+python --version
+python -c "import sys; print(sys.executable)"
+python -c "from PIL import Image; import torch, torchvision; print('Imports OK')"
+mkdir -p "$FAR_WORK" "$FAR_DATA_ROOT"
+```
+
+L'environnement du guide commun est Python **3.12.3**. Ne pas utiliser le
+Python 3.13 de base d'Anaconda ou un `pytest` venant de `~/.local`.
+Si l'environnement n'existe pas, suivre la section 3 de
+[SETUP_TOUKBAL_CPU.md](SETUP_TOUKBAL_CPU.md), en conservant les variables premium
+ci-dessus. L'erreur `GLIBCXX_3.4.29` rencontrée à l'import de Pillow est décrite
+dans sa section 10. Ne pas lancer la campagne tant que les imports échouent.
+Le job batch purge les modules, active Conda si demandé et vérifie les imports
+avant l'entraînement. Aucun changement global de bibliothèque système n'est fait.
 
 ### Dépendances minimales
 
@@ -235,6 +282,11 @@ Défauts : 8 CPU par job, 16 Go, 12 h. Les CPU servent au calcul tensoriel, pas
 à huit clients indépendants. Chronométrer les premiers jobs avant d'augmenter
 la concurrence. Tester 4/8/16 threads dans des roots de benchmarks distincts
 si nécessaire ; plus de threads n'est pas systématiquement plus rapide.
+
+Ces 12 h sont inférieures au plafond premium de 36 h. Quatre jobs simultanés
+demandent 32 CPU et jusqu'à 64 Go au total. Garder cette concurrence initiale
+avant de mesurer le débit et le coût de la calibration. Ne pas confondre les
+3584 CPU autorisés avec une recommandation de les réserver tous.
 
 Surcharges possibles avant soumission :
 
