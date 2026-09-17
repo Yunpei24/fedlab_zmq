@@ -56,6 +56,8 @@ paper*
 docs/*
 !docs/methodology_fr.md
 !docs/methodology_en.md
+!docs/dmd_audit_option_b.md
+!docs/dmd_handoff.md
 !docs/dmd_toubkal.md
 !docs/DT_LDP_FAR_LOCAL_RUN_GUIDE.md
 examples/

@@ -1,0 +1,191 @@
+{
+  "criterion": "max Worst-20 client balanced accuracy, mean over rounds 41-60 then over calibration partitions; ties to the smaller mean_mu; mean_mu with a missing run ineligible",
+  "calibration_partitions": [
+    201,
+    203
+  ],
+  "calibration_inits": [
+    1
+  ],
+  "picks": {
+    "cbdmd_prob": 0.3,
+    "cbdmd_ptau": 0.3,
+    "cbdmd_norm": 0.3
+  },
+  "test_mean_mu": {
+    "cbdmd_prob": 0.3,
+    "cbdmd_ptau": 0.3,
+    "cbdmd_norm": 0.3
+  },
+  "table": {
+    "cbce_ref": [
+      {
+        "mean_mu": 0.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 38.661,
+        "mean_ba": 41.80237047782904,
+        "worst20": 22.60130273567465,
+        "var_ba": 0.0245797537706947,
+        "gap": 41.2680670785964,
+        "reference": true
+      }
+    ],
+    "cbdmd_prob": [
+      {
+        "mean_mu": 0.3,
+        "runs": 2,
+        "eligible": true,
+        "acc": 39.111999999999995,
+        "mean_ba": 42.20855235171026,
+        "worst20": 22.658995853989516,
+        "var_ba": 0.02478746326164267,
+        "gap": 41.05715397799014
+      },
+      {
+        "mean_mu": 1.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 38.512,
+        "mean_ba": 41.98972319794501,
+        "worst20": 22.38720845098364,
+        "var_ba": 0.025724239212889743,
+        "gap": 42.5092474098407
+      },
+      {
+        "mean_mu": 3.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 36.027,
+        "mean_ba": 40.262867605524136,
+        "worst20": 21.571080133567015,
+        "var_ba": 0.025066030368136948,
+        "gap": 41.6585654778874
+      },
+      {
+        "mean_mu": 10.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 36.558,
+        "mean_ba": 40.237650310940445,
+        "worst20": 22.150647636512552,
+        "var_ba": 0.020012537056068896,
+        "gap": 38.027019203094
+      },
+      {
+        "mean_mu": 30.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 26.966,
+        "mean_ba": 31.31737415042452,
+        "worst20": 12.431682958832361,
+        "var_ba": 0.025767344914599654,
+        "gap": 42.06990770011064
+      }
+    ],
+    "cbdmd_ptau": [
+      {
+        "mean_mu": 0.3,
+        "runs": 2,
+        "eligible": true,
+        "acc": 37.89,
+        "mean_ba": 41.84495991242699,
+        "worst20": 23.213020130608072,
+        "var_ba": 0.02421743462393223,
+        "gap": 40.32931514250849
+      },
+      {
+        "mean_mu": 1.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 36.878,
+        "mean_ba": 40.79912470411942,
+        "worst20": 21.13566393153625,
+        "var_ba": 0.0267094535621418,
+        "gap": 43.19505089914627
+      },
+      {
+        "mean_mu": 3.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 37.526,
+        "mean_ba": 40.99612517868624,
+        "worst20": 22.07090379265871,
+        "var_ba": 0.021954233952730145,
+        "gap": 40.122428383768266
+      },
+      {
+        "mean_mu": 10.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 29.825000000000003,
+        "mean_ba": 35.53582183091942,
+        "worst20": 17.447834030986975,
+        "var_ba": 0.02355161572336221,
+        "gap": 39.95482593649206
+      },
+      {
+        "mean_mu": 30.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 10.734,
+        "mean_ba": 16.125077645536813,
+        "worst20": 0.2088243026621032,
+        "var_ba": 0.01666592178256299,
+        "gap": 34.373646116967606
+      }
+    ],
+    "cbdmd_norm": [
+      {
+        "mean_mu": 0.3,
+        "runs": 2,
+        "eligible": true,
+        "acc": 39.229,
+        "mean_ba": 43.36869056386271,
+        "worst20": 24.438909774135062,
+        "var_ba": 0.02538485850528112,
+        "gap": 41.62802461774917
+      },
+      {
+        "mean_mu": 1.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 36.863,
+        "mean_ba": 40.187863199639686,
+        "worst20": 20.963766750766897,
+        "var_ba": 0.02624185566925739,
+        "gap": 42.29410321305023
+      },
+      {
+        "mean_mu": 3.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 32.675,
+        "mean_ba": 37.25478500126264,
+        "worst20": 19.038351356676316,
+        "var_ba": 0.02652892606375189,
+        "gap": 41.49524045621179
+      },
+      {
+        "mean_mu": 10.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 22.036,
+        "mean_ba": 27.353476550114326,
+        "worst20": 10.336854926411577,
+        "var_ba": 0.02537485320741919,
+        "gap": 40.347610386408235
+      },
+      {
+        "mean_mu": 30.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 12.648,
+        "mean_ba": 17.04212753665542,
+        "worst20": 2.305711659039418,
+        "var_ba": 0.015537088791024438,
+        "gap": 33.259000749037405
+      }
+    ]
+  }
+}

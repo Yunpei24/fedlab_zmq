@@ -9,8 +9,34 @@ from torch.nn import functional as F
 from .contracts import MarginProfile
 
 
-def true_class_margin(logits: Tensor, targets: Tensor) -> Tensor:
-    """Return ``z_y - max_{k != y} z_k`` for every observation."""
+MARGIN_SPACES = ("logit", "probability", "normalized")
+
+# Largest attainable |margin| per space, i.e. the M of the framework's bounded
+# margin assumption.  "logit" has no bound at all, which is why B_D = M^2/2 is
+# unusable there for a DP sensitivity budget.
+MARGIN_BOUND = {"logit": None, "probability": 1.0, "normalized": 2.0}
+
+
+def true_class_margin(
+    logits: Tensor, targets: Tensor, *, space: str = "logit"
+) -> Tensor:
+    """Return the decision margin of the true class, in the requested space.
+
+    ``logit`` is ``z_y - max_{k != y} z_k``: the historical definition, and the
+    one the published tables use.  It is unbounded and not scale-invariant --
+    contracting every logit by c leaves every decision unchanged but scales the
+    margin by c, so the quadratic deficit scales by c^2.  Weight decay pushes in
+    exactly that direction, and it makes deficits incomparable across clients,
+    which matters because the USV/CVaR threshold compares them.
+
+    ``probability`` is ``p_y - max_{k != y} p_k`` on the softmax, in [-1, 1].
+    Not scale-invariant either, but the sensitivity now runs the safe way:
+    shrinking the logits pushes the probabilities toward uniform, which *raises*
+    the deficit instead of paying the optimiser to shrink them.
+
+    ``normalized`` is the logit margin divided by ``||z||_2``, in [-2, 2] and
+    invariant to any positive rescaling of the logits by construction.
+    """
 
     if logits.ndim != 2:
         raise ValueError("logits must have shape [batch, classes]")
@@ -18,11 +44,17 @@ def true_class_margin(logits: Tensor, targets: Tensor) -> Tensor:
         raise ValueError("targets must have shape [batch]")
     if logits.shape[1] < 2:
         raise ValueError("at least two classes are required")
+    if space not in MARGIN_SPACES:
+        raise ValueError(f"unknown margin space: {space}")
     targets = targets.to(device=logits.device, dtype=torch.long)
-    true_logits = logits.gather(1, targets.unsqueeze(1)).squeeze(1)
-    competitors = logits.clone()
+    scores = logits.softmax(dim=1) if space == "probability" else logits
+    true_scores = scores.gather(1, targets.unsqueeze(1)).squeeze(1)
+    competitors = scores.clone()
     competitors.scatter_(1, targets.unsqueeze(1), -torch.inf)
-    return true_logits - competitors.max(dim=1).values
+    margin = true_scores - competitors.max(dim=1).values
+    if space == "normalized":
+        margin = margin / logits.norm(dim=1).clamp_min(1e-12)
+    return margin
 
 
 def _mean_profile(
@@ -54,11 +86,12 @@ def class_margin_profile(
     num_classes: int,
     *,
     min_count: int = 1,
+    space: str = "logit",
 ) -> MarginProfile:
     """Compute the mean decision margin for every locally observed class."""
 
     return _mean_profile(
-        true_class_margin(logits, targets),
+        true_class_margin(logits, targets, space=space),
         targets,
         num_classes,
         min_count=min_count,

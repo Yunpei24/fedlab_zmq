@@ -75,3 +75,27 @@ def seed_everything(seed: int, deterministic: bool = False) -> int:
             torch.backends.cudnn.benchmark = False
 
     return seed
+
+
+def round_client_seed(seed: int, round_num: int, client_id: int) -> int:
+    """Seed of one client's local update, a function of (seed, round, client) only.
+
+    Reseeding torch with it before every local update gives common random
+    numbers across arms: the augmentation flips and dropout masks of round t on
+    client i no longer depend on how many draws earlier rounds, earlier clients
+    or an arm's own extra passes consumed.
+    """
+
+    return int(np.random.SeedSequence([seed, round_num, client_id]).generate_state(1)[0])
+
+
+def seed_torch(seed: int) -> None:
+    """Reseed the torch generators only, leaving python and numpy streams alone.
+
+    Client sampling and dropout draw from their own numpy generators in
+    run_experiment.py, so they are unaffected.
+    """
+
+    torch.manual_seed(seed)  # also seeds the MPS generator
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)

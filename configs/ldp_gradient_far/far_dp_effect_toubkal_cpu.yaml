@@ -1,0 +1,45 @@
+schema_version: 1
+campaign_id: far_dp_effect_toubkal_cpu_v1
+device: cpu
+datasets: [mnist, fashionmnist]
+model: lenet5_tanh
+num_clients: 10
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+train_per_client: 4800
+validation_per_client: 1200
+test_per_client: 1000
+outer_seeds: [2026091701, 2026091702, 2026091703, 2026091704, 2026091705,
+              2026091706, 2026091707, 2026091708, 2026091709, 2026091710]
+calibration_seeds: [2026091601, 2026091602, 2026091603]
+# Proposed default. Change BEFORE prepare; manifests freeze this value.
+mc_repeats: 3
+delta: 0.00001
+epsilon_values: [1.0, 4.0, 8.0]
+local_clips: [2.0, 8.0, 16.0]
+alphas: [-4.0, -3.4, -2.5, -1.8, -0.6, -0.3, -0.1,
+          0.0, 0.1, 0.3, 0.6, 1.8, 2.5, 3.4, 4.0]
+references: [rfa, coordinate_median, trimmed_mean, centered_clipping]
+trimmed_mean_f_budget: 2
+fcc_anchor_rate: 0.1
+microbatch: 32
+evaluation_interval: 20
+checkpoint_interval: 10
+evaluate_train_final: true
+calibration:
+  rounds: 600
+  batches: [300, 1200]
+  learning_rates: [0.05, 0.2]
+  local_clip: 8.0
+  epsilon: 4.0
+  diagnostic_fcc_radius: 8.0
+  mc_repeats: 1
+smoke:
+  rounds: 2
+  batch: 20
+  learning_rate: 0.05
+  local_clip: 8.0
+  server_clip: 16.0
+  fcc_radius: 8.0
+  # Smoke evaluates only a validation prefix, NEVER compare with main metrics.
+  validation_examples_per_client: 100

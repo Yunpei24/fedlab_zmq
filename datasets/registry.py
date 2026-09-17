@@ -43,9 +43,18 @@ _PIN_MEMORY: bool = torch.cuda.is_available()
 # On macOS, forked DataLoader workers consume enormous virtual memory (each worker
 # inherits the full Python address space via copy-on-write).  Use 0 workers on macOS
 # to avoid 60+ forked processes with 30 clients.
+import os
 import platform as _platform
 
 _NUM_WORKERS: int = 0 if _platform.system() == "Darwin" else 2
+
+# FEDLAB_NUM_WORKERS overrides the default. Set it to 0 when running several
+# experiments in parallel on a small machine: each loader forks its own workers,
+# so a four-way campaign on four cores runs at a load average above five and the
+# processes mostly wait on each other. With the raw dataset cached in memory the
+# workers buy nothing anyway. Unset, behaviour is unchanged.
+if os.environ.get("FEDLAB_NUM_WORKERS") is not None:
+    _NUM_WORKERS = int(os.environ["FEDLAB_NUM_WORKERS"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -174,8 +183,32 @@ INPUT_SHAPE = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+_RAW_DATASET_CACHE: dict[tuple, object] = {}
+
+
 def _load_raw_dataset(name: str, split: str, data_root: str):
-    """Load raw torchvision dataset (no partitioning)."""
+    """Load raw torchvision dataset (no partitioning), cached per split.
+
+    A federated run builds one loader per client, and every call used to
+    construct a fresh torchvision dataset holding its own full copy of the
+    images in memory: ten EMNIST/ByClass clients meant ten times 671k images,
+    about 6.5 GB resident for a run that only ever reads 6.5k of them.
+    Partitioning wraps the raw dataset in ``Subset`` and never mutates it, so
+    one instance per (name, split, root) is safe to share, and the transform is
+    a function of exactly that key.
+    """
+
+    cache_key = (name, split, str(data_root))
+    cached = _RAW_DATASET_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    dataset = _build_raw_dataset(name, split, data_root)
+    _RAW_DATASET_CACHE[cache_key] = dataset
+    return dataset
+
+
+def _build_raw_dataset(name: str, split: str, data_root: str):
+    """Construct a raw torchvision dataset; see ``_load_raw_dataset``."""
     root = Path(data_root)
     root.mkdir(parents=True, exist_ok=True)
     train = split == "train"

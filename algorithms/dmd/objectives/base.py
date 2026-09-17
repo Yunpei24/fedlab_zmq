@@ -173,13 +173,14 @@ def example_quadratic_dmd_loss(
     *,
     class_weights: Tensor | None = None,
     normalization_class_weights: Tensor | None = None,
+    margin_space: str = "logit",
 ) -> Tensor:
     """Differentiable per-example quadratic DMD penalty."""
 
     if reference.ndim != 1 or reference.shape[0] != logits.shape[1]:
         raise ValueError("reference must contain one value per class")
     targets = targets.to(logits.device, torch.long)
-    margins = true_class_margin(logits, targets)
+    margins = true_class_margin(logits, targets, space=margin_space)
     local_reference = reference.to(logits.device, logits.dtype)[targets]
     valid = torch.isfinite(local_reference)
     if not bool(valid.any()):
@@ -202,13 +203,14 @@ def example_quadratic_standardized_dmd_loss(
     *,
     class_weights: Tensor | None = None,
     normalization_class_weights: Tensor | None = None,
+    margin_space: str = "logit",
 ) -> Tensor:
     if reference.ndim != 1 or reference.shape[0] != logits.shape[1]:
         raise ValueError("reference must contain one value per class")
     if reference_scale.shape != reference.shape:
         raise ValueError("reference_scale must align with reference")
     targets = targets.to(logits.device, torch.long)
-    margins = true_class_margin(logits, targets)
+    margins = true_class_margin(logits, targets, space=margin_space)
     local_reference = reference.to(logits.device, logits.dtype)[targets]
     local_scale = reference_scale.to(logits.device, logits.dtype)[targets]
     valid = (
@@ -241,11 +243,12 @@ def example_linear_dmd_loss(
     *,
     class_weights: Tensor | None = None,
     normalization_class_weights: Tensor | None = None,
+    margin_space: str = "logit",
 ) -> Tensor:
     if reference.ndim != 1 or reference.shape[0] != logits.shape[1]:
         raise ValueError("reference must contain one value per class")
     targets = targets.to(logits.device, torch.long)
-    margins = true_class_margin(logits, targets)
+    margins = true_class_margin(logits, targets, space=margin_space)
     local_reference = reference.to(logits.device, logits.dtype)[targets]
     valid = torch.isfinite(local_reference)
     if not bool(valid.any()):

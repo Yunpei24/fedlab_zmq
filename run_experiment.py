@@ -78,7 +78,7 @@ import algorithms  # noqa: F401 — load every registered algorithm once
 # import algorithms.fed_resonance_plus    # noqa
 from attacks import apply_configured_attack
 from algorithms.base import ClientState, get_algorithm, list_algorithms
-from core.seeding import seed_everything
+from core.seeding import round_client_seed, seed_everything, seed_torch
 from datasets.registry import get_dataloader, INPUT_SHAPE
 from datasets.anchor_split import dataset_targets, split_train_anchor_loader
 from diagnostics.layer_mismatch import LayerMismatchDiagnostic
@@ -574,6 +574,8 @@ def run_single_experiment(
         print(f"  {'-'*3}  {'-'*12}  {'-'*6}  {'-'*20}")
         print()
 
+    _last_global_eval = None
+
     for t in range(num_rounds):
         t0 = time.time()
 
@@ -692,6 +694,13 @@ def run_single_experiment(
                     "client_class_counts": client_train_class_counts[cid],
                 }
                 _battery_before = client_states[cid].battery_j
+
+                # Opt-in common random numbers: every torch draw of this local
+                # update is fixed by (seed, round, client), whatever earlier
+                # rounds or clients consumed.  Off by default, which keeps the
+                # single continuous stream every existing result was run with.
+                if merged_config.get("round_client_seeding", False):
+                    seed_torch(round_client_seed(seed, t, cid))
 
                 _t_client = time.time()
                 update, metadata = algo.client_update(
@@ -931,9 +940,23 @@ def run_single_experiment(
             server_algo_state.update(state_updates)
 
         # ── Evaluate ───────────────────────────────────────────────────────
-        acc, loss, per_exit_acc = evaluate_global_model(
-            global_model, test_loader, device
+        # ``global_eval_every`` throttles the global test pass. The default of 1
+        # preserves the historical per-round behaviour; the DMD campaigns set 5
+        # to match the protocol, which only reads test metrics every 5 rounds.
+        # Skipped rounds carry the previous measurement forward so downstream
+        # consumers keep a dense column, and ``global_eval_measured`` flags which
+        # rounds hold a fresh value.
+        _eval_every = max(1, int(merged_config.get("global_eval_every", 1)))
+        _eval_now = (
+            t % _eval_every == 0 or t == num_rounds - 1 or _last_global_eval is None
         )
+        if _eval_now:
+            acc, loss, per_exit_acc = evaluate_global_model(
+                global_model, test_loader, device
+            )
+            _last_global_eval = (acc, loss, per_exit_acc)
+        else:
+            acc, loss, per_exit_acc = _last_global_eval
         fairness_metrics = {}
         if client_metrics_every > 0 and (
             t % client_metrics_every == 0 or t == num_rounds - 1
@@ -998,6 +1021,7 @@ def run_single_experiment(
             "participation_rate": _num_participated / num_clients,
             "num_selected": len(selected_before_dropout),
             "num_pre_training_dropouts": len(dropout_ids),
+            "global_eval_measured": bool(_eval_now),
             "num_survivors": len(selected_ids),
             "selected_client_ids": ",".join(map(str, selected_before_dropout)),
             "pre_training_dropout_client_ids": ",".join(map(str, dropout_ids)),

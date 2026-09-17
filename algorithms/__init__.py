@@ -16,6 +16,8 @@ from algorithms.base import (
 
 # ── Built-in algorithms ───────────────────────────────────────────────────────
 from algorithms import fedavg       # FedAvg  (McMahan et al., 2017)
+from algorithms import cb_ce        # CB-CE   (class-balanced CE control for DMD-CB)
+from algorithms import label_skew   # CB-loss, Balanced Softmax, FedLC (label-skew baselines)
 from algorithms import eceffl       # E-CEFFL (Nikiema & Amhoud, 2025)
 from algorithms import leanfed      # LeanFed (Pereira et al., 2025)
 from algorithms import fedbacys     # FedBacys (Jeong et al., 2025)

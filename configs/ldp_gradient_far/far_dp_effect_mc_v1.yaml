@@ -1,0 +1,84 @@
+schema_version: 1
+campaign_id: far_dp_effect_mc_v1
+status: draft_pending_calibration_and_cost_review
+purpose: Isolate the effect of client-side sample-level DP on FAR performance and fairness.
+required_device: mps
+datasets: [mnist, fashionmnist]
+model: lenet5_tanh
+num_clients: 10
+participation: full
+attacks: none
+partition: client_dirichlet_balanced
+dirichlet_beta: 0.1
+# Train/validation are separated BEFORE sampling and accounting.
+public_train_size_per_client: 4800
+validation_size_per_client: 1200
+test_size_per_client: 1000
+sampling_scheme: independent_fixed_size_without_replacement_per_round
+adjacency: replace_one
+gradient_releases_per_client_per_round: 1
+local_optimizer_steps: 0
+delta: 0.00001
+outer_seeds: [2026091701, 2026091702, 2026091703, 2026091704, 2026091705,
+              2026091706, 2026091707, 2026091708, 2026091709, 2026091710]
+calibration_seeds: [2026091601, 2026091602, 2026091603]
+monte_carlo_repeats_proposed: 3
+monte_carlo_repeats_confirmed: false
+outer_randomness: [partition, train_validation_split, model_initialization]
+inner_randomness: [sampled_batches, gaussian_noise]
+pairing: same_outer_seed_and_mc_and_round_and_client_independent_of_arm
+privacy_randomness_root: private_simulation_entropy_not_exported
+alpha_values: [-4.0, -3.4, -2.5, -1.8, -0.6, -0.3, -0.1,
+                0.0, 0.1, 0.3, 0.6, 1.8, 2.5, 3.4, 4.0]
+references: [rfa, coordinate_median, trimmed_mean, centered_clipping]
+reference_role: reference_for_distance_not_direct_aggregation
+distance: raw_euclidean
+alpha_cap: none
+reference_output_projection: none
+# f is a DEFENCE PARAMETER, not a claim that attackers are present.
+trimmed_mean_f_budget: 2
+fcc:
+  anchor_initial: zero
+  anchor_update: convex_ema_of_previous_reference
+  anchor_rate: 0.1
+  radius: null
+  radius_status: to_freeze_on_calibration_only_independently_of_server_clipping
+epsilon_values: [1.0, 4.0, 8.0]
+local_clipping_values: [2.0, 8.0, 16.0]
+server_clipping_modes: ['off', 'on']
+server_radius: null
+server_radius_status: to_freeze_on_calibration_only_then_identical_for_paired_dp_no_dp
+controls:
+  - no_dp_no_local_clip_no_server_clip
+  - no_dp_same_local_clip_no_server_clip
+  - no_dp_same_local_clip_same_server_clip
+  - no_dp_no_local_clip_same_server_clip
+  - dp_local_clip_no_server_clip
+  - dp_local_clip_same_server_clip
+calibration_candidates:
+  batch_sizes: [300, 600, 1200]
+  horizon_checkpoints: [100, 300, 600]
+  learning_rates: [0.05, 0.1, 0.2]
+  maximum_horizon: 600
+  extension_requires_new_protocol: true
+primary_batch_size: null
+primary_rounds: null
+primary_learning_rate_schedule: null
+selection:
+  validation_only: true
+  same_schedule_in_paired_dp_no_dp: true
+  no_selection_for_favorable_dp_or_fairness_sign: true
+  flat_curve_is_not_a_stationarity_proof: true
+  final_round_is_primary: true
+  test_never_selects_hyperparameters: true
+statistics:
+  primary_curve: mean_of_10_outer_seed_mc_means
+  band: sample_standard_deviation_of_10_outer_seed_mc_means_ddof1
+  also_report: [within_seed_mc_sd, total_trajectory_sd, paired_differences, seed_cluster_ci95]
+  never_treat_rounds_or_clients_as_independent_seeds: true
+  no_missing_run_imputation: true
+execution:
+  historical_results_immutable: true
+  automatic_full_grid_launch: false
+  stage_order: [history_audit, numerical_contracts, runtime_pilot, calibration, paired_confirmation]
+  expected_complete_training_runs_currently: 0

@@ -1,0 +1,13 @@
+{
+  "definition": "mean over seeds of the per-run mean, over rounds with the penalty active, of d(penalty)/dD (mu_M + 2*mu_V*[D-a]_+)",
+  "source": "results/fmnist_phase1/usv025",
+  "measured_mean": 0.21928902631122116,
+  "runs_used": 3,
+  "seeds_planned": 4,
+  "per_run": {
+    "dmd_usv_fashionmnist_cnn_gn_dirichlet_ncl10_r150_s24": 0.22334759556562514,
+    "dmd_usv_fashionmnist_cnn_gn_dirichlet_ncl10_r150_s91": 0.21723726124037057,
+    "dmd_usv_fashionmnist_cnn_gn_dirichlet_ncl10_r150_s93": 0.21728222212766776
+  },
+  "dmdcb_hi_mean_mu": 0.2193
+}

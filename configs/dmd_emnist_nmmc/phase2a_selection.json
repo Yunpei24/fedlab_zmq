@@ -1,0 +1,83 @@
+{
+  "criterion": "max Worst-20 client balanced accuracy, mean over rounds 41-60 then over calibration partitions; ties to the smaller mean_mu; mean_mu with a missing run ineligible",
+  "calibration_partitions": [
+    201,
+    202
+  ],
+  "calibration_inits": [
+    1
+  ],
+  "picks": {
+    "cbdmd_norm": 0.3
+  },
+  "test_mean_mu": {
+    "cbdmd_norm": 0.3
+  },
+  "table": {
+    "cbce_ref": [
+      {
+        "mean_mu": 0.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 12.07559983838106,
+        "mean_ba": 8.807606093789861,
+        "worst20": 4.464573212677564,
+        "var_ba": 0.0010641111651192884,
+        "gap": 8.660221442109014,
+        "reference": true
+      }
+    ],
+    "cbdmd_norm": [
+      {
+        "mean_mu": 0.3,
+        "runs": 2,
+        "eligible": true,
+        "acc": 12.45385693285077,
+        "mean_ba": 9.055994176337187,
+        "worst20": 4.6182498615936645,
+        "var_ba": 0.0010916227945144106,
+        "gap": 8.841350996585536
+      },
+      {
+        "mean_mu": 1.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 12.380698572079469,
+        "mean_ba": 8.781854150995663,
+        "worst20": 4.531727528987842,
+        "var_ba": 0.001089680950860482,
+        "gap": 8.568084527350976
+      },
+      {
+        "mean_mu": 3.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 12.186841811163742,
+        "mean_ba": 8.378232045216192,
+        "worst20": 4.156333168526755,
+        "var_ba": 0.0010386978261346812,
+        "gap": 8.451833599837677
+      },
+      {
+        "mean_mu": 10.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 10.479956672369179,
+        "mean_ba": 7.466718225661932,
+        "worst20": 3.7116597879539506,
+        "var_ba": 0.0009432690597223226,
+        "gap": 7.82811629574269
+      },
+      {
+        "mean_mu": 30.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 3.932928139748803,
+        "mean_ba": 2.8169987363867306,
+        "worst20": 0.2708554994692918,
+        "var_ba": 0.00034305999343956737,
+        "gap": 4.7968325615300635
+      }
+    ]
+  }
+}

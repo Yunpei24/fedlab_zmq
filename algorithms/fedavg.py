@@ -28,6 +28,10 @@ class FedAvg(FLAlgorithm):
     name = "fedavg"
     description = "Standard FedAvg (McMahan et al., 2017). No compression."
 
+    def build_criterion(self, config, device):
+        """Supervised loss for the local step; subclasses may reweight it."""
+        return nn.CrossEntropyLoss()
+
     def client_update(self, model, dataloader, state, config):
         device = config.get("device", "cpu")
         lr = config.get("lr", 0.01)
@@ -71,7 +75,7 @@ class FedAvg(FLAlgorithm):
                 momentum=momentum,
                 weight_decay=weight_decay,
             )
-        criterion = nn.CrossEntropyLoss()
+        criterion = self.build_criterion(config, device)
 
         total_loss, num_batches = 0.0, 0
         max_local_batches = config.get("max_local_batches")

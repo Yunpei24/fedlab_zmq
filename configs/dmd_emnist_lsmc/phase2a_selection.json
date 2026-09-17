@@ -1,0 +1,159 @@
+{
+  "criterion": "max Worst-20 client balanced accuracy, mean over rounds 121-150 then over calibration partitions; ties to the smaller value; value with a missing run ineligible",
+  "calibration_partitions": [
+    201,
+    202
+  ],
+  "calibration_inits": [
+    1
+  ],
+  "picks": {
+    "cbloss": 0.99,
+    "bsm": 1.0,
+    "fedlc": 3.0
+  },
+  "test_params": {
+    "cbloss": {
+      "label_skew_beta": 0.99
+    },
+    "bsm": {
+      "label_skew_tau": 1.0
+    },
+    "fedlc": {
+      "label_skew_tau": 3.0
+    }
+  },
+  "table": {
+    "ce_ref": [
+      {
+        "mean_mu": 0.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 33.720023432290134,
+        "mean_ba": 18.603190186338132,
+        "worst20": 10.194012167846253,
+        "var_ba": 0.0032914769238092485,
+        "gap": 14.954595492856715,
+        "reference": true
+      }
+    ],
+    "cbce_ref": [
+      {
+        "mean_mu": 0.0,
+        "runs": 2,
+        "eligible": true,
+        "acc": 32.58709431005538,
+        "mean_ba": 29.205002144473823,
+        "worst20": 20.910477087913815,
+        "var_ba": 0.003106483375768348,
+        "gap": 15.148925547190556,
+        "reference": true
+      }
+    ],
+    "cbloss": [
+      {
+        "label_skew_beta": 0.9,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_beta",
+        "acc": 45.06816610398877,
+        "mean_ba": 30.75284715058284,
+        "worst20": 21.30891412129595,
+        "var_ba": 0.0042052355188032155,
+        "gap": 16.868869657831723
+      },
+      {
+        "label_skew_beta": 0.99,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_beta",
+        "acc": 37.00619334586821,
+        "mean_ba": 31.196471436510745,
+        "worst20": 21.89440944759904,
+        "var_ba": 0.0038224955334615184,
+        "gap": 17.241330794815354
+      },
+      {
+        "label_skew_beta": 0.999,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_beta",
+        "acc": 33.43694466516264,
+        "mean_ba": 29.73247692566215,
+        "worst20": 21.39087514661513,
+        "var_ba": 0.003194310611540592,
+        "gap": 15.436605145852404
+      }
+    ],
+    "bsm": [
+      {
+        "label_skew_tau": 0.5,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_tau",
+        "acc": 53.029925294223844,
+        "mean_ba": 34.657676279541846,
+        "worst20": 24.292846107187096,
+        "var_ba": 0.00514243994806938,
+        "gap": 18.922645366100202
+      },
+      {
+        "label_skew_tau": 1.0,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_tau",
+        "acc": 50.82958658218924,
+        "mean_ba": 39.40974603477666,
+        "worst20": 29.512618459801114,
+        "var_ba": 0.004589553652513343,
+        "gap": 18.19864437742619
+      },
+      {
+        "label_skew_tau": 2.0,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_tau",
+        "acc": 17.063877552774848,
+        "mean_ba": 21.290943390556752,
+        "worst20": 15.618285795333705,
+        "var_ba": 0.0023543443825746755,
+        "gap": 12.476562528393366
+      }
+    ],
+    "fedlc": [
+      {
+        "label_skew_tau": 0.3,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_tau",
+        "acc": 43.80382948464927,
+        "mean_ba": 23.649340572742492,
+        "worst20": 15.059262004963948,
+        "var_ba": 0.0031994487131172065,
+        "gap": 15.019049880687541
+      },
+      {
+        "label_skew_tau": 1.0,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_tau",
+        "acc": 46.561851789536775,
+        "mean_ba": 26.66584889819866,
+        "worst20": 17.443308014527936,
+        "var_ba": 0.003870413833753558,
+        "gap": 16.461175403914034
+      },
+      {
+        "label_skew_tau": 3.0,
+        "runs": 2,
+        "eligible": true,
+        "param": "label_skew_tau",
+        "acc": 52.12094156541944,
+        "mean_ba": 32.8580936641039,
+        "worst20": 22.91192113695829,
+        "var_ba": 0.004622327842510889,
+        "gap": 17.86640940197402
+      }
+    ]
+  }
+}
